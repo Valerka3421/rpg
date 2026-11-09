@@ -1,0 +1,613 @@
+"""Экраны поверх игры: статы, инвентарь, магазин, крафт, диалог, квесты, статистика."""
+from core import config
+import pygame
+from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
+from core.data import (ITEMS, parse_item_key, item_display_name,
+                       item_display_color, item_sell_price,
+                       PERK_INFO, PERK_BOOK_MAP, QUESTS)
+from render.theme import Theme as T
+from render.base_renderer import BaseRenderer
+
+
+class ScreensRenderer(BaseRenderer):
+    def __init__(self, screen, icons):
+        super().__init__(screen)
+        self.icons = icons
+
+    def _modal_bg(self, game):
+        """Затемнение + панель + крестик + возврат rect контента."""
+        from core.config import (MODAL_TOP_PAD, MODAL_CLOSE_SIZE,
+                                 MODAL_CLOSE_PAD, MODAL_CONTENT_PAD)
+        ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
+        ov.fill((0, 0, 0, 140))
+        self.screen.blit(ov, (0, 0))
+
+        rect = game._modal_panel_rect()
+        panel = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
+        pygame.draw.rect(panel, (22, 22, 32, 235), panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, (70, 72, 95, 255), panel.get_rect(),
+                         width=2, border_radius=10)
+        self.screen.blit(panel, (rect[0], rect[1]))
+
+        # ── Крестик ──
+        size = MODAL_CLOSE_SIZE
+        pad = MODAL_CLOSE_PAD
+        xx = rect[0] + rect[2] - size - pad
+        yy = rect[1] + pad
+        T.rounded_rect(self.screen, (60, 30, 30), (xx, yy, size, size),
+                       radius=6, border_color=(200, 90, 90))
+        cx, cy = xx + size // 2, yy + size // 2
+        r = 9
+        pygame.draw.line(self.screen, (240, 120, 120),
+                         (cx - r, cy - r), (cx + r, cy + r), 3)
+        pygame.draw.line(self.screen, (240, 120, 120),
+                         (cx + r, cy - r), (cx - r, cy + r), 3)
+
+        game._modal_close_rect = (xx, yy, size, size)
+        game._modal_content_rect = (
+            rect[0] + MODAL_CONTENT_PAD,
+            rect[1] + MODAL_TOP_PAD,
+            rect[2] - MODAL_CONTENT_PAD * 2 - size - pad,  # правее крестика не лезем
+            rect[3] - MODAL_TOP_PAD - 20,
+        )
+        return rect
+
+    def _modal_right(self, game):
+        from core.config import (MODAL_CONTENT_PAD, MODAL_CLOSE_SIZE,
+                                 MODAL_CLOSE_PAD)
+        rect = game._modal_panel_rect()
+        return rect[0] + rect[2] - MODAL_CONTENT_PAD - MODAL_CLOSE_SIZE - MODAL_CLOSE_PAD - 6
+
+    # ════════════════════════ СТАТЫ ════════════════════════
+    def draw_stats(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core.config import PLUS_SIZE
+        from core.data import PERK_INFO, PERK_BOOK_MAP
+        p = game.player
+        game._ui_hits['stats'] = {'plus': []}
+
+        class_name = getattr(p, 'class_name', 'Приключенец')
+        self.text("ХАРАКТЕРИСТИКИ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text(f"{class_name} · Уровень {p.level}",
+                  self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
+        y = cy0 + 56
+        if p.free_points > 0:
+            T.badge(self.screen, cx0, y, f"● {p.free_points} очков",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+        y += 32
+        y = T.section(self.screen, cx0, y, cw, "Характеристики")
+
+        STAT_FIELDS = ['str', 'agi', 'vit', 'luk', 'df_stat']
+        rows = [
+            ('Сила', 'STR', p.str, '+1 ATK за 2 очка', self._d_atk(p)),
+            ('Ловкость', 'AGI', p.agi, '+1.5% уклонение', self._d_dodge(p)),
+            ('Выносливость', 'VIT', p.vit, '+2 HP за очко', self._d_hp(p)),
+            ('Удача', 'LUK', p.luk, '+2% крит', self._d_crit(p)),
+            ('Защита', 'DEF', p.df_stat, '+1 DEF за 2 очка', self._d_def(p)),
+        ]
+        for i, (name, abbr, val, gain, detail) in enumerate(rows):
+            # ── Кнопка-значение слева ──
+            btn_size = PLUS_SIZE + 4
+            btn_x = cx0
+            btn_y = y - 4
+            can_alloc = p.free_points > 0
+            bg = (40, 80, 40) if can_alloc else (45, 45, 58)
+            border = (120, 220, 120) if can_alloc else (85, 85, 105)
+            T.rounded_rect(self.screen, bg,
+                           (btn_x, btn_y, btn_size, btn_size),
+                           radius=5, border_color=border)
+            self.text(str(val), btn_x + btn_size // 2, btn_y + btn_size // 2,
+                      (220, 255, 200) if can_alloc else (200, 200, 215),
+                      font=T.FONT_BODY, center=True)
+            if can_alloc:
+                game._ui_hits['stats']['plus'].append(
+                    (STAT_FIELDS[i], (btn_x, btn_y, btn_size, btn_size)))
+
+            # ── Номер + название справа от кнопки ──
+            text_x = cx0 + btn_size + 16
+            self.text(f"{name} ({abbr})", text_x, y, T.TEXT)
+            self.text(gain, text_x + 240, y, (150, 200, 150), font=T.FONT_SMALL)
+            y += 22
+            self.text(f"  └ {detail}", text_x, y, T.TEXT_MUTED, font=T.FONT_TINY)
+            y += 26
+
+        y += 8
+        y = T.section(self.screen, cx0, y, cw, "Перки")
+        active = [f for f in PERK_INFO if getattr(p, f, False)]
+        if active:
+            for flag in active:
+                book_key = PERK_BOOK_MAP[flag]
+                name, desc, _ = PERK_INFO[flag]
+                self.icons.draw_item(book_key, cx0 + 20, y - 2, size=24)
+                self.text(name, cx0 + 52, y, (200, 150, 255), font=T.FONT_BODY)
+                self.text(f"— {desc}", cx0 + 52 + T.FONT_BODY.size(name)[0] + 8,
+                          y + 2, T.TEXT_MUTED, font=T.FONT_TINY)
+                y += 28
+        else:
+            self.text("  (нет — покупай книги у торговца)",
+                      cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
+            y += 24
+
+        y = T.section(self.screen, cx0, y, cw, "Экипировка")
+        from core.data import ITEMS, parse_item_key, item_display_name, item_display_color
+        for label, key, stat in (("Оружие", p.weapon, "ATK"),
+                                 ("Броня", p.armor, "DEF")):
+            if key:
+                base, lvl = parse_item_key(key)
+                it = ITEMS.get(base, {})
+                self.icons.draw_item(key, cx0, y, size=28)
+                self.text(f"{label}:  {item_display_name(key)}",
+                          cx0 + 40, y + 6, item_display_color(key))
+                self.text(f"+{it.get('value', 0) + lvl} {stat}",
+                          self._modal_right(game), y + 6, T.TEXT_DIM,
+                          font=T.FONT_SMALL, align_right=True)
+            else:
+                self.text(f"  {label}: —", cx0, y + 6, T.TEXT_MUTED,
+                          font=T.FONT_SMALL)
+            y += 34
+
+    def _d_atk(self, p):
+        base = 2; str_part = p.str // 2
+        if p.weapon:
+            b, l = parse_item_key(p.weapon)
+            weapon = ITEMS.get(b, {}).get('value', 0) + l
+        else:
+            weapon = 0
+        return f"ATK = {base} + {str_part} STR + {weapon} = {base + str_part + weapon}"
+
+    def _d_dodge(self, p):
+        raw = p.agi * 1.5; final = int(p.dodge * 100)
+        cap = " (кап 30%)" if raw > 30 else ""
+        bonus = int((p._w_dodge_bonus + p._a_dodge_bonus) * 100)
+        extra = f" + {bonus}% экип" if bonus else ""
+        return f"Уклонение = {final}% (1.5% × AGI {p.agi} = {raw:.0f}%{cap}{extra})"
+
+    def _d_hp(self, p):
+        extra = 0
+        if p.armor:
+            b, _ = parse_item_key(p.armor)
+            extra = ITEMS.get(b, {}).get('hp_bonus', 0)
+        return f"HP = 15 + {p.vit * 2} VIT + {extra} = {p.max_hp}"
+
+    def _d_crit(self, p):
+        raw = p.luk * 2; final = int(p.crit * 100)
+        cap = " (кап 40%)" if raw > 40 else ""
+        bonus = int(p._w_crit_bonus * 100)
+        extra = f" + {bonus}% оружие" if bonus else ""
+        return f"Крит = {final}% (2% × LUK {p.luk} = {raw:.0f}%{cap}{extra})"
+
+    def _d_def(self, p):
+        df_part = p.df_stat // 2
+        if p.armor:
+            b, l = parse_item_key(p.armor)
+            armor = ITEMS.get(b, {}).get('value', 0) + l
+        else:
+            armor = 0
+        return f"DEF = 0 + {df_part} DEF + {armor} = {df_part + armor}"
+
+    # ════════════════════════ ИНВЕНТАРЬ ════════════════════════
+    def draw_inventory(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core.config import INVENTORY_PAGE_SIZE
+        p = game.player
+        game._ui_hits['inventory'] = {'items': [], 'equip': []}
+
+        self.text("ИНВЕНТАРЬ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
+                  align_right=True)
+        y = cy0 + 56
+        y = T.section(self.screen, cx0, y, cw, "Снаряжение")
+
+        row_w = cw
+        if p.weapon:
+            self._draw_equip(cx0, y, "Оружие", p.weapon, "U", "ATK")
+            game._ui_hits['inventory']['equip'].append(('weapon', (cx0, y, row_w, 30)))
+        else:
+            self.text("  Оружие: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
+        y += 36
+
+        if p.armor:
+            self._draw_equip(cx0, y, "Броня", p.armor, "V", "DEF")
+            game._ui_hits['inventory']['equip'].append(('armor', (cx0, y, row_w, 30)))
+        else:
+            self.text("  Броня: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
+        y += 44
+
+        y = T.section(self.screen, cx0, y, cw, "Рюкзак")
+        items = sorted(p.inventory.items())
+        if not items:
+            self.text("  (пусто)", cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        total = max(1, (len(items) + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE)
+        page = min(game.inv_page, total - 1)
+        start = page * INVENTORY_PAGE_SIZE
+        for i, (key, count) in enumerate(items[start:start + INVENTORY_PAGE_SIZE]):
+            row_y = y
+            game._ui_hits['inventory']['items'].append((key, (cx0, row_y, row_w, 42)))
+            y = self._draw_item_row(cx0, y, i + 1, key, count, p.level, game)
+        if total > 1:
+            self.text(f"Стр. {page + 1}/{total}",
+                      self._modal_right(game), y + 6,
+                      T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
+
+    def _draw_equip(self, x, y, label, key, unequip_key=None, stat=""):
+        if key:
+            it = ITEMS.get(parse_item_key(key)[0], {})
+            self.icons.draw_item(key, x, y, size=28)
+            self.text(f"{label}:  {item_display_name(key)}",
+                      x + 36, y + 6, item_display_color(key))
+            self.text(f"+{it.get('value', 0) + parse_item_key(key)[1]} {stat}",
+                      x + 320, y + 6, T.TEXT_DIM, font=T.FONT_SMALL)
+            desc = it.get('desc', '')
+            if desc:
+                self.text(desc, x + 36, y + 26, T.TEXT_MUTED, font=T.FONT_TINY)
+        else:
+            self.text(f"{label}: —", x + 4, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
+
+    def _draw_item_row(self, x, y, idx, key, count, player_level=1, game=None):
+        it = ITEMS.get(parse_item_key(key)[0], {})
+        self.icons.draw_item(key, x, y, size=28)
+        label = item_display_name(key)
+        if count > 1:
+            label += f"  x{count}"
+        self.text(label, x + 36, y + 4, item_display_color(key))
+
+        lvl_req = it.get('level_req', 1)
+        desc = it.get('desc', '')
+        if lvl_req > 1:
+            prefix = f"[Ур.{lvl_req}] "
+            color = T.TEXT_MUTED if player_level >= lvl_req else T.HP_CRIT
+        else:
+            prefix = ""
+            color = T.TEXT_MUTED
+        if desc:
+            self.text(f"{prefix}{desc}", x + 36, y + 24, color, font=T.FONT_TINY)
+
+        if game and it.get('type') in ('weapon', 'armor'):
+            deltas = self.compare_item(game, key, it['type'])
+            dt, dc = self.format_delta(deltas)
+            if dt:
+                self.text(dt, x + 36, y + 42, dc, font=T.FONT_TINY)
+                return y + 58
+        return y + 44
+
+    # ════════════════════════ МАГАЗИН ════════════════════════
+    def draw_shop(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        game._ui_hits['shop'] = {'rows': []}
+        self.text("ТОРГОВЕЦ", cx0, cy0, T.MERCH, font=T.FONT_H1)
+        mode = "ПОКУПКА" if game.shop_submode == 'buy' else "ПРОДАЖА"
+        T.badge(self.screen, cx0 + 240, cy0 + 8, mode,
+                color=T.BG if game.shop_submode == 'buy' else T.TEXT,
+                bg=T.MERCH if game.shop_submode == 'buy' else T.HP_CRIT,
+                font=T.FONT_BODY)
+        self.text(f"Глубина {game.depth}", self._modal_right(game), cy0 + 8,
+                  T.TEXT_DIM, align_right=True)
+        self.text(f"${game.player.gold}", self._modal_right(game), cy0 + 34,
+                  T.GOLD, align_right=True)
+        y = cy0 + 66
+        if game.shop_submode == 'buy':
+            y = T.section(self.screen, cx0, y, cw, "Товары")
+            self._draw_shop_buy(game, cx0, y, cw)
+        else:
+            y = T.section(self.screen, cx0, y, cw, "Продать")
+            self._draw_shop_sell(game, cx0, y, cw)
+        self.text("1–9 — купить/продать · S — режим · R — обновить · Q/E — страницы",
+                  cx0 + cw // 2, cy0 + ch - 22, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+
+    def _draw_shop_buy(self, game, x0, y, cw):
+        from core.config import SHOP_PAGE_SIZE
+        stock = game.shop_stock
+        total = max(1, (len(stock) + SHOP_PAGE_SIZE - 1) // SHOP_PAGE_SIZE)
+        page = min(game.shop.page, total - 1)
+        start = page * SHOP_PAGE_SIZE
+        for i, entry in enumerate(stock[start:start + SHOP_PAGE_SIZE]):
+            key = entry['key'];
+            price = entry['price'];
+            sold = entry.get('sold', False)
+            base, _ = parse_item_key(key)
+            it = ITEMS.get(base, {})
+            color = item_display_color(key)
+            learned = False
+            if it.get('type') == 'book':
+                stat = it.get('stat')
+                if stat in ('double_strike', 'regen', 'vampire', 'thorns', 'greedy'):
+                    learned = getattr(game.player, stat, False)
+            if sold or learned:
+                status = "(продано)" if sold else "(✓ изучено)"
+                self.icons.draw_item(key, x0, y, size=28)
+                self.text(f"{item_display_name(key)}  {status}",
+                          x0 + 36, y + 4, T.TEXT_MUTED, font=T.FONT_SMALL)
+                y += 34;
+                continue
+            can_afford = game.player.gold >= price
+            row_y = y
+            self.icons.draw_item(key, x0, y, size=28)
+            self.text(f"{i + 1}. " + item_display_name(key), x0 + 36, y + 4,
+                      color if can_afford else T.TEXT_MUTED)
+            self.text(f"{price} з.", self._modal_right(game), y + 4,
+                      T.GOLD if can_afford else T.TEXT_MUTED, align_right=True)
+            self.text(it.get('desc', ''), x0 + 36, y + 24, T.TEXT_MUTED, font=T.FONT_TINY)
+            if it.get('type') in ('weapon', 'armor'):
+                deltas = self.compare_item(game, key, it['type'])
+                dt, dc = self.format_delta(deltas)
+                if dt:
+                    self.text(dt, x0 + 36, y + 38, dc, font=T.FONT_TINY)
+                    y += 10
+            y += 46
+            game._ui_hits['shop']['rows'].append((i, (x0, row_y, cw, y - row_y - 6)))
+        if total > 1:
+            self.text(f"Стр. {page + 1}/{total}",
+                      self._modal_right(game), y + 6, T.TEXT_DIM,
+                      font=T.FONT_SMALL, align_right=True)
+
+    def _draw_shop_sell(self, game, x0, y, cw):
+        from core.config import SHOP_PAGE_SIZE
+        items = sorted(game.player.inventory.items())
+        if not items:
+            self.text("  (рюкзак пуст)", x0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        total = max(1, (len(items) + SHOP_PAGE_SIZE - 1) // SHOP_PAGE_SIZE)
+        page = min(game.shop.page, total - 1)
+        start = page * SHOP_PAGE_SIZE
+        for i, (key, count) in enumerate(items[start:start + SHOP_PAGE_SIZE]):
+            price = item_sell_price(key)
+            row_y = y
+            self.icons.draw_item(key, x0, y, size=28)
+            label = item_display_name(key)
+            if count > 1:
+                label += f"  x{count}"
+            self.text(f"{i + 1}. " + label, x0 + 36, y + 4,
+                      item_display_color(key))
+            self.text(f"{price} з.", self._modal_right(game), y + 4, T.GOLD,
+                      align_right=True)
+            self.text(ITEMS.get(parse_item_key(key)[0], {}).get('desc', ''),
+                      x0 + 36, y + 24, T.TEXT_MUTED, font=T.FONT_TINY)
+            y += 46
+            game._ui_hits['shop']['rows'].append((i, (x0, row_y, cw, y - row_y - 6)))
+        if total > 1:
+            self.text(f"Стр. {page + 1}/{total}",
+                      self._modal_right(game), y + 6, T.TEXT_DIM,
+                      font=T.FONT_SMALL, align_right=True)
+
+    # ════════════════════════ КРАФТ ════════════════════════
+    def draw_craft(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core.config import HAMMER_SIZE
+        game._ui_hits['craft'] = {'hammer': []}
+
+        self.text("КРАФТ", cx0, cy0, (200, 220, 255), font=T.FONT_H1)
+        self.text(f"Уровень {game.player.level}",
+                  self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
+        y = cy0 + 56
+        y = T.section(self.screen, cx0, y, cw, "Рецепты")
+
+        recipes = game.craftable_list()
+        if not recipes:
+            self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        for i, (key, it, recipe, can) in enumerate(recipes[:8]):
+            lvl_req = it.get('level_req', 1)
+            lvl_ok = game.player.level >= lvl_req
+            can_full = can and lvl_ok
+            color = T.HEAL if can_full else T.TEXT_MUTED
+            row_y = y
+
+            self.icons.draw_item(key, cx0, row_y, size=28)
+            self.text(item_display_name(key), cx0 + 36, row_y + 4, color)
+            self.text(f"Ур.{lvl_req}", cx0 + 300, row_y + 4,
+                      T.GOLD if lvl_ok else T.HP_CRIT, font=T.FONT_SMALL)
+            y += 22
+
+            ix = cx0 + 36
+            for mat, cnt in recipe.items():
+                have = game.player.inventory.get(mat, 0)
+                ok = have >= cnt
+                mat_name = ITEMS.get(mat, {}).get('name', mat)
+                w = self.text(f"{mat_name} {have}/{cnt}", ix, y,
+                              T.HEAL if ok else T.HP_CRIT, font=T.FONT_TINY)
+                ix += w + 14
+
+            # Молоточек — правый край, не под крестиком
+            hx = self._modal_right(game) - HAMMER_SIZE + 4
+            hy = row_y
+            mx, my = game.mouse_pos
+            hover = (hx <= mx <= hx + HAMMER_SIZE and hy <= my <= hy + HAMMER_SIZE)
+            bg_h = (60, 90, 60) if (can_full and hover) else \
+                (40, 70, 40) if can_full else (40, 40, 50)
+            border_h = (150, 240, 150) if can_full else (80, 80, 100)
+            T.rounded_rect(self.screen, bg_h, (hx, hy, HAMMER_SIZE, HAMMER_SIZE),
+                           radius=6, border_color=border_h)
+            self.icons.draw_toolbar_icon('craft', hx + 2, hy + 2,
+                                         size=HAMMER_SIZE - 4,
+                                         hover=can_full and hover)
+            game._ui_hits['craft']['hammer'].append(
+                (i, (hx, hy, HAMMER_SIZE, HAMMER_SIZE)))
+            y += 26
+
+    # ════════════════════════ ДИАЛОГ ════════════════════════
+    def draw_dialogue(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+
+        frame_color = (240, 210, 100) if game.dialogue.npc_type == 'elder' \
+            else T.MERCH
+
+        # ── Портрет ──
+        portrait_size = 140
+        portrait_x = cx0
+        portrait_y = cy0 + 10
+        T.rounded_rect(self.screen, (28, 30, 44),
+                       (portrait_x, portrait_y, portrait_size, portrait_size),
+                       radius=10, border_color=frame_color)
+        T.rounded_rect(self.screen, (40, 42, 60),
+                       (portrait_x + 4, portrait_y + 4,
+                        portrait_size - 8, portrait_size - 8),
+                       radius=8, border_color=(80, 80, 100))
+
+        icon_size = 100
+        icon_off = (portrait_size - icon_size) // 2
+        if game.dialogue.npc_type == 'elder':
+            self.icons.draw_elder(portrait_x + icon_off, portrait_y + icon_off,
+                                  size=icon_size)
+        else:
+            self.icons.draw_merchant(portrait_x + icon_off, portrait_y + icon_off,
+                                     size=icon_size)
+
+        # ── Имя в золотом бейдже ──
+        npc_name = "Старейшина" if game.dialogue.npc_type == 'elder' else "Торговец"
+        info_x = portrait_x + portrait_size + 24
+        name_surf = T.render(npc_name, (28, 28, 40), T.FONT_H2)
+        badge_w = name_surf.get_width() + 24
+        badge_h = name_surf.get_height() + 12
+        T.rounded_rect(self.screen, frame_color,
+                       (info_x, portrait_y, badge_w, badge_h), radius=6)
+        self.screen.blit(name_surf, (info_x + 12, portrait_y + 6))
+
+        # ── Реплика с переносом ──
+        greeting = game.dialogue.current_line or "..."
+        words = greeting.split(' ')
+        lines, cur = [], ''
+        max_w = cx0 + cw - info_x
+        for w in words:
+            test = (cur + ' ' + w).strip()
+            if T.FONT_BODY.size(test)[0] > max_w:
+                lines.append(cur)
+                cur = w
+            else:
+                cur = test
+        if cur:
+            lines.append(cur)
+        text_y = portrait_y + badge_h + 14
+        for line in lines:
+            self.text(line, info_x, text_y, T.TEXT, font=T.FONT_BODY)
+            text_y += 24
+
+        # ── Кнопки снизу ──
+        btn_h = 52
+        btn_gap = 8
+        n = len(game.dialogue.options)
+        if n == 0:
+            return
+        total_h = n * btn_h + (n - 1) * btn_gap
+        btn_y = cy0 + ch - total_h
+
+        for i, opt in enumerate(game.dialogue.options):
+            brect = (cx0, btn_y + i * (btn_h + btn_gap), cw, btn_h)
+            selected = (i == game.dialogue.selection)
+            self.draw_button_bg(brect, selected)
+            color = (255, 240, 180) if selected else (200, 200, 215)
+            self.text(opt[1], brect[0] + brect[2] // 2, brect[1] + brect[3] // 2,
+                      color, font=T.FONT_H2, center=True)
+            if selected:
+                ax = brect[0] + 20
+                ay = brect[1] + brect[3] // 2
+                pygame.draw.polygon(self.screen, (240, 210, 100),
+                                    [(ax, ay - 8), (ax + 14, ay), (ax, ay + 8)])
+
+    # ════════════════════════ КВЕСТЫ ════════════════════════
+    def draw_quests(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core.data import QUESTS
+        self.text("КВЕСТЫ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        y = cy0 + 56
+        # Секция + отступ до карточек (синхронизировано с button_rects)
+        y = T.section(self.screen, cx0, y, cw, "Список")
+        y += 24
+
+        items = game.quests.visible_quests()
+        if not items:
+            self.text("Нет активных квестов", cx0 + cw // 2, y + 40,
+                      T.TEXT_MUTED, font=T.FONT_H2, center=True)
+            return
+
+        STATE = {
+            'available': ('[ВЗЯТЬ]', (140, 200, 255)),
+            'active': ('[АКТИВЕН]', (220, 220, 140)),
+            'completed': ('[СДАТЬ]', (140, 240, 140)),
+        }
+        for i, (idx, crect) in enumerate(game.quests.button_rects()):
+            if i >= len(items):
+                break
+            key, state = items[i]
+            q = QUESTS[key]
+            selected = (i == game.quests.selection)
+            cx_, cy_, cw_, ch_ = crect
+            if selected:
+                T.rounded_rect(self.screen, (60, 60, 80), crect,
+                               radius=T.R_MD, border_color=(245, 215, 105))
+                T.rounded_rect(self.screen, (245, 215, 105), crect,
+                               width=1, radius=T.R_MD)
+            else:
+                T.rounded_rect(self.screen, (32, 32, 46), crect,
+                               radius=T.R_MD, border_color=(60, 60, 85))
+            label, label_color = STATE[state]
+            self.text(q['name'], cx_ + 16, cy_ + 12, (255, 240, 180), font=T.FONT_H2)
+            self.text(label, cx_ + cw_ - 16, cy_ + 12, label_color,
+                      font=T.FONT_H2, align_right=True)
+            self.text(q['desc'], cx_ + 16, cy_ + 40, T.TEXT_DIM, font=T.FONT_SMALL)
+            if state == 'active':
+                st = game.quest_log.active.get(key, {})
+                self.text(f"Прогресс: {st.get('progress', 0)}/{st.get('count', q['count'])}",
+                          cx_ + 16, cy_ + 58, (200, 220, 160), font=T.FONT_SMALL)
+            elif state == 'completed':
+                self.text("Готово к сдаче!", cx_ + 16, cy_ + 58,
+                          (140, 240, 140), font=T.FONT_SMALL)
+            else:
+                self.text(f"+{q['reward_gold']} з.  +{q['reward_xp']} XP",
+                          cx_ + 16, cy_ + 58, (240, 210, 90), font=T.FONT_SMALL)
+
+    # ════════════════════════ СТАТИСТИКА ════════════════════════
+    def draw_run_stats(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        self.text("СТАТИСТИКА ЗАБЕГА", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        y = cy0 + 56
+
+        s = game.run_summary()
+        mins = s['time_seconds'] // 60
+        secs = s['time_seconds'] % 60
+
+        left_x = cx0
+        right_x = cx0 + cw // 2 + 20
+        y_col = y
+        self.text("─── ОБЩЕЕ ───", left_x, y_col, (180, 180, 220), font=T.FONT_H2)
+        y_col += 40
+        left = [
+            ("Время", f"{mins}:{secs:02d}"), ("Убито мобов", str(s['kills'])),
+            ("Боссов", str(s['boss_kills'])), ("Уровень", str(s['level'])),
+            ("Глубина", str(s['depth'])),
+            ("Золото сейчас", str(s['gold'])),
+            ("Золото добыто", str(s['earned_gold'])),
+            ("Зелий", str(s['potions_used'])), ("Крафтов", str(s['crafts'])),
+            ("Квестов сдано", str(s['quests'])),
+            ("Квестов активно", str(s['quests_active'])),
+        ]
+        for name, val in left:
+            self.text(name, left_x, y_col, T.TEXT_DIM, font=T.FONT_BODY)
+            self.text(val, left_x + 260, y_col, T.TEXT, font=T.FONT_BODY)
+            y_col += 34
+
+        from core.data import MONSTERS, BOSSES
+        y_col = y
+        self.text("─── УБИТО ПО ТИПАМ ───", right_x, y_col,
+                  (180, 180, 220), font=T.FONT_H2)
+        y_col += 40
+        all_m = {m['ch']: m['name'] for m in MONSTERS.values()}
+        all_m.update({b['ch']: b['name'] for b in BOSSES.values()})
+        has = False
+        for ch, count in sorted(s['kills_by_ch'].items(), key=lambda x: -x[1]):
+            if count == 0:
+                continue
+            has = True
+            self.text(f"{all_m.get(ch, ch)}:", right_x, y_col, T.TEXT_DIM, font=T.FONT_BODY)
+            self.text(str(count), right_x + 260, y_col, T.TEXT, font=T.FONT_BODY)
+            y_col += 34
+        if not has:
+            self.text("(пока никого)", right_x, y_col, T.TEXT_MUTED, font=T.FONT_SMALL)

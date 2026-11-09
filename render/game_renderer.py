@@ -1,0 +1,544 @@
+"""Игровое поле: карта, сущности, HUD, мини-карта, floating texts."""
+from core import config
+import pygame
+import math
+from core.config import TILE, MAP_W, MAP_H, MAX_DEPTH, Tile, MINIMAP_SCALE, MINIMAP_MARGIN
+from core.data import STATUSES, CLASSES
+from render.theme import Theme as T
+from render.sprites import Sprites
+from render.base_renderer import BaseRenderer
+
+from render.constants import MONSTER_SPRITES
+
+class GameRenderer(BaseRenderer):
+    def __init__(self, screen, icons):
+        super().__init__(screen)
+        self.icons = icons
+        self._shadow_sm = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
+        pygame.draw.ellipse(self._shadow_sm, (0, 0, 0, 90),
+                            (TILE // 5, TILE - 10, TILE * 3 // 5, 6))
+        self._shadow_lg = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
+        pygame.draw.ellipse(self._shadow_lg, (0, 0, 0, 110),
+                            (TILE // 6, TILE - 10, TILE * 2 // 3, 8))
+        self._tile_wall = Sprites.get('tiles/wall', (TILE, TILE))
+        self._tile_floor = Sprites.get('tiles/floor', (TILE, TILE))
+        self._tile_stairs = Sprites.get('tiles/stairs', (TILE, TILE))
+        self._tile_exit = Sprites.get('tiles/exit', (TILE, TILE))
+        self._tile_upstairs = Sprites.get('tiles/upstairs', (TILE, TILE))
+        self._is_overworld = False
+        # Кэши: карта и основа миникарты перерисовываются редко
+        self._map_surface = None
+        self._map_key = None
+        self._mini_scaled = None
+        self._mini_key = None
+        self._toolbar_shadow = {}
+
+    # ════════════════════════ ПОЛЕ ════════════════════════
+    @staticmethod
+    def _rx(entity):
+        """Координата для отрисовки: в MP — интерполированная."""
+        return getattr(entity, 'render_x', entity.x)
+
+    @staticmethod
+    def _ry(entity):
+        return getattr(entity, 'render_y', entity.y)
+
+    def visible_remotes(self, game):
+        """Другие игроки в поле зрения (миникарта показывает всех)."""
+        my_id = getattr(game, 'my_id', None)
+        visible = game.visible
+        result = []
+        for pid, player in getattr(game, 'remote_players', {}).items():
+            if pid == my_id:
+                continue
+            if (int(self._rx(player)), int(self._ry(player))) in visible:
+                result.append(player)
+        return result
+
+    def draw_field(self, game):
+        px, py = self._rx(game.player), self._ry(game.player)
+        cam_x = max(0, min(int(px) - config.VIEW_W // 2, MAP_W - config.VIEW_W))
+        cam_y = max(0, min(int(py) - config.VIEW_H // 2, MAP_H - config.VIEW_H))
+        self._draw_map_cached(game, cam_x, cam_y)
+        self._draw_loot(game, cam_x, cam_y)
+        self._draw_monsters(game, cam_x, cam_y)
+        self._draw_merchant(game, cam_x, cam_y)
+        self._draw_elder(game, cam_x, cam_y)
+        self._draw_player(game, cam_x, cam_y)
+        for remote in self.visible_remotes(game):
+            self._draw_remote_player(remote, cam_x, cam_y)
+        self._draw_floats(game, cam_x, cam_y)
+        self.draw_toolbar(game)
+
+    def _draw_map_cached(self, game, cam_x, cam_y):
+        """Карта (стены/пол/лестницы) меняется только при шаге, смене этажа
+        или открытии новых клеток — кэшируем её в отдельную поверхность."""
+        key = (id(game), cam_x, cam_y, config.VIEW_W, config.VIEW_H,
+               game.world_mode, game.depth,
+               int(self._rx(game.player)), int(self._ry(game.player)),
+               len(game.explored), len(game.visible),
+               getattr(game, 'render_revision', 0))
+        size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
+        if self._map_surface is None or self._map_surface.get_size() != size:
+            self._map_surface = pygame.Surface(size)
+            self._map_key = None
+        if key != self._map_key:
+            previous = self.screen
+            self.screen = self._map_surface
+            try:
+                self._map_surface.fill(T.BG)
+                self._draw_map(game, cam_x, cam_y)
+            finally:
+                self.screen = previous
+            self._map_key = key
+        self.screen.blit(self._map_surface, (0, 0))
+
+    def _draw_map(self, game, cam_x, cam_y):
+        self._is_overworld = (game.world_mode == 'overworld')
+        for sy in range(config.VIEW_H):
+            for sx in range(config.VIEW_W):
+                mx, my = sx + cam_x, sy + cam_y
+                if (mx, my) not in game.explored:
+                    continue
+                px, py = sx * TILE, sy * TILE
+                vis = (mx, my) in game.visible
+                tile = game.dungeon.tiles[my][mx]
+                if tile == Tile.WALL:
+                    self._draw_wall(px, py, mx, my, vis)
+                else:
+                    self._draw_floor(px, py, mx, my, vis)
+                    if vis:
+                        if tile == Tile.STAIRS:
+                            self._draw_stairs(px, py)
+                        elif tile == Tile.EXIT:
+                            self._draw_exit(px, py)
+                        elif tile == Tile.UPSTAIRS:
+                            self._draw_upstairs(px, py)
+
+    def _draw_wall(self, px, py, mx, my, vis):
+        if vis and self._tile_wall and not self._is_overworld:
+            self.screen.blit(self._tile_wall, (px, py)); return
+        if self._is_overworld:
+            base = (55, 90, 55) if vis else (25, 45, 25)
+            color = T.tint(base, mx, my, seed=11, amount=0.18)
+            pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
+            if vis:
+                pygame.draw.rect(self.screen, (90, 65, 40),
+                                 (px + TILE // 2 - 2, py + TILE // 2 + 2, 4, TILE // 2 - 4))
+                pygame.draw.circle(self.screen, T.shade(base, 1.55),
+                                   (px + TILE // 2, py + TILE // 3), 8)
+                pygame.draw.circle(self.screen, T.shade(base, 1.30),
+                                   (px + TILE // 4, py + TILE // 2 + 2), 6)
+                pygame.draw.circle(self.screen, T.shade(base, 1.30),
+                                   (px + 3 * TILE // 4, py + TILE // 2 + 2), 6)
+            return
+        base = T.WALL if vis else T.WALL_DIM
+        color = T.tint(base, mx, my, seed=11, amount=0.14)
+        pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
+        if not vis:
+            return
+        dark = T.shade(color, 0.55)
+        light = T.shade(color, 1.35)
+        mid = py + TILE // 2
+        pygame.draw.line(self.screen, dark, (px + 1, mid), (px + TILE - 2, mid), 1)
+        if (mx + my) % 2 == 0:
+            pygame.draw.line(self.screen, dark, (px + TILE // 2, py + 1),
+                             (px + TILE // 2, mid - 1), 1)
+        else:
+            pygame.draw.line(self.screen, dark, (px + TILE // 2, mid),
+                             (px + TILE // 2, py + TILE - 2), 1)
+        pygame.draw.line(self.screen, light, (px + 1, py + 1),
+                         (px + TILE - 2, py + 1), 1)
+
+    def _draw_floor(self, px, py, mx, my, vis):
+        if vis and self._tile_floor and not self._is_overworld:
+            self.screen.blit(self._tile_floor, (px, py)); return
+        if self._is_overworld:
+            base = (60, 110, 60) if vis else (30, 55, 30)
+            color = T.tint(base, mx, my, seed=7, amount=0.10)
+            pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
+            if vis:
+                h = (mx * 73856093) ^ (my * 19349663) ^ 7
+                if h % 7 == 0:
+                    pygame.draw.rect(self.screen, T.shade(color, 1.3),
+                                     (px + (h >> 4) % (TILE - 6) + 3,
+                                      py + (h >> 8) % (TILE - 6) + 3, 2, 3))
+            return
+        base = T.FLOOR if vis else T.FLOOR_DIM
+        color = T.tint(base, mx, my, seed=7, amount=0.10)
+        pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
+        if not vis:
+            return
+        h = (mx * 73856093) ^ (my * 19349663) ^ 7
+        mod = h % 5
+        if mod == 0:
+            dot = T.shade(color, 0.72)
+            pygame.draw.rect(self.screen, dot,
+                             (px + (h >> 4) % (TILE - 8) + 4,
+                              py + (h >> 12) % (TILE - 8) + 4, 3, 3))
+        elif mod == 1:
+            pygame.draw.line(self.screen, T.shade(color, 0.80),
+                             (px + 9, py + 9), (px + 22, py + 22), 1)
+        elif mod == 2:
+            pygame.draw.line(self.screen, T.shade(color, 0.85),
+                             (px + 4, py + TILE - 8), (px + 4, py + TILE - 4), 1)
+
+    def _draw_stairs(self, px, py):
+        cx = px + TILE // 2
+        if self._is_overworld:
+            pygame.draw.rect(self.screen, (30, 30, 35),
+                             (px + 4, py + 2, TILE - 8, TILE - 6))
+            pygame.draw.rect(self.screen, (90, 90, 100),
+                             (px + 4, py + 2, TILE - 8, 4))
+            pygame.draw.rect(self.screen, (5, 5, 10),
+                             (px + 10, py + 10, TILE - 20, TILE - 16))
+            pygame.draw.polygon(self.screen, T.STAIRS,
+                                [(cx - 4, py + TILE - 8), (cx + 4, py + TILE - 8),
+                                 (cx, py + TILE - 3)])
+            return
+        if self._tile_stairs:
+            self.screen.blit(self._tile_stairs, (px, py)); return
+        pygame.draw.rect(self.screen, (8, 6, 12), (px + 3, py + 3, TILE - 6, TILE - 6))
+        for step_y, col in [(py + 7, (110, 100, 120)), (py + 12, (85, 75, 95)),
+                             (py + 17, (60, 50, 70)), (py + 22, (35, 28, 45))]:
+            pygame.draw.rect(self.screen, col, (px + 7, step_y, TILE - 14, 3))
+        pygame.draw.polygon(self.screen, (240, 210, 100),
+                            [(cx - 4, py + TILE - 9), (cx + 4, py + TILE - 9),
+                             (cx, py + TILE - 4)])
+
+    def _draw_upstairs(self, px, py):
+        """Лестница наверх: зелёная стрелка + ступени."""
+        cx = px + TILE // 2
+        if self._tile_upstairs:
+            self.screen.blit(self._tile_upstairs, (px, py)); return
+        pygame.draw.rect(self.screen, (10, 14, 12),
+                         (px + 6, py + 3, TILE - 12, TILE - 6))
+        for i in range(4):
+            shade = 60 + i * 22
+            pygame.draw.rect(self.screen, (shade, shade + 20, shade),
+                             (px + 8, py + TILE - 12 - i * 7, TILE - 16, 4))
+        pygame.draw.polygon(self.screen, (130, 235, 140),
+                            [(cx - 6, py + 16), (cx + 6, py + 16), (cx, py + 7)])
+        pygame.draw.rect(self.screen, (130, 235, 140), (cx - 1, py + 16, 3, 7))
+
+    def _draw_exit(self, px, py):
+        cx = px + TILE // 2
+        if self._tile_exit:
+            self.screen.blit(self._tile_exit, (px, py)); return
+        glow = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (255, 245, 180, 110), (TILE // 2, TILE // 2 - 6), 13)
+        self.screen.blit(glow, (px, py))
+        for step_y, col in [(py + TILE - 12, (75, 70, 85)), (py + TILE - 17, (105, 100, 115)),
+                             (py + TILE - 22, (140, 135, 150)), (py + TILE - 27, (180, 175, 190))]:
+            pygame.draw.rect(self.screen, col, (px + 7, step_y, TILE - 14, 3))
+        pygame.draw.arc(self.screen, (140, 210, 140),
+                        (px + 2, py + 1, TILE - 4, TILE - 6), 0, 3.14, 2)
+        pygame.draw.polygon(self.screen, (255, 230, 120),
+                            [(cx - 4, py + 7), (cx + 4, py + 7), (cx, py + 2)])
+        pygame.draw.rect(self.screen, (255, 230, 120), (cx - 1, py + 7, 2, 4))
+
+    def _draw_loot(self, game, cam_x, cam_y):
+        for (ix, iy), key in game.dungeon.items.items():
+            if (ix, iy) not in game.visible:
+                continue
+            px = (ix - cam_x) * TILE
+            py = (iy - cam_y) * TILE
+            self.icons.draw_item(key, px, py, size=TILE)
+
+    def _draw_monsters(self, game, cam_x, cam_y):
+        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP, ANIM_ATTACK_AMP
+        for m in game.dungeon.monsters:
+            if m.hp <= 0 or (m.x, m.y) not in game.visible:
+                continue
+            px = (self._rx(m) - cam_x) * TILE
+            py = (self._ry(m) - cam_y) * TILE
+
+            bob = math.sin(m.anim_time * ANIM_IDLE_SPEED + m.x * 0.5) * ANIM_IDLE_AMP
+            tx, ty = 0, 0
+            if m.attack_anim > 0:
+                f = math.sin(m.attack_anim * math.pi)
+                tx = m.facing[0] * f * ANIM_ATTACK_AMP
+                ty = m.facing[1] * f * ANIM_ATTACK_AMP
+
+            draw_x = int(px + tx)
+            draw_y = int(py + bob + ty)
+
+            self.screen.blit(self._shadow_sm, (px, py))
+            sprite = MONSTER_SPRITES.get(m.ch, f"monster_{m.ch}")
+            img = Sprites.get(sprite, (TILE, TILE))
+            if img:
+                self.screen.blit(img, (draw_x, draw_y))
+            elif not self.icons.draw_monster(m.ch, draw_x, draw_y, size=TILE):
+                cx, cy = draw_x + TILE // 2, draw_y + TILE // 2
+                r = 16 if m.boss else 12
+                pygame.draw.circle(self.screen, T.shade(m.color, 0.45), (cx, cy), r)
+                pygame.draw.circle(self.screen, m.color, (cx, cy), r, 1)
+                self.text(m.ch, cx, cy, (255, 255, 255),
+                          font=T.FONT_SMALL, center=True)
+
+            if m.hp < m.max_hp:
+                bw = TILE - 8
+                pygame.draw.rect(self.screen, T.HP_BG, (px + 4, py + 4, bw, 5))
+                pygame.draw.rect(self.screen, T.HP,
+                                 (px + 4, py + 4, int(bw * m.hp / m.max_hp), 5))
+            if m.boss:
+                T.rounded_rect(self.screen, (255, 200, 50),
+                               (px, py, TILE - 1, TILE - 1), width=2, radius=4)
+            self._draw_statuses(m, px, py)
+
+    def _draw_elder(self, game, cam_x, cam_y):
+        if game.world_mode != 'overworld':
+            return
+        if not (game.elder and (game.elder.x, game.elder.y) in game.visible):
+            return
+        px = (self._rx(game.elder) - cam_x) * TILE
+        py = (self._ry(game.elder) - cam_y) * TILE
+        bob = math.sin(game.elder.anim_time * 4.0) * 2
+        self.screen.blit(self._shadow_sm, (px, py))
+        img = Sprites.get('npc/elder', (TILE, TILE))
+        if img:
+            self.screen.blit(img, (px, int(py + bob)))
+        else:
+            self.icons.draw_elder(px, int(py + bob), size=TILE)
+
+    def _draw_merchant(self, game, cam_x, cam_y):
+        if game.world_mode != 'dungeon':
+            return
+        if not (game.merchant and (game.merchant.x, game.merchant.y) in game.visible):
+            return
+        px = (self._rx(game.merchant) - cam_x) * TILE
+        py = (self._ry(game.merchant) - cam_y) * TILE
+        bob = math.sin(game.merchant.anim_time * 4.0) * 2
+        self.screen.blit(self._shadow_sm, (px, py))
+        img = Sprites.get('npc/merchant', (TILE, TILE))
+        if img:
+            self.screen.blit(img, (px, int(py + bob)))
+        else:
+            self.icons.draw_merchant(px, int(py + bob), size=TILE)
+
+    def _draw_player(self, game, cam_x, cam_y):
+        px = (self._rx(game.player) - cam_x) * TILE
+        py = (self._ry(game.player) - cam_y) * TILE
+
+        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP, ANIM_ATTACK_AMP
+        bob = math.sin(game.player.anim_time * ANIM_IDLE_SPEED) * ANIM_IDLE_AMP
+        thrust_x, thrust_y = 0, 0
+        if game.player.attack_anim > 0:
+            f = math.sin(game.player.attack_anim * math.pi)
+            thrust_x = game.player.facing[0] * f * ANIM_ATTACK_AMP
+            thrust_y = game.player.facing[1] * f * ANIM_ATTACK_AMP
+
+        draw_x = int(px + thrust_x)
+        draw_y = int(py + bob + thrust_y)
+
+        self.screen.blit(self._shadow_lg, (px, py))
+
+        # PNG по классу, если есть
+        img = Sprites.get(f'player/{game.player.class_key}', (TILE, TILE))
+        if img:
+            self.screen.blit(img, (draw_x, draw_y))
+        else:
+            self.icons.draw_player(game.player.class_key, draw_x, draw_y, size=TILE)
+
+        self._draw_statuses(game.player, px, py)
+
+    def _draw_remote_player(self, player, cam_x, cam_y):
+        px = (self._rx(player) - cam_x) * TILE
+        py = (self._ry(player) - cam_y) * TILE
+        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP
+        bob = math.sin(player.anim_time * ANIM_IDLE_SPEED) * ANIM_IDLE_AMP
+        thrust_x = thrust_y = 0
+        if player.attack_anim > 0:
+            f = math.sin(player.attack_anim * math.pi)
+            thrust_x = player.facing[0] * f * 8
+            thrust_y = player.facing[1] * f * 8
+        draw_x = int(px + thrust_x)
+        draw_y = int(py + bob + thrust_y)
+        self.screen.blit(self._shadow_lg, (px, py))
+        self.icons.draw_player(player.class_key, draw_x, draw_y, size=TILE)
+        # Ник над игроком
+        self.text(player.class_name, draw_x + TILE // 2, draw_y - 6,
+                  (200, 220, 255), font=T.FONT_TINY, center=True)
+        self._draw_statuses(player, px, py)
+
+    def _draw_statuses(self, entity, px, py):
+        if not entity.statuses:
+            return
+        x = px + 3
+        y = py + TILE - 6
+        for key in entity.statuses:
+            info = STATUSES.get(key)
+            if not info:
+                continue
+            pygame.draw.circle(self.screen, info['color'], (x, y), 3)
+            pygame.draw.circle(self.screen, (0, 0, 0), (x, y), 3, 1)
+            x += 8
+            if x > px + TILE - 6:
+                break
+
+    def _draw_floats(self, game, cam_x, cam_y):
+        for f in game.floats:
+            alpha = min(255, int(f.life / 0.7 * 255))
+            surf = T.FONT_SMALL.render(f.text, True, f.color)
+            surf.set_alpha(alpha)
+            sx = f.x - cam_x * TILE - surf.get_width() // 2
+            sy = f.y - cam_y * TILE - surf.get_height() // 2
+            self.screen.blit(surf, (sx, sy))
+
+    # ════════════════════════ HUD ════════════════════════
+    def draw_hud(self, game):
+        y0 = config.VIEW_H * TILE
+        pygame.draw.rect(self.screen, T.BG_HUD, (0, y0, config.SCREEN_W, config.SCREEN_H - y0))
+        pygame.draw.line(self.screen, T.PANEL_BORDER_DARK, (0, y0), (config.SCREEN_W, y0), 1)
+
+        panel_y = y0 + 4
+        panel_h = config.SCREEN_H - y0 - 8  # до низа экрана
+        T.panel(self.screen, (8, panel_y, 400, panel_h))
+        self._draw_stats_column(game, 20, panel_y + 10)
+        log_x = 416
+        log_rect = (log_x, panel_y, config.SCREEN_W - log_x - 8, panel_h)
+        T.panel(self.screen, log_rect)
+        self._draw_log_panel(game, log_x + 12, panel_y + 6,
+                             log_rect[2] - 24, panel_h - 12)
+
+    def _draw_stats_column(self, game, x, y):
+        p = game.player
+        self.text("HP", x, y + 4, T.TEXT, font=T.FONT_SMALL)
+        bar_rect = (x + 30, y, 180, 22)
+        ratio = p.hp / max(1, p.max_hp)
+        T.bar(self.screen, bar_rect, ratio, T.HP, pulse=(ratio < 0.3))
+        surf = T.render(f"{p.hp}/{p.max_hp}", (255, 255, 255), T.FONT_SMALL)
+        self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
+                                bar_rect[1] + 4))
+        self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
+        self.text(f"Ур.{p.level}", x, y + 32, T.TEXT, font=T.FONT_BODY)
+        xp_rect = (x + 70, y + 36, 160, 10)
+        T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
+              bg_color=(20, 30, 50))
+        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 32, T.XP, font=T.FONT_SMALL)
+        self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
+        self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
+        loc = "Открытый мир" if game.world_mode == 'overworld' \
+              else f"Подземелье {game.depth}/{MAX_DEPTH}"
+        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
+        if p.free_points > 0:
+            T.badge(self.screen, x, y + 94, f"● {p.free_points} очков (C)",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+        self.text(f"[F5] слот {game.current_slot}",
+                  x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
+
+    def _draw_log_panel(self, game, x, y, w, h):
+        self.text("ЛОГ", x, y, T.TEXT_MUTED, font=T.FONT_TINY)
+        if game.log_scroll > 0:
+            surf = T.render(f"▲ {game.log_scroll}", T.GOLD, T.FONT_TINY)
+            self.screen.blit(surf, (x + w - surf.get_width(), y))
+        T.divider(self.screen, x, y + 18, x + w)
+        line_h = 20
+        visible_count = max(3, (h - 30) // line_h)
+        total = len(game.messages)
+        end = total - game.log_scroll
+        start = max(0, end - visible_count)
+        for i, msg in enumerate(game.messages[start:end]):
+            text = self.fit_text(msg.text, w, font=T.FONT_SMALL)
+            self.text(text, x, y + 24 + i * line_h, msg.color, font=T.FONT_SMALL)
+
+    def draw_toolbar(self, game):
+        from core.config import TOOLBAR_BTN
+        labels = {
+            'inventory': 'Инв',
+            'craft': 'Крафт',
+            'stats': 'Статы',
+            'quests': 'Квесты',
+        }
+        mx, my = game.mouse_pos
+        for name, rect in game._toolbar_rects():
+            x, y, w, h = rect
+            hover = x <= mx <= x + w and y <= my <= y + h
+
+            bg = (60, 55, 80) if hover else (28, 30, 44)
+            border = (245, 215, 105) if hover else (70, 75, 100)
+
+            # Тень — одна поверхность на размер кнопки (кэш)
+            shadow = self._toolbar_shadow.get((w, h))
+            if shadow is None:
+                shadow = pygame.Surface((w + 10, h + 10), pygame.SRCALPHA)
+                pygame.draw.rect(shadow, (0, 0, 0, 110), (3, 4, w, h),
+                                 border_radius=10)
+                self._toolbar_shadow[(w, h)] = shadow
+            self.screen.blit(shadow, (x - 3, y - 3))
+
+            T.rounded_rect(self.screen, bg, (x, y, w, h),
+                           radius=10, border_color=border)
+            self.icons.draw_toolbar_icon(name, x + 6, y + 6, size=w - 12, hover=hover)
+            self.text(labels[name], x + w // 2, y + h + 6, T.TEXT_DIM,
+                      font=T.FONT_TINY, center=True)
+
+    # ════════════════════════ МИНИ-КАРТА ════════════════════════
+    def _minimap_scaled(self, game):
+        """Основа миникарты (стены/пол/лестницы) — кэш по explored."""
+        key = (id(game), game.world_mode, game.depth, len(game.explored),
+               getattr(game, 'render_revision', 0))
+        if self._mini_key == key and self._mini_scaled is not None:
+            return self._mini_scaled
+        mini = pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
+        mini.fill((10, 10, 16, 200))
+        for my in range(MAP_H):
+            row = game.dungeon.tiles[my]
+            for mx in range(MAP_W):
+                if (mx, my) not in game.explored:
+                    continue
+                tile = row[mx]
+                if tile == Tile.WALL:
+                    color = (70, 60, 85, 200)
+                elif tile == Tile.STAIRS:
+                    color = (240, 200, 90, 255)
+                elif tile == Tile.EXIT:
+                    color = (140, 240, 140, 255)
+                elif tile == Tile.UPSTAIRS:
+                    color = (90, 200, 120, 255)
+                else:
+                    color = (55, 50, 65, 200)
+                mini.set_at((mx, my), color)
+        self._mini_scaled = pygame.transform.scale(
+            mini, (MAP_W * MINIMAP_SCALE, MAP_H * MINIMAP_SCALE))
+        self._mini_key = key
+        return self._mini_scaled
+
+    def _minimap_marker(self, pos_x, pos_y, entity, color, size=2):
+        mx = int(self._rx(entity)) * MINIMAP_SCALE
+        my = int(self._ry(entity)) * MINIMAP_SCALE
+        if not (0 <= mx < MAP_W * MINIMAP_SCALE
+                and 0 <= my < MAP_H * MINIMAP_SCALE):
+            return
+        x = pos_x + mx - size // 2
+        y = pos_y + my - size // 2
+        pygame.draw.rect(self.screen, (0, 0, 0),
+                         (x - 1, y - 1, size + 2, size + 2))
+        pygame.draw.rect(self.screen, color, (x, y, size, size))
+
+    def draw_minimap(self, game):
+        if not game.settings.get('show_minimap', True):
+            return
+        scaled = self._minimap_scaled(game)
+        scaled_w, scaled_h = scaled.get_size()
+        pos_x = config.SCREEN_W - scaled_w - MINIMAP_MARGIN
+        pos_y = MINIMAP_MARGIN
+        pygame.draw.rect(self.screen, (40, 40, 55),
+                         (pos_x - 2, pos_y - 2, scaled_w + 4, scaled_h + 4))
+        self.screen.blit(scaled, (pos_x, pos_y))
+        pygame.draw.rect(self.screen, (90, 90, 110),
+                         (pos_x - 2, pos_y - 2, scaled_w + 4, scaled_h + 4), 1)
+
+        if game.merchant:
+            self._minimap_marker(pos_x, pos_y, game.merchant,
+                                 (240, 200, 100), size=2)
+        # Сокомандники видны на мини-карте всегда — это «радар» отряда
+        my_id = getattr(game, 'my_id', None)
+        my_player = getattr(game, 'player', None)
+        for pid, remote in getattr(game, 'remote_players', {}).items():
+            if pid == my_id or remote is my_player:
+                continue
+            color = CLASSES.get(getattr(remote, 'class_key', 'default'),
+                                {}).get('color', (140, 200, 255))
+            self._minimap_marker(pos_x, pos_y, remote, color, size=3)
+        self._minimap_marker(pos_x, pos_y, game.player, (255, 255, 255), size=3)

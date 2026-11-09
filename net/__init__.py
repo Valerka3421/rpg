@@ -1,0 +1,1 @@
+"""Мультиплеер: shared state server."""

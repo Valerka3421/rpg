@@ -1,0 +1,185 @@
+"""Сериализация + слоты + dungeon_cache."""
+import os
+import json
+from core.config import MAP_W, MAP_H, BASE_DIR, Tile
+from core.data import xp_to_next
+from core.entities import Entity, Player, Room, Dungeon
+
+
+# ── Базовые сериализаторы ──
+def entity_to_dict(e):
+    return {
+        'x': e.x, 'y': e.y, 'hp': e.hp, 'max_hp': e.max_hp,
+        'atk': e.atk, 'df': e.df,
+        'name': e.name, 'ch': e.ch, 'color': list(e.color),
+        'xp_value': e.xp_value, 'boss': e.boss,
+        'is_merchant': e.is_merchant,
+        'ability': e.ability,
+        'statuses': dict(e.statuses),
+        'is_npc': e.is_npc,
+        'npc_type': e.npc_type,
+    }
+
+def entity_from_dict(d):
+    e = Entity(d['x'], d['y'], d['hp'], d['max_hp'], d['atk'], d['df'],
+               d['name'], d['ch'], tuple(d['color']), d['xp_value'],
+               d['boss'], ability=d.get('ability'))
+    e.is_merchant = d.get('is_merchant', False)
+    e.statuses = dict(d.get('statuses', {}))
+    e.is_npc = d.get('is_npc', False)
+    e.npc_type = d.get('npc_type')
+    return e
+
+def player_to_dict(p):
+    return {
+        'x': p.x, 'y': p.y, 'hp': p.hp,
+        'class_key': getattr(p, 'class_key', 'default'),
+        'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
+        'free_points': p.free_points,
+        'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
+        'df_stat': p.df_stat,
+        'weapon': p.weapon, 'armor': p.armor,
+        'inventory': dict(p.inventory),
+        'gold': p.gold,
+        'double_strike': p.double_strike,
+        'regen': p.regen, 'vampire': p.vampire,
+        'thorns': p.thorns, 'greedy': p.greedy,
+        'step_counter': p.step_counter,
+        'statuses': dict(p.statuses),
+    }
+
+
+def player_from_dict(d):
+    p = Player(class_key=d.get('class_key', 'default'))
+    p.x, p.y = d['x'], d['y']
+    p.level = d['level']; p.xp = d['xp']
+    # Кривая опыта пересчитывается из уровня: так старые сейвы (где xp_next
+    # рос как 1.6**n и становился недостижимым) автоматически чинятся.
+    p.xp_next = xp_to_next(p.level)
+    p.free_points = d['free_points']
+    p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
+    p.df_stat = d.get('df_stat', 5)
+    p.weapon, p.armor = d['weapon'], d['armor']
+    p.inventory = dict(d['inventory'])
+    p.gold = d.get('gold', 0)
+    p.double_strike = d.get('double_strike', False)
+    p.regen = d.get('regen', False); p.vampire = d.get('vampire', False)
+    p.thorns = d.get('thorns', False); p.greedy = d.get('greedy', False)
+    p.step_counter = d.get('step_counter', 0)
+    p.statuses = dict(d.get('statuses', {}))
+    p.recalc()
+    p.hp = min(d['hp'], p.max_hp)
+    return p
+
+
+def dungeon_to_dict(d):
+    """Тайлы пишутся строками цифр — компактнее вложенных списков int."""
+    return {
+        'tiles': [''.join(str(int(t)) for t in row) for row in d.tiles],
+        'rooms': [{'x': r.x, 'y': r.y, 'w': r.w, 'h': r.h} for r in d.rooms],
+        'monsters': [entity_to_dict(m) for m in d.monsters],
+        'items': [{'x': k[0], 'y': k[1], 'key': v} for k, v in d.items.items()],
+        'stairs_pos': list(d.stairs_pos) if d.stairs_pos else None,
+    }
+
+
+def _decode_tiles(rows):
+    tiles = []
+    for row in rows:
+        if isinstance(row, str):
+            tiles.append([Tile(int(ch)) for ch in row])
+        else:                                  # старый формат: [[0,1,2], ...]
+            tiles.append([Tile(int(t)) for t in row])
+    return tiles
+
+
+def dungeon_from_dict(d):
+    dun = Dungeon(MAP_W, MAP_H)
+    dun.tiles = _decode_tiles(d['tiles'])
+    dun.rooms = [Room(r['x'], r['y'], r['w'], r['h']) for r in d['rooms']]
+    dun.monsters = [entity_from_dict(m) for m in d['monsters']]
+    dun.items = {(i['x'], i['y']): i['key'] for i in d['items']}
+    dun.stairs_pos = tuple(d['stairs_pos']) if d['stairs_pos'] else None
+    return dun
+
+
+# ── dungeon_cache ──
+def dungeon_cache_to_dict(cache, current_depth=None, max_keep=3, skip_depth=None):
+    """Сериализует кэш этажей.
+
+    ``skip_depth`` — этаж, который уже сохранён отдельным ключом ``dungeon``
+    (не дублируем его в кэше: это ~1/3 размера сейва).
+    """
+    if not cache:
+        return {}
+    depths = [d for d in cache.keys() if d != skip_depth]
+    if current_depth is not None:
+        depths = sorted(depths, key=lambda d: abs(d - current_depth))[:max_keep]
+    else:
+        depths = sorted(depths)
+    return {
+        str(depth): {
+            'dungeon': dungeon_to_dict(cache[depth]['dungeon']),
+            'merchant': entity_to_dict(cache[depth]['merchant'])
+                        if cache[depth].get('merchant') else None,
+            'shop_stock': cache[depth].get('shop_stock', []),
+            'explored': [list(p) for p in cache[depth].get('explored', set())],
+        }
+        for depth in depths
+    }
+
+
+def dungeon_cache_from_dict(data):
+    result = {}
+    for depth_str, c in (data or {}).items():
+        try:
+            result[int(depth_str)] = {
+                'dungeon': dungeon_from_dict(c['dungeon']),
+                'merchant': entity_from_dict(c['merchant'])
+                            if c.get('merchant') else None,
+                'shop_stock': c.get('shop_stock', []),
+                'explored': {tuple(p) for p in c.get('explored', [])},
+            }
+        except Exception:
+            continue
+    return result
+
+
+# ── Слоты ──
+def save_slot_path(slot):
+    return os.path.join(BASE_DIR, f'savegame_{slot}.json')
+
+
+def save_slot_exists(slot):
+    return os.path.exists(save_slot_path(slot))
+
+
+def save_slot_info(slot):
+    path = save_slot_path(slot)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        p = data.get('player', {})
+        return {
+            'level': p.get('level', 1),
+            'gold': p.get('gold', 0),
+            'depth': data.get('depth', 0),
+            'world_mode': data.get('world_mode', 'overworld'),
+            'class_key': p.get('class_key', 'default'),
+            'mtime': os.path.getmtime(path),
+        }
+    except Exception:
+        return None
+
+
+def delete_slot(slot):
+    path = save_slot_path(slot)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+            return True
+        except Exception:
+            return False
+    return False

@@ -1,0 +1,104 @@
+assets/
+└── sprites/
+    ├── player/                  ← 64×64, по классу
+    │   ├── warrior.png
+    │   ├── assassin.png
+    │   ├── rogue.png
+    │   ├── paladin.png
+    │   └── default.png          ← Приключенец (если нет PNG — процедурный)
+    │
+    ├── npc/
+    │   ├── merchant.png         ← торговец
+    │   └── elder.png            
+    │
+    ├── monsters/                ← 12 обычных, 64×64
+    │   ├── rat.png
+    │   ├── goblin.png
+    │   ├── archer.png
+    │   ├── shaman.png
+    │   ├── skeleton.png
+    │   ├── orc.png
+    │   ├── troll.png
+    │   ├── demon.png
+    │   ├── vampire.png
+    │   ├── dragonling.png
+    │   ├── golem.png
+    │   └── wraith.png
+    │
+    ├── bosses/                  ← 4 босса, 64×64
+    │   ├── goblin_king.png
+    │   ├── lich.png
+    │   ├── vampire_lord.png
+    │   └── dragon.png
+    │
+    ├── items/
+    │   ├── potions/
+    │   │   ├── potion_s.png
+    │   │   ├── potion_m.png
+    │   │   └── potion_l.png
+    │   ├── weapons/
+    │   │   ├── dagger.png
+    │   │   ├── shortsword.png
+    │   │   ├── sword.png
+    │   │   ├── axe.png
+    │   │   ├── greatsword.png
+    │   │   ├── warhammer.png
+    │   │   ├── bone_sword.png
+    │   │   ├── demon_blade.png
+    │   │   └── golem_hammer.png
+    │   ├── armor/
+    │   │   ├── padded.png
+    │   │   ├── leather.png
+    │   │   ├── chain.png
+    │   │   ├── scale.png
+    │   │   ├── plate.png
+    │   │   ├── mithril.png
+    │   │   ├── leather_armor.png
+    │   │   ├── dragon_armor.png
+    │   │   └── lich_robe.png
+    │   ├── resources/
+    │   │   ├── mushroom.png
+    │   │   ├── berry.png
+    │   │   ├── wood.png
+    │   │   ├── stone.png
+    │   │   └── ore.png
+    │   ├── materials/
+    │   │   ├── bone.png
+    │   │   ├── ogre_leather.png
+    │   │   ├── goblin_ear.png
+    │   │   ├── rat_tail.png
+    │   │   ├── orc_tusk.png
+    │   │   ├── demon_scale.png
+    │   │   ├── vampire_fang.png
+    │   │   ├── dragon_scale.png
+    │   │   ├── golem_core.png
+    │   │   └── wraith_essence.png
+    │   ├── scrolls/
+    │   │   ├── scroll_heal.png
+    │   │   ├── scroll_fireball.png
+    │   │   └── scroll_freeze.png
+    │   ├── books/
+		├── book_str.png
+		├── book_agi.png
+		├── book_vit.png
+		├── book_luk.png
+		├── book_def.png
+		├── book_double.png
+		├── book_regen.png
+		├── book_vampire.png
+		├── book_thorns.png
+		└── book_greedy.png 
+    │   └── gold.png             ← ОДИН для всех видов золота
+    │
+    └── tiles/                   ← 64×64 (TILE=64)
+        ├── wall.png
+        ├── floor.png
+        ├── stairs.png
+        └── exit.png
+
+assets/sprites/class_icons/
+    ├── warrior.png         ← 32×32 или 64×64
+    ├── assassin.png
+    ├── rogue.png
+    ├── paladin.png
+    └── default.png
