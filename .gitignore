@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Тесты и инструменты
+.pytest_cache/
+.test_tmp/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# Сборка
+build/
+dist/
+*.spec
+Aethelgard.exe
+
+# Локальные сейвы (данные игрока, не исходники)
+savegame.json
+savegame_*.json.tmp
+settings.json

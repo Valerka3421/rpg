@@ -1,0 +1,11 @@
+{
+  "volume": 2,
+  "fullscreen": true,
+  "show_fps": true,
+  "show_minimap": true,
+  "resolution": [
+    1920,
+    1080
+  ],
+  "_resume_slot": 0
+}
