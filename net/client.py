@@ -3,13 +3,9 @@ import socket
 import threading
 import json
 import argparse
-import sys
 import pygame
 import uuid
 import os as _os
-
-from core.settings import load_settings
-from core import config
 
 def _player_token_path():
     return _os.path.join(_os.path.expanduser('~'), '.ethelgard_player_id')
@@ -204,8 +200,9 @@ class Client:
                                'token': self._player_token})
                     return
                 if msg.get('type') == 'error':
-                    print(f"[CLIENT] server error: {msg.get('msg')}")
-                    sys.exit(1)
+                    # Не выходим из процесса: main.py должен вернуть игрока
+                    # в меню, а не завершать игру целиком.
+                    raise ConnectionError(msg.get('msg') or 'server error')
             if len(buf) > 10_000_000:
                 raise ConnectionError("welcome too big")
 
@@ -356,7 +353,8 @@ class Client:
         else:
             class_key = self._class_select_screen(screen, SW, SH)
             if class_key is None:
-                pygame.quit()
+                # pygame принадлежит main.py: здесь только выходим из MP,
+                # иначе следующее меню падает с «Library not initialized».
                 return
             self.class_key = class_key
 
@@ -370,7 +368,7 @@ class Client:
                                "Не удалось подключиться", f"{e}",
                                color=(240, 100, 100))
             pygame.time.wait(2000)
-            pygame.quit()
+            # См. выше: не гасим общий pygame, просто возвращаемся в меню.
             return
 
         print(f"[CLIENT] connected as pid={self.my_pid}")

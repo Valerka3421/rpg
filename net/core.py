@@ -56,6 +56,9 @@ class GameCore:
         # Стабильные id мобов — клиент по ним интерполирует движение
         self._next_mid = 1
         self._monster_ids = {}
+        # Последний отправленный инвентарь: в снапшот попадает только
+        # изменившийся, а не весь словарь 20 раз в секунду.
+        self._inventory_cache = {}
 
         # Elder рядом с входом
         self.elder = None
@@ -90,6 +93,7 @@ class GameCore:
         self.move_timers.pop(pid, None)
         self.attack_timers.pop(pid, None)
         self.regen_timers.pop(pid, None)
+        self._inventory_cache.pop(pid, None)
 
     # ════════════════════════ СОБЫТИЯ ════════════════════════
     def _event(self, text, color=COL_TEXT):
@@ -406,7 +410,13 @@ class GameCore:
         t = msg.get('type')
         if t == 'move':
             if self.move_timers.get(pid, 0) <= 0:
-                if self.move_player(pid, msg.get('dx', 0), msg.get('dy', 0)):
+                dx = msg.get('dx', 0)
+                dy = msg.get('dy', 0)
+                # Клиент может прислать что угодно: разрешаем ровно один
+                # шаг по одной оси, иначе это телепорт через полкарты.
+                if not self._is_valid_step(dx, dy):
+                    return
+                if self.move_player(pid, dx, dy):
                     self.move_timers[pid] = PLAYER_MOVE_COOLDOWN
         elif t == 'attack':
             if self.attack_timers.get(pid, 0) <= 0:
@@ -431,9 +441,19 @@ class GameCore:
         elif t == 'wait':
             pass
 
+    @staticmethod
+    def _is_valid_step(dx, dy):
+        """Один шаг по одной оси. (0, 0) разрешён — это подбор под собой."""
+        return (isinstance(dx, int) and not isinstance(dx, bool)
+                and isinstance(dy, int) and not isinstance(dy, bool)
+                and abs(dx) <= 1 and abs(dy) <= 1
+                and not (dx and dy))
+
     def move_player(self, pid, dx, dy):
         p = self.players.get(pid)
         if p is None:
+            return False
+        if not self._is_valid_step(dx, dy):
             return False
         nx, ny = p.x + dx, p.y + dy
         if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
@@ -707,6 +727,16 @@ class GameCore:
                 closest, best = p, d
         if closest is None:
             return
+        ability = getattr(m, 'ability', None)
+        # Шаман лечит раненого союзника вместо хода.
+        if ability == 'healer' and self._healer_action(m):
+            return
+        # Лучник стреляет с дистанции, не подходя вплотную.
+        if (ability == 'ranged' and 2 <= best <= 4
+                and has_los(self.dungeon, m.x, m.y,
+                            closest.x, closest.y)):
+            self._strike(m, closest)
+            return
         if best <= 1:
             self._strike(m, closest)
         elif best <= 8 and has_los(self.dungeon, m.x, m.y,
@@ -728,6 +758,27 @@ class GameCore:
                                     (closest.x, closest.y), blocked)
             if nxt:
                 m.x, m.y = nxt
+
+    def _healer_action(self, healer):
+        """Лечит самого раненого союзника в радиусе 5. True — походил."""
+        target = None
+        best_ratio = 1.0
+        for other in self.dungeon.monsters:
+            if other is healer or other.hp <= 0 or other.hp >= other.max_hp:
+                continue
+            dist = max(abs(other.x - healer.x), abs(other.y - healer.y))
+            if dist > 5:
+                continue
+            ratio = other.hp / other.max_hp
+            if ratio < best_ratio and has_los(self.dungeon, healer.x,
+                                              healer.y, other.x, other.y):
+                target, best_ratio = other, ratio
+        if target is None:
+            return False
+        heal = min(8, target.max_hp - target.hp)
+        target.hp += heal
+        self._event(f"{healer.name} лечит {target.name}: +{heal}", COL_HEAL)
+        return True
 
     def _monster_move(self, m, x, y):
         if not (0 <= x < MAP_W and 0 <= y < MAP_H):
@@ -766,7 +817,7 @@ class GameCore:
     def get_snapshot(self):
         players_data = {}
         for pid, p in self.players.items():
-            players_data[str(pid)] = {
+            data = {
                 'x': p.x, 'y': p.y,
                 'hp': p.hp, 'max_hp': p.max_hp,
                 'class': p.class_key,
@@ -777,7 +828,6 @@ class GameCore:
                 'attack_anim': round(p.attack_anim, 2),
                 'facing': list(p.facing),
                 'gold': p.gold,
-                'inventory': dict(p.inventory),
                 'atk': p.atk, 'df': p.df,
                 'crit': round(p.crit, 2), 'dodge': round(p.dodge, 2),
                 'free_points': p.free_points,
@@ -786,6 +836,13 @@ class GameCore:
                 'luk': p.luk, 'df_stat': p.df_stat,
                 'weapon': p.weapon, 'armor': p.armor,
             }
+            # Инвентарь меняется редко — шлём только при изменении.
+            # Первый снапшот для игрока всегда содержит его.
+            inventory = dict(p.inventory)
+            if self._inventory_cache.get(pid) != inventory:
+                data['inventory'] = inventory
+                self._inventory_cache[pid] = inventory
+            players_data[str(pid)] = data
         alive = [m for m in self.dungeon.monsters if m.hp > 0]
         # Чистим id умерших, чтобы id() переиспользованных объектов не врал
         alive_ids = {id(m) for m in alive}

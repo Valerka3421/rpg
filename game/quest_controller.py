@@ -37,7 +37,8 @@ class QuestController:
             return
         key, state = items[idx]
         if state == 'available':
-            self.game.quest_log.accept(key, QUESTS[key]['count'])
+            self.game.quest_log.accept(key, QUESTS[key]['count'],
+                                       self.game.player.inventory)
             self.game.log(f"Квест взят: {QUESTS[key]['name']}",
                           (240, 220, 120))
         elif state == 'completed':

@@ -1587,34 +1587,40 @@ class IconRenderer(BaseRenderer):
         self.screen.blit(self._merchant_cache[ck], (px, py))
 
     def _draw_merchant_64(self, s):
-        # Роба
-        pygame.draw.polygon(s, (110, 70, 35), [
-            (12, 58), (16, 24), (48, 24), (52, 58), (32, 62),
-        ])
-        pygame.draw.polygon(s, (60, 35, 15), [
-            (12, 58), (16, 24), (48, 24), (52, 58), (32, 62),
-        ], 2)
-        # Золотой пояс
-        pygame.draw.rect(s, (240, 200, 60), (18, 46, 28, 4))
-        # Мешочек с монетами
-        pygame.draw.circle(s, (140, 90, 45), (50, 52), 6)
-        pygame.draw.circle(s, (200, 160, 90), (50, 52), 6, 2)
-        pygame.draw.circle(s, (240, 200, 60), (50, 50), 2)
-        # Голова
-        pygame.draw.circle(s, (235, 205, 165), (32, 20), 11)
-        pygame.draw.circle(s, (180, 150, 110), (32, 20), 11, 2)
-        # Глаза
-        pygame.draw.circle(s, (20, 15, 10), (28, 20), 2)
-        pygame.draw.circle(s, (20, 15, 10), (36, 20), 2)
-        # Борода
-        pygame.draw.polygon(s, (200, 200, 200), [
-            (24, 26), (40, 26), (32, 36),
-        ])
-        # Шляпа
-        pygame.draw.ellipse(s, (200, 160, 80), (14, 10, 36, 8))
-        pygame.draw.ellipse(s, (140, 100, 40), (14, 10, 36, 8), 2)
-        pygame.draw.ellipse(s, (220, 180, 90), (22, 2, 20, 12))
-        pygame.draw.ellipse(s, (140, 100, 40), (22, 2, 20, 12), 2)
+        # тень
+        pygame.draw.ellipse(s, (0, 0, 0, 90), (14, 54, 36, 8))
+        # ноги
+        pygame.draw.rect(s, (58, 42, 28), (26, 48, 5, 10))
+        pygame.draw.rect(s, (58, 42, 28), (33, 48, 5, 10))
+        # роба: уже в плечах, шире к подолу
+        robe = [(23, 24), (41, 24), (46, 56), (18, 56)]
+        pygame.draw.polygon(s, (112, 74, 40), robe)
+        pygame.draw.polygon(s, (70, 44, 20), robe, 2)
+        # объём робы
+        pygame.draw.polygon(s, (138, 94, 48), [(23, 24), (32, 24), (32, 56), (18, 56)])
+        # рукава и руки
+        pygame.draw.polygon(s, (128, 86, 44), [(23, 26), (17, 44), (22, 47), (27, 32)])
+        pygame.draw.polygon(s, (128, 86, 44), [(41, 26), (47, 44), (42, 47), (37, 32)])
+        pygame.draw.circle(s, (232, 200, 160), (20, 48), 3)
+        pygame.draw.circle(s, (232, 200, 160), (44, 48), 3)
+        # пояс и пряжка
+        pygame.draw.rect(s, (240, 200, 60), (21, 45, 22, 3))
+        pygame.draw.rect(s, (170, 130, 30), (30, 44, 4, 5))
+        # кошель
+        pygame.draw.circle(s, (150, 100, 50), (46, 51), 6)
+        pygame.draw.circle(s, (196, 156, 88), (46, 51), 6, 2)
+        pygame.draw.circle(s, (240, 200, 60), (46, 49), 2)
+        # голова и борода
+        pygame.draw.circle(s, (236, 206, 166), (32, 20), 9)
+        pygame.draw.circle(s, (176, 146, 108), (32, 20), 9, 1)
+        pygame.draw.polygon(s, (214, 214, 214), [(25, 24), (39, 24), (32, 34)])
+        pygame.draw.circle(s, (24, 18, 12), (29, 19), 1)
+        pygame.draw.circle(s, (24, 18, 12), (35, 19), 1)
+        # шляпа
+        pygame.draw.ellipse(s, (198, 158, 78), (13, 9, 38, 8))
+        pygame.draw.ellipse(s, (132, 94, 38), (13, 9, 38, 8), 2)
+        pygame.draw.ellipse(s, (224, 186, 96), (21, 1, 22, 12))
+        pygame.draw.ellipse(s, (132, 94, 38), (21, 1, 22, 12), 2)
 
     def draw_elder(self, px, py, size=CANVAS):
         ck = (size,)

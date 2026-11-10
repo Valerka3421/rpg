@@ -17,11 +17,14 @@ class Renderer:
         self.screen = screen
         T.init()
         Sprites.init()
+        from render.tiles import Tiles
+        Tiles.prewarm()          # ~60 мс на старте вместо рывка на 1-м кадре
         self.icons   = IconRenderer(screen)
         self.menu    = MenuRenderer(screen, self.icons)
         self.game    = GameRenderer(screen, self.icons)
         self.screens = ScreensRenderer(screen, self.icons)
         self.overlay = OverlayRenderer(screen)
+        self.game._light_gradient()   # градиент тьмы тоже заранее
 
     def draw(self, game):
         if game.screen_mode == 'menu':

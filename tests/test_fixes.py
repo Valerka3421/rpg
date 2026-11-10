@@ -130,6 +130,19 @@ def test_collect_quest_counts_existing_items(make_game):
     assert 'bone' not in g.player.inventory
 
 
+def test_quest_ui_passes_inventory_on_accept(make_game):
+    """Кнопка «взять квест» тоже должна учитывать уже собранные кости."""
+    from game.quest_controller import QuestController
+    g = make_game()
+    g.player.inventory = {'bone': 3}
+    g.dialogue.open('elder')
+    quests = QuestController(g)
+    idx = next(i for i, (key, state) in enumerate(quests.visible_quests())
+               if key == 'q_bones' and state == 'available')
+    quests.activate(idx)
+    assert 'q_bones' in g.quest_log.completed
+
+
 # ════════════════════ 3. Лестницы ════════════════════
 def test_depth_1_has_exit_and_deeper_has_upstairs(make_game):
     g = make_game()
@@ -172,6 +185,30 @@ def test_upstairs_from_depth_1_goes_outside(make_game):
     assert _step_onto(g, Tile.EXIT) is True
     assert g.world_mode == 'overworld'
     assert g.dungeon is g.overworld
+
+
+def test_transition_sets_move_cooldown(make_game):
+    """После перехода удержание направления не должно сразу вернуть назад."""
+    g = make_game()
+    g.enter_dungeon()
+    assert _step_onto(g, Tile.EXIT) is True
+    assert g.world_mode == 'overworld'
+    assert g.player_move_timer > 0
+
+
+# ════════════════════ 4. Мультиплеер ════════════════════
+def test_mp_rejects_teleport_step():
+    """Клиент не может одним пакетом переместиться на несколько клеток."""
+    from net.core import GameCore
+    core = GameCore(seed=11)
+    core.add_player(0, 'warrior')
+    p = core.players[0]
+    x, y = p.x, p.y
+    for i in range(1, 6):
+        core.dungeon.tiles[y][x + i] = Tile.FLOOR
+    core.apply_input(0, {'type': 'move', 'dx': 10, 'dy': 0})
+    assert (p.x, p.y) == (x, y)
+    assert core.move_player(0, 2, 0) is False
 
 
 def test_overworld_memory_survives_deep_descent(make_game):

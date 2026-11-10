@@ -2,10 +2,13 @@
 from core import config
 import pygame
 import math
-from core.config import TILE, MAP_W, MAP_H, MAX_DEPTH, Tile, MINIMAP_SCALE, MINIMAP_MARGIN
+from core.config import (TILE, MAP_W, MAP_H, MAX_DEPTH, Tile,
+                         MINIMAP_SCALE, MINIMAP_MARGIN, FOV_RADIUS)
 from core.data import STATUSES, CLASSES
 from render.theme import Theme as T
 from render.sprites import Sprites
+from render import textures
+from render.tiles import Tiles
 from render.base_renderer import BaseRenderer
 
 from render.constants import MONSTER_SPRITES
@@ -26,9 +29,23 @@ class GameRenderer(BaseRenderer):
         self._tile_exit = Sprites.get('tiles/exit', (TILE, TILE))
         self._tile_upstairs = Sprites.get('tiles/upstairs', (TILE, TILE))
         self._is_overworld = False
+        # Тени у основания стен: пол рядом со стеной темнеет
+        self._wall_shadow_h = pygame.Surface((TILE, 9), pygame.SRCALPHA)
+        for i in range(9):
+            alpha = int(58 * (1 - i / 9) ** 1.6)
+            pygame.draw.line(self._wall_shadow_h, (0, 0, 0, alpha),
+                             (0, i), (TILE, i))
+        self._wall_shadow_v = pygame.Surface((9, TILE), pygame.SRCALPHA)
+        for i in range(9):
+            alpha = int(46 * (1 - i / 9) ** 1.6)
+            pygame.draw.line(self._wall_shadow_v, (0, 0, 0, alpha),
+                             (i, 0), (i, TILE))
         # Кэши: карта и основа миникарты перерисовываются редко
         self._map_surface = None
         self._map_key = None
+        self._light_grad = None
+        self._dark_surface = None
+        self._dark_key = None
         self._mini_scaled = None
         self._mini_key = None
         self._toolbar_shadow = {}
@@ -94,7 +111,10 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(self._map_surface, (0, 0))
 
     def _draw_map(self, game, cam_x, cam_y):
+        """Тайлы + запечённое освещение + ореолы факелов."""
         self._is_overworld = (game.world_mode == 'overworld')
+        px0, py0 = int(self._rx(game.player)), int(self._ry(game.player))
+        torches = []
         for sy in range(config.VIEW_H):
             for sx in range(config.VIEW_W):
                 mx, my = sx + cam_x, sy + cam_y
@@ -102,148 +122,137 @@ class GameRenderer(BaseRenderer):
                     continue
                 px, py = sx * TILE, sy * TILE
                 vis = (mx, my) in game.visible
+                light = 1.0 if vis else 0.72
                 tile = game.dungeon.tiles[my][mx]
                 if tile == Tile.WALL:
-                    self._draw_wall(px, py, mx, my, vis)
+                    if self._draw_wall(px, py, mx, my, light) and vis:
+                        torches.append((px, py))
                 else:
-                    self._draw_floor(px, py, mx, my, vis)
-                    if vis:
-                        if tile == Tile.STAIRS:
-                            self._draw_stairs(px, py)
-                        elif tile == Tile.EXIT:
-                            self._draw_exit(px, py)
-                        elif tile == Tile.UPSTAIRS:
-                            self._draw_upstairs(px, py)
+                    self._draw_floor(px, py, mx, my, light)
+                    if tile == Tile.STAIRS:
+                        self._draw_stairs(px, py, light)
+                    elif tile == Tile.EXIT:
+                        self._draw_exit(px, py, light)
+                    elif tile == Tile.UPSTAIRS:
+                        self._draw_upstairs(px, py, light)
+        self._draw_darkness(game, cam_x, cam_y)
+        if not self._is_overworld:
+            self._draw_wall_shadows(game, cam_x, cam_y)
+        if torches:
+            glow = Tiles.torch_glow()
+            half = glow.get_width() // 2
+            for px, py in torches:
+                self.screen.blit(
+                    glow, (px + TILE // 2 - half, py + 18 - half),
+                    special_flags=pygame.BLEND_RGB_ADD)
 
-    def _draw_wall(self, px, py, mx, my, vis):
-        if vis and self._tile_wall and not self._is_overworld:
-            self.screen.blit(self._tile_wall, (px, py)); return
-        if self._is_overworld:
-            base = (55, 90, 55) if vis else (25, 45, 25)
-            color = T.tint(base, mx, my, seed=11, amount=0.18)
-            pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
-            if vis:
-                pygame.draw.rect(self.screen, (90, 65, 40),
-                                 (px + TILE // 2 - 2, py + TILE // 2 + 2, 4, TILE // 2 - 4))
-                pygame.draw.circle(self.screen, T.shade(base, 1.55),
-                                   (px + TILE // 2, py + TILE // 3), 8)
-                pygame.draw.circle(self.screen, T.shade(base, 1.30),
-                                   (px + TILE // 4, py + TILE // 2 + 2), 6)
-                pygame.draw.circle(self.screen, T.shade(base, 1.30),
-                                   (px + 3 * TILE // 4, py + TILE // 2 + 2), 6)
-            return
-        base = T.WALL if vis else T.WALL_DIM
-        color = T.tint(base, mx, my, seed=11, amount=0.14)
-        pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
-        if not vis:
-            return
-        dark = T.shade(color, 0.55)
-        light = T.shade(color, 1.35)
-        mid = py + TILE // 2
-        pygame.draw.line(self.screen, dark, (px + 1, mid), (px + TILE - 2, mid), 1)
-        if (mx + my) % 2 == 0:
-            pygame.draw.line(self.screen, dark, (px + TILE // 2, py + 1),
-                             (px + TILE // 2, mid - 1), 1)
-        else:
-            pygame.draw.line(self.screen, dark, (px + TILE // 2, mid),
-                             (px + TILE // 2, py + TILE - 2), 1)
-        pygame.draw.line(self.screen, light, (px + 1, py + 1),
-                         (px + TILE - 2, py + 1), 1)
+    def _light_gradient(self):
+        """Круглый градиент тьмы: 0 в центре, максимум к радиусу.
 
-    def _draw_floor(self, px, py, mx, my, vis):
-        if vis and self._tile_floor and not self._is_overworld:
-            self.screen.blit(self._tile_floor, (px, py)); return
-        if self._is_overworld:
-            base = (60, 110, 60) if vis else (30, 55, 30)
-            color = T.tint(base, mx, my, seed=7, amount=0.10)
-            pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
-            if vis:
-                h = (mx * 73856093) ^ (my * 19349663) ^ 7
-                if h % 7 == 0:
-                    pygame.draw.rect(self.screen, T.shade(color, 1.3),
-                                     (px + (h >> 4) % (TILE - 6) + 3,
-                                      py + (h >> 8) % (TILE - 6) + 3, 2, 3))
-            return
-        base = T.FLOOR if vis else T.FLOOR_DIM
-        color = T.tint(base, mx, my, seed=7, amount=0.10)
-        pygame.draw.rect(self.screen, color, (px, py, TILE - 1, TILE - 1))
-        if not vis:
-            return
-        h = (mx * 73856093) ^ (my * 19349663) ^ 7
-        mod = h % 5
-        if mod == 0:
-            dot = T.shade(color, 0.72)
-            pygame.draw.rect(self.screen, dot,
-                             (px + (h >> 4) % (TILE - 8) + 4,
-                              py + (h >> 12) % (TILE - 8) + 4, 3, 3))
-        elif mod == 1:
-            pygame.draw.line(self.screen, T.shade(color, 0.80),
-                             (px + 9, py + 9), (px + 22, py + 22), 1)
-        elif mod == 2:
-            pygame.draw.line(self.screen, T.shade(color, 0.85),
-                             (px + 4, py + TILE - 8), (px + 4, py + TILE - 4), 1)
+        Строится в половинном разрешении и растягивается — так в разы
+        дешевле, а на глаз разницы нет.
+        """
+        if self._light_grad is None:
+            radius = (FOV_RADIUS + 1) * TILE
+            half = max(1, radius // 2)
+            small = pygame.Surface((half * 2, half * 2), pygame.SRCALPHA)
+            small.fill((0, 0, 0, 115))
+            for r in range(half, 0, -2):
+                t = r / half
+                alpha = int(115 * t ** 1.7)
+                pygame.draw.circle(small, (0, 0, 0, alpha), (half, half), r)
+            self._light_grad = pygame.transform.smoothscale(
+                small, (radius * 2, radius * 2))
+        return self._light_grad
 
-    def _draw_stairs(self, px, py):
-        cx = px + TILE // 2
+    def _draw_darkness(self, game, cam_x, cam_y):
+        """Плавное затемнение к краю обзора — без ступеней по тайлам."""
+        size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
+        key = (id(game), int(self._rx(game.player)),
+               int(self._ry(game.player)), cam_x, cam_y, size)
+        if self._dark_key != key:
+            overlay = pygame.Surface(size, pygame.SRCALPHA)
+            overlay.fill((0, 0, 0, 120))
+            grad = self._light_gradient()
+            radius = grad.get_width() // 2
+            sx = (int(self._rx(game.player)) - cam_x) * TILE + TILE // 2
+            sy = (int(self._ry(game.player)) - cam_y) * TILE + TILE // 2
+            overlay.blit(grad, (sx - radius, sy - radius),
+                         special_flags=pygame.BLEND_RGBA_MIN)
+            self._dark_surface = overlay
+            self._dark_key = key
+        self.screen.blit(self._dark_surface, (0, 0))
+
+    def _draw_wall_shadows(self, game, cam_x, cam_y):
+        """Мягкая тень от стены на полу — стены «стоят», а не нарисованы."""
+        tiles = game.dungeon.tiles
+        for sy in range(config.VIEW_H):
+            for sx in range(config.VIEW_W):
+                mx, my = sx + cam_x, sy + cam_y
+                if (mx, my) not in game.visible:
+                    continue
+                if tiles[my][mx] == Tile.WALL:
+                    continue
+                px, py = sx * TILE, sy * TILE
+                if my > 0 and tiles[my - 1][mx] == Tile.WALL:
+                    self.screen.blit(self._wall_shadow_h, (px, py))
+                if mx > 0 and tiles[my][mx - 1] == Tile.WALL:
+                    self.screen.blit(self._wall_shadow_v, (px, py))
+
+    def _draw_wall(self, px, py, mx, my, light=1.0):
+        """Возвращает True, если это стена с факелом."""
         if self._is_overworld:
-            pygame.draw.rect(self.screen, (30, 30, 35),
-                             (px + 4, py + 2, TILE - 8, TILE - 6))
-            pygame.draw.rect(self.screen, (90, 90, 100),
-                             (px + 4, py + 2, TILE - 8, 4))
-            pygame.draw.rect(self.screen, (5, 5, 10),
-                             (px + 10, py + 10, TILE - 20, TILE - 16))
-            pygame.draw.polygon(self.screen, T.STAIRS,
-                                [(cx - 4, py + TILE - 8), (cx + 4, py + TILE - 8),
-                                 (cx, py + TILE - 3)])
+            variant, kind = Tiles.variant('tree', mx, my)
+            self.screen.blit(Tiles.get(kind, variant, light), (px, py))
+            return False
+        if self._tile_wall:
+            self.screen.blit(self._tile_wall, (px, py))
+            return False
+        variant, kind = Tiles.variant('wall', mx, my)
+        self.screen.blit(Tiles.get(kind, variant, light), (px, py))
+        return kind == 'wall_torch'
+
+    def _draw_floor(self, px, py, mx, my, light=1.0):
+        if self._is_overworld:
+            variant, kind = Tiles.variant('grass', mx, my)
+            self.screen.blit(Tiles.get(kind, variant, light), (px, py))
+            return
+        if self._tile_floor:
+            self.screen.blit(self._tile_floor, (px, py))
+            return
+        variant, kind = Tiles.variant('floor', mx, my)
+        self.screen.blit(Tiles.get(kind, variant, light), (px, py))
+
+    def _draw_stairs(self, px, py, light=1.0):
+        if self._is_overworld:
+            self.screen.blit(Tiles.get('cave', 0, light), (px, py))
             return
         if self._tile_stairs:
-            self.screen.blit(self._tile_stairs, (px, py)); return
-        pygame.draw.rect(self.screen, (8, 6, 12), (px + 3, py + 3, TILE - 6, TILE - 6))
-        for step_y, col in [(py + 7, (110, 100, 120)), (py + 12, (85, 75, 95)),
-                             (py + 17, (60, 50, 70)), (py + 22, (35, 28, 45))]:
-            pygame.draw.rect(self.screen, col, (px + 7, step_y, TILE - 14, 3))
-        pygame.draw.polygon(self.screen, (240, 210, 100),
-                            [(cx - 4, py + TILE - 9), (cx + 4, py + TILE - 9),
-                             (cx, py + TILE - 4)])
+            self.screen.blit(self._tile_stairs, (px, py))
+            return
+        self.screen.blit(Tiles.get('stairs', 0, light), (px, py))
 
-    def _draw_upstairs(self, px, py):
-        """Лестница наверх: зелёная стрелка + ступени."""
-        cx = px + TILE // 2
+    def _draw_upstairs(self, px, py, light=1.0):
         if self._tile_upstairs:
-            self.screen.blit(self._tile_upstairs, (px, py)); return
-        pygame.draw.rect(self.screen, (10, 14, 12),
-                         (px + 6, py + 3, TILE - 12, TILE - 6))
-        for i in range(4):
-            shade = 60 + i * 22
-            pygame.draw.rect(self.screen, (shade, shade + 20, shade),
-                             (px + 8, py + TILE - 12 - i * 7, TILE - 16, 4))
-        pygame.draw.polygon(self.screen, (130, 235, 140),
-                            [(cx - 6, py + 16), (cx + 6, py + 16), (cx, py + 7)])
-        pygame.draw.rect(self.screen, (130, 235, 140), (cx - 1, py + 16, 3, 7))
+            self.screen.blit(self._tile_upstairs, (px, py))
+            return
+        self.screen.blit(Tiles.get('upstairs', 0, light), (px, py))
 
-    def _draw_exit(self, px, py):
-        cx = px + TILE // 2
+    def _draw_exit(self, px, py, light=1.0):
         if self._tile_exit:
-            self.screen.blit(self._tile_exit, (px, py)); return
-        glow = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (255, 245, 180, 110), (TILE // 2, TILE // 2 - 6), 13)
-        self.screen.blit(glow, (px, py))
-        for step_y, col in [(py + TILE - 12, (75, 70, 85)), (py + TILE - 17, (105, 100, 115)),
-                             (py + TILE - 22, (140, 135, 150)), (py + TILE - 27, (180, 175, 190))]:
-            pygame.draw.rect(self.screen, col, (px + 7, step_y, TILE - 14, 3))
-        pygame.draw.arc(self.screen, (140, 210, 140),
-                        (px + 2, py + 1, TILE - 4, TILE - 6), 0, 3.14, 2)
-        pygame.draw.polygon(self.screen, (255, 230, 120),
-                            [(cx - 4, py + 7), (cx + 4, py + 7), (cx, py + 2)])
-        pygame.draw.rect(self.screen, (255, 230, 120), (cx - 1, py + 7, 2, 4))
+            self.screen.blit(self._tile_exit, (px, py))
+            return
+        self.screen.blit(Tiles.get('exit', 0, light), (px, py))
 
     def _draw_loot(self, game, cam_x, cam_y):
+        size = 48                     # чуть меньше тайла — не «кричит»
+        off = (TILE - size) // 2
         for (ix, iy), key in game.dungeon.items.items():
             if (ix, iy) not in game.visible:
                 continue
-            px = (ix - cam_x) * TILE
-            py = (iy - cam_y) * TILE
-            self.icons.draw_item(key, px, py, size=TILE)
+            px = (ix - cam_x) * TILE + off
+            py = (iy - cam_y) * TILE + off
+            self.icons.draw_item(key, px, py, size=size)
 
     def _draw_monsters(self, game, cam_x, cam_y):
         from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP, ANIM_ATTACK_AMP
@@ -265,7 +274,7 @@ class GameRenderer(BaseRenderer):
 
             self.screen.blit(self._shadow_sm, (px, py))
             sprite = MONSTER_SPRITES.get(m.ch, f"monster_{m.ch}")
-            img = Sprites.get(sprite, (TILE, TILE))
+            img = Sprites.get(sprite, (TILE, TILE), finish=True)
             if img:
                 self.screen.blit(img, (draw_x, draw_y))
             elif not self.icons.draw_monster(m.ch, draw_x, draw_y, size=TILE):
@@ -295,7 +304,7 @@ class GameRenderer(BaseRenderer):
         py = (self._ry(game.elder) - cam_y) * TILE
         bob = math.sin(game.elder.anim_time * 4.0) * 2
         self.screen.blit(self._shadow_sm, (px, py))
-        img = Sprites.get('npc/elder', (TILE, TILE))
+        img = Sprites.get('npc/elder', (TILE, TILE), finish=True)
         if img:
             self.screen.blit(img, (px, int(py + bob)))
         else:
@@ -310,7 +319,7 @@ class GameRenderer(BaseRenderer):
         py = (self._ry(game.merchant) - cam_y) * TILE
         bob = math.sin(game.merchant.anim_time * 4.0) * 2
         self.screen.blit(self._shadow_sm, (px, py))
-        img = Sprites.get('npc/merchant', (TILE, TILE))
+        img = Sprites.get('npc/merchant', (TILE, TILE), finish=True)
         if img:
             self.screen.blit(img, (px, int(py + bob)))
         else:
@@ -334,7 +343,7 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(self._shadow_lg, (px, py))
 
         # PNG по классу, если есть
-        img = Sprites.get(f'player/{game.player.class_key}', (TILE, TILE))
+        img = Sprites.get(f'player/{game.player.class_key}', (TILE, TILE), finish=True)
         if img:
             self.screen.blit(img, (draw_x, draw_y))
         else:

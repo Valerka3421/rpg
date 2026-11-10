@@ -151,6 +151,12 @@ def main():
         pygame.font.init()
 
     while True:
+        # Клиент мультиплеера мог завершить pygame (например, старые
+        # сборки звали pygame.quit()) — перед новым меню поднимаем его.
+        if not pygame.get_init():
+            pygame.init()
+        if not pygame.font.get_init():
+            pygame.font.init()
         settings_now = load_settings()
         flags = pygame.FULLSCREEN if settings_now.get('fullscreen') else 0
         screen = pygame.display.set_mode(

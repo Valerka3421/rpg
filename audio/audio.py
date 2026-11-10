@@ -19,7 +19,13 @@ class Audio:
     def init(cls, volume=7):
         cls._volume = volume
         if cls._initialized:
-            return
+            # Если pygame переинициализировали, микшер и Sound-объекты
+            # мертвы — генерируем звуки заново. Если звук изначально
+            # отключён, повторные попытки не делаем.
+            if pygame.mixer.get_init() or not cls._enabled:
+                return
+            cls._sounds.clear()
+            cls._initialized = False
         cls._initialized = True
         try:
             if not pygame.mixer.get_init():

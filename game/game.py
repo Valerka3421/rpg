@@ -397,7 +397,10 @@ class Game:
         tmp = path + '.tmp'
         try:
             with open(tmp, 'w', encoding='utf-8') as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
+                # Компактно: сейв — машинные данные, отступы раздували
+                # файл втрое (336 КБ против ~100 КБ).
+                json.dump(data, f, ensure_ascii=False,
+                          separators=(',', ':'))
             os.replace(tmp, path)
             if not silent:
                 self.log(f"Сохранено в слот {self.current_slot}.", COL_HEAL)
@@ -532,12 +535,17 @@ class Game:
                 from audio import Audio
                 Audio.play('stairs')
                 self.new_dungeon(self.depth + 1)
+            # Игрок появится на входной лестнице: без кулдауна удержание
+            # направления сразу же отправляет его обратно.
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
             return False
         elif tile == Tile.EXIT:
             self.exit_to_overworld()
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
             return False
         elif tile == Tile.UPSTAIRS:
             self.ascend()
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
             return False
         return True
 
@@ -1362,7 +1370,9 @@ class Game:
         self.monsters_update(dt)
         if self.dead:
             return
-        self.update_fov()
+        # FOV уже пересчитан выше при смене позиции игрока. Мобы и статусы
+        # не меняют геометрию обзора, поэтому второй вызов каждый кадр
+        # был чистой потерей ~0.4 мс.
 
     def draw(self):
         self.renderer.draw(self)

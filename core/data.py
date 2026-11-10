@@ -416,7 +416,9 @@ def make_shop_stock(depth):
 MONSTER_DROPS = {
     'r': [('gold_small', 0.60), ('mushroom', 0.25), ('rat_tail', 0.30)],
     'g': [('gold_small', 0.70), ('wood', 0.25), ('goblin_ear', 0.25)],
+    'a': [('gold_small', 0.55), ('wood', 0.25), ('goblin_ear', 0.30)],
     's': [('gold_medium', 0.45), ('stone', 0.30), ('bone', 0.45)],
+    'S': [('gold_medium', 0.40), ('mushroom', 0.30), ('goblin_ear', 0.35)],
     'O': [('gold_medium', 0.55), ('ore', 0.20), ('orc_tusk', 0.25)],
     'T': [('gold_medium', 0.60), ('wood', 0.40), ('ogre_leather', 0.35)],
     'D': [('gold_large', 0.30), ('ore', 0.35), ('demon_scale', 0.30)],

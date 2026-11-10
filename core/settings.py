@@ -28,8 +28,14 @@ def load_settings():
 
 
 def save_settings(settings):
+    """Атомарная запись: при сбое старый settings.json остаётся целым."""
+    tmp = SETTINGS_FILE + '.tmp'
     try:
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        with open(tmp, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=2)
+        os.replace(tmp, SETTINGS_FILE)
     except Exception:
-        pass
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass

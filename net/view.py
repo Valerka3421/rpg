@@ -329,7 +329,10 @@ class ClientView:
         p.level = pd['level']
         p.class_name = pd['name']
         p.gold = pd.get('gold', 0)
-        p.inventory = dict(pd.get('inventory', {}))
+        # Сервер присылает инвентарь только при изменении — иначе
+        # сохраняем уже известный, а не обнуляем его.
+        if 'inventory' in pd:
+            p.inventory = dict(pd['inventory'])
         # anim_time и attack_anim тикаем локально (см. tick)
         p.attack_anim = max(p.attack_anim, pd.get('attack_anim', 0.0))
         p.facing = tuple(pd.get('facing', [1, 0]))

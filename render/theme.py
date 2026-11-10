@@ -58,10 +58,13 @@ class Theme:
 
     @classmethod
     def init(cls):
-        if cls._initialized:
+        # После pygame.quit()/init() старые шрифты и кэш поверхностей
+        # недействительны, хотя _initialized остался True.
+        if cls._initialized and pygame.font.get_init():
             return
         if not pygame.font.get_init():
             pygame.font.init()
+        cls._initialized = False
         cls.FONT_H1    = pygame.font.SysFont("consolas", 40, bold=True)
         cls.FONT_H2    = pygame.font.SysFont("consolas", 22, bold=True)
         cls.FONT_BODY  = pygame.font.SysFont("consolas", 18)

@@ -35,11 +35,26 @@ def with_alpha(color, alpha):
 
 
 # ════════════════════ ДЕТЕРМИНИРОВАННЫЙ ШУМ ════════════════════
+def _mix32(value):
+    """Целочисленное перемешивание (splitmix-подобное) с лавинным эффектом."""
+    value &= 0xFFFFFFFF
+    value ^= value >> 16
+    value = (value * 0x7FEB352D) & 0xFFFFFFFF
+    value ^= value >> 15
+    value = (value * 0x846CA68B) & 0xFFFFFFFF
+    value ^= value >> 16
+    return value & 0xFFFFFFFF
+
+
 def hash01(x, y, seed=0):
-    """Стабильное «случайное» число 0..1 для координаты/варианта."""
-    h = (int(x) * 73856093) ^ (int(y) * 19349663) ^ (int(seed) * 83492791)
-    h &= 0x7FFFFFFF
-    return (h % 100003) / 100003.0
+    """Стабильное «случайное» число 0..1 для координаты/варианта.
+
+    Важно, чтобы соседние клетки не попадали в один и тот же вариант:
+    слабое перемешивание давало видимые прямоугольные «пятна» тайлов.
+    """
+    h = _mix32(int(x) * 0x27D4EB2D + int(y) * 0x165667B1
+               + int(seed) * 0x9E3779B1)
+    return (h & 0xFFFFFF) / 16777216.0
 
 
 def hash_int(x, y, seed=0, modulo=1000):
@@ -133,13 +148,17 @@ def finish(surface, outline=INK, width=1, shadow=True,
 
 # ════════════════════ СВЕТ ════════════════════
 def light_factor(distance, max_distance, inner=0.65, outer=1.0):
-    """Яркость тайла по расстоянию от игрока (1.0 — близко)."""
+    """Яркость тайла по расстоянию от игрока: 1.0 рядом, ``inner`` на краю.
+
+    Раньше формула была перевёрнута (дальние тайлы светлее ближних) —
+    теперь свет мягко убывает к границе видимости.
+    """
     if max_distance <= 0:
-        return 1.0
+        return outer
     t = min(1.0, max(0.0, distance / max_distance))
-    # мягкая S-кривая: у игрока ровный свет, к краю — заметное затемнение
+    # мягкая S-кривая
     t = t * t * (3 - 2 * t)
-    return inner + (outer - inner) * t
+    return outer + (inner - outer) * t
 
 
 def apply_light(surface, factor):
