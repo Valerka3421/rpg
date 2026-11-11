@@ -8,6 +8,7 @@ from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE, INVENTORY_PAGE_SIZE
 from core.entities import Player, Entity, Dungeon, Message
 from core.world import compute_fov
 from core.data import ITEMS, parse_item_key
+from game.dialogue_controller import DialogueController
 
 # За сколько секунд клиент «догоняет» позицию из снапшота
 INTERP_TIME = 0.06
@@ -50,7 +51,7 @@ class ClientView:
         self.chat_buffer = ''
         # Стабы для модалок
         self.menu = None
-        self.dialogue = None
+        self.dialogue = DialogueController(self)
         self.quests = _QuestStub()
         self.craft = _CraftStub()
         # UI
@@ -188,7 +189,30 @@ class ClientView:
                 entity.attack_anim = max(0.0, entity.attack_anim - dt / 0.25)
 
     # ════════════════════════ ВВОД: КЛАВИШИ ════════════════════════
+    def _npc_adjacent(self, npc):
+        return npc is not None and max(abs(self.player.x - npc.x),
+                                       abs(self.player.y - npc.y)) <= 1
+
+    def interact_npc(self):
+        """Открыть диалог с NPC, стоящим рядом. True — диалог открыт."""
+        if self.world_mode == 'overworld' and self._npc_adjacent(self.elder):
+            self.dialogue.open('elder')
+            return True
+        if self.world_mode == 'dungeon' and self._npc_adjacent(self.merchant):
+            self.dialogue.open('merchant')
+            return True
+        if self._npc_adjacent(self.elder):
+            self.dialogue.open('elder')
+            return True
+        if self._npc_adjacent(self.merchant):
+            self.dialogue.open('merchant')
+            return True
+        return False
+
     def handle_key(self, key):
+        if self.screen_mode == 'dialogue':
+            self.dialogue.handle_key(key)
+            return
         if self.screen_mode == 'shop':
             self._handle_shop_key(key)
             return
@@ -225,12 +249,10 @@ class ClientView:
                 potions.sort()
                 self.send_fn({'type': 'use_item', 'key': potions[0][1]})
         elif key in (pygame.K_t, pygame.K_RETURN):
-            # Торговец в MP: подойти и нажать T
-            if self.merchant and max(abs(self.player.x - self.merchant.x),
-                                     abs(self.player.y - self.merchant.y)) <= 1:
-                self.shop.page = 0
-                self.shop_submode = 'buy'
-                self.screen_mode = 'shop'
+            # Диалог с NPC в MP: старейшина на поверхности, торговец
+            # в подземелье. Дальше — выбор реплик/торговли в диалоге.
+            if not self.interact_npc():
+                self.log("Рядом нет NPC.", (110, 110, 130))
         elif key == pygame.K_y:
             self.chat_active = True
             self.chat_buffer = ''
@@ -291,6 +313,8 @@ class ClientView:
             return self._click_craft(pos)
         if self.screen_mode == 'shop':
             return self._click_shop(pos)
+        if self.screen_mode == 'dialogue':
+            return self.dialogue.handle_mouse_click(pos)
         return False
 
     def _hit(self, rect, pos):
@@ -516,6 +540,7 @@ class _ShopStub:
 
     def open(self):
         self.view.screen_mode = 'shop'
+        self.view.shop_submode = 'buy'
         self.page = 0
 
     def pages_count(self):

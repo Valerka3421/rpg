@@ -370,11 +370,15 @@ def test_mp_client_shop_opens_and_draws(renderer):
     view = ClientView()
     view.player.gold = 100
     view.depth = 3
+    view.world_mode = 'dungeon'
     view.screen_mode = 'game'
     view.merchant = Entity(view.player.x + 1, view.player.y, 1, 1, 0, 0,
                            "Торговец", "M", (240, 200, 100), 0)
     view.shop_stock = [{'key': 'potion_s', 'price': 5, 'sold': False}]
     view.handle_key(pygame.K_t)
+    assert view.screen_mode == 'dialogue'      # сначала диалог с NPC
+    assert view.dialogue.npc_type == 'merchant'
+    view.handle_key(pygame.K_RETURN)           # «Торговля»
     assert view.screen_mode == 'shop'
     renderer.draw(view)
     rows = view._ui_hits['shop']['rows']
@@ -390,6 +394,60 @@ def test_mp_client_shop_opens_and_draws(renderer):
     _, sell_rect = view._ui_hits['shop']['rows'][0]
     view.handle_mouse_click((sell_rect[0] + 3, sell_rect[1] + 3))
     assert sent[-1] == {'type': 'sell', 'idx': 0}
+
+
+# ════════════════════ 8б. Мультиплеер: диалоги с NPC ════════════════════
+def _mp_elder_view():
+    from net.view import ClientView
+    view = ClientView()
+    view.world_mode = 'overworld'
+    view.elder = Entity(view.player.x + 1, view.player.y, 1, 1, 0, 0,
+                        "Старейшина", "E", (240, 210, 100), 0)
+    view.elder.is_npc = True
+    view.elder.npc_type = 'elder'
+    return view
+
+
+def test_mp_elder_dialogue_opens_and_draws(renderer):
+    view = _mp_elder_view()
+    view.handle_key(pygame.K_t)
+    assert view.screen_mode == 'dialogue'
+    assert view.dialogue.npc_type == 'elder'
+    # квестов в MP нет — остаются «поговорить» и «уйти»
+    assert [opt[0] for opt in view.dialogue.options] == ['talk', 'close']
+    renderer.draw(view)                       # рисуется без ошибок
+    assert view._modal_close_rect is not None
+
+
+def test_mp_elder_dialogue_talks_and_closes(renderer):
+    view = _mp_elder_view()
+    view.handle_key(pygame.K_t)
+    first = view.dialogue.current_line
+    view.handle_key(pygame.K_RETURN)          # «Поговорить о мире»
+    assert view.screen_mode == 'dialogue'
+    assert view.dialogue.current_line != first
+    view.handle_key(pygame.K_DOWN)            # «Уйти»
+    view.handle_key(pygame.K_RETURN)
+    assert view.screen_mode == 'game'
+    view.handle_key(pygame.K_t)
+    view.handle_key(pygame.K_ESCAPE)
+    assert view.screen_mode == 'game'
+
+
+def test_mp_dialogue_mouse_click_closes(renderer):
+    view = _mp_elder_view()
+    view.handle_key(pygame.K_t)
+    renderer.draw(view)
+    _, rect = view.dialogue.button_rects()[-1]   # «Уйти»
+    view.handle_mouse_click((rect[0] + 5, rect[1] + 5))
+    assert view.screen_mode == 'game'
+
+
+def test_mp_no_npc_keeps_game_mode():
+    from net.view import ClientView
+    view = ClientView()
+    view.handle_key(pygame.K_t)
+    assert view.screen_mode == 'game'
 
 
 def test_mp_view_snapshot_updates_in_place(renderer):

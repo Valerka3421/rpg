@@ -36,23 +36,25 @@ class DialogueController:
         self.selection = 0
         self.lore_index = 0
 
-        # Квесты этого NPC становятся доступны при первом разговоре
-        from core.data import quests_by_giver
-        self.game.quest_log.add_available(quests_by_giver(npc_type))
+        # Квесты этого NPC становятся доступны при первом разговоре.
+        # В мультиплеере квестов нет: quest_log отсутствует, и пункт
+        # «Квесты» просто не показывается.
+        quest_log = getattr(self.game, 'quest_log', None)
+        if quest_log is not None:
+            from core.data import quests_by_giver
+            quest_log.add_available(quests_by_giver(npc_type))
 
         if npc_type == 'elder':
-            self.options = [
-                ('talk', 'Поговорить о мире'),
-                ('quests', 'Квесты'),
-                ('close', 'Уйти'),
-            ]
+            self.options = [('talk', 'Поговорить о мире')]
+            if quest_log is not None:
+                self.options.append(('quests', 'Квесты'))
+            self.options.append(('close', 'Уйти'))
             self.current_line = LORE_ELDER[0]
         elif npc_type == 'merchant':
-            self.options = [
-                ('shop', 'Торговля'),
-                ('quests', 'Квесты'),
-                ('close', 'Уйти'),
-            ]
+            self.options = [('shop', 'Торговля')]
+            if quest_log is not None:
+                self.options.append(('quests', 'Квесты'))
+            self.options.append(('close', 'Уйти'))
             self.current_line = LORE_MERCHANT[0]
         self.game.screen_mode = 'dialogue'
 
