@@ -46,6 +46,7 @@ class GameRenderer(BaseRenderer):
         # Кэши: карта и основа миникарты перерисовываются редко
         self._map_surface = None
         self._map_key = None
+        self._field_surface = None
         self._light_grad = None
         self._dark_surface = None
         self._dark_key = None
@@ -79,15 +80,31 @@ class GameRenderer(BaseRenderer):
         px, py = self._rx(game.player), self._ry(game.player)
         cam_x = max(0, min(int(px) - config.VIEW_W // 2, MAP_W - config.VIEW_W))
         cam_y = max(0, min(int(py) - config.VIEW_H // 2, MAP_H - config.VIEW_H))
-        self._draw_map_cached(game, cam_x, cam_y)
-        self._draw_loot(game, cam_x, cam_y)
-        self._draw_monsters(game, cam_x, cam_y)
-        self._draw_merchant(game, cam_x, cam_y)
-        self._draw_elder(game, cam_x, cam_y)
-        self._draw_player(game, cam_x, cam_y)
-        for remote in self.visible_remotes(game):
-            self._draw_remote_player(remote, cam_x, cam_y)
-        self._draw_floats(game, cam_x, cam_y)
+
+        # Поле рисуется в собственную поверхность и блитится по центру
+        # области над HUD. Так остаток пикселей от целочисленного VIEW_W/H
+        # распределяется по краям, а не уходит в один чёрный угол.
+        size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
+        if self._field_surface is None or self._field_surface.get_size() != size:
+            self._field_surface = pygame.Surface(size)
+        previous = self.screen
+        self.screen = self._field_surface
+        try:
+            self._field_surface.fill(T.BG)
+            self._draw_map_cached(game, cam_x, cam_y)
+            self._draw_loot(game, cam_x, cam_y)
+            self._draw_monsters(game, cam_x, cam_y)
+            self._draw_merchant(game, cam_x, cam_y)
+            self._draw_elder(game, cam_x, cam_y)
+            self._draw_player(game, cam_x, cam_y)
+            for remote in self.visible_remotes(game):
+                self._draw_remote_player(remote, cam_x, cam_y)
+            self._draw_floats(game, cam_x, cam_y)
+        finally:
+            self.screen = previous
+
+        ox, oy = config.view_origin()
+        self.screen.blit(self._field_surface, (ox, oy))
         self.draw_toolbar(game)
 
     def _draw_map_cached(self, game, cam_x, cam_y):
@@ -399,7 +416,7 @@ class GameRenderer(BaseRenderer):
 
     # ════════════════════════ HUD ════════════════════════
     def draw_hud(self, game):
-        y0 = config.VIEW_H * TILE
+        y0 = config.SCREEN_H - config.HUD_HEIGHT
         pygame.draw.rect(self.screen, T.BG_HUD, (0, y0, config.SCREEN_W, config.SCREEN_H - y0))
         pygame.draw.line(self.screen, T.PANEL_BORDER_DARK, (0, y0), (config.SCREEN_W, y0), 1)
 

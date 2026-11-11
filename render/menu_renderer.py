@@ -120,7 +120,7 @@ class MenuRenderer(BaseRenderer):
                       rect[1] + rect[3] // 2, color,
                       font=T.FONT_H2, center=True)
 
-        self.text("Enter — подключиться · Esc — назад",
+        self.text("Enter — подключиться · Ctrl+V — вставить · Esc — назад",
                   cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 

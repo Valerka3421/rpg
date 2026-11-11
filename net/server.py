@@ -5,6 +5,7 @@ import json
 import time
 import os
 import argparse
+from core.config import DATA_DIR
 from net.core import GameCore
 
 
@@ -21,9 +22,8 @@ class Server:
         self._sock = None
         self.client_tokens = {}
         self.saved_players = {}
-        _base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.world_save_path = os.path.join(_base, 'savegame_mp_world.json')
-        self.players_save_path = os.path.join(_base, 'savegame_mp_players.json')
+        self.world_save_path = os.path.join(DATA_DIR, 'savegame_mp_world.json')
+        self.players_save_path = os.path.join(DATA_DIR, 'savegame_mp_players.json')
         self._load_saved_players()
 
     def _load_saved_players(self):

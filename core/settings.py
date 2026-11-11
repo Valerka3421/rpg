@@ -1,10 +1,10 @@
 """Настройки игры — сохранение/загрузка settings.json."""
 import os
 import json
-from core.config import BASE_DIR
+from core.config import DATA_DIR
 
 
-SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
+SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 
 DEFAULTS = {
     'volume': 7,

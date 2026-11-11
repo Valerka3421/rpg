@@ -88,6 +88,7 @@ class SettingsMenu:
         self.settings = settings
         self.save_fn = save_fn
         self.selected = 0
+        self.display_changed = False
         self._build_rows()
 
     def _build_rows(self):
@@ -95,6 +96,7 @@ class SettingsMenu:
             ('Громкость', f"{self.settings.get('volume', 7)} / 10"),
             ('Показать FPS', 'Вкл' if self.settings.get('show_fps') else 'Выкл'),
             ('Мини-карта', 'Вкл' if self.settings.get('show_minimap', True) else 'Выкл'),
+            ('Полный экран', 'Вкл' if self.settings.get('fullscreen') else 'Выкл'),
         ]
 
     def handle_key(self, key):
@@ -122,6 +124,9 @@ class SettingsMenu:
             self.settings['show_fps'] = not self.settings.get('show_fps')
         elif self.selected == 2:
             self.settings['show_minimap'] = not self.settings.get('show_minimap', True)
+        elif self.selected == 3:
+            self.settings['fullscreen'] = not self.settings.get('fullscreen', False)
+            self.display_changed = True
         self._build_rows()
         try:
             self.save_fn(self.settings)
@@ -344,7 +349,8 @@ class Client:
 
         pygame.init()
         Audio.init(volume=_s.get('volume', 7))
-        screen = pygame.display.set_mode((SW, SH))
+        flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
+        screen = pygame.display.set_mode((SW, SH), flags)
         pygame.display.set_caption("Этельгард MP")
 
         if self.skip_class_select:
@@ -383,6 +389,19 @@ class Client:
 
         pause = PauseMenu(SW, SH, is_host=self.is_host)
         settings_menu = SettingsMenu(SW, SH, _s, save_settings)
+        fps_font = pygame.font.SysFont("consolas", 14)
+
+        def apply_display():
+            """Применить полноэкранный режим и перепривязать рендереры."""
+            nonlocal screen
+            flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
+            screen = pygame.display.set_mode((SW, SH), flags)
+            renderer.screen = screen
+            for sub in ('menu', 'game', 'screens', 'overlay', 'icons'):
+                r = getattr(renderer, sub, None)
+                if r is not None and hasattr(r, 'screen'):
+                    r.screen = screen
+
         mode = 'game'             # 'game' | 'pause' | 'settings'
         last_send = 0.0
         last_attack_send = 0.0
@@ -391,6 +410,9 @@ class Client:
 
         while self.running:
             dt = clock.tick(60) / 1000.0
+            if settings_menu.display_changed:
+                settings_menu.display_changed = False
+                apply_display()
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.running = False
@@ -481,6 +503,11 @@ class Client:
                 pause.draw(screen)
             elif mode == 'settings':
                 settings_menu.draw(screen)
+
+            if _s.get('show_fps'):
+                fps = clock.get_fps()
+                surf = fps_font.render(f"FPS {fps:.0f}", True, (150, 150, 150))
+                screen.blit(surf, (config.SCREEN_W - surf.get_width() - 8, 4))
 
             pygame.display.flip()
 

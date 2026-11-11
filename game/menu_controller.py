@@ -7,6 +7,50 @@ from core.save import (save_slot_path, save_slot_exists)
 from core.settings import save_settings
 
 
+# Допустимые символы адреса хоста: IPv4, имя хоста и порт.
+_MP_HOST_CHARS = set('abcdefghijklmnopqrstuvwxyz0123456789.-:')
+
+
+def read_clipboard_text():
+    """Текст из системного буфера обмена (без падения, если он недоступен)."""
+    try:
+        if not pygame.scrap.get_init():
+            pygame.scrap.init()
+        data = pygame.scrap.get(pygame.SCRAP_TEXT)
+        if data:
+            if isinstance(data, bytes):
+                data = data.decode('utf-8', 'ignore')
+            return data.replace('\x00', '')
+    except Exception:
+        pass
+    # Запасной путь для платформ, где scrap не работает (например, Wayland).
+    try:
+        import tkinter
+        root = tkinter.Tk()
+        root.withdraw()
+        try:
+            return root.clipboard_get()
+        finally:
+            root.destroy()
+    except Exception:
+        return ''
+
+
+def _key_to_char(key):
+    """Символ по коду клавиши, когда event.unicode пуст (раскладка/тесты)."""
+    if pygame.K_a <= key <= pygame.K_z:
+        return chr(key)
+    if pygame.K_0 <= key <= pygame.K_9:
+        return chr(key)
+    if key in (pygame.K_PERIOD, pygame.K_KP_PERIOD):
+        return '.'
+    if key == pygame.K_MINUS:
+        return '-'
+    if key == pygame.K_COLON:
+        return ':'
+    return ''
+
+
 class MenuController:
     MENU_START = ('start', 'load', 'multiplayer', 'settings', 'exit')
     MENU_PAUSE = ('resume', 'save', 'load', 'settings', 'exit_to_menu')
@@ -222,9 +266,9 @@ class MenuController:
     def _has_mp_save(self):
         """Есть ли сохранение мультиплеера (мир или игроки)."""
         import os
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        from core.config import DATA_DIR
         for fname in ('savegame_mp_world.json', 'savegame_mp_players.json'):
-            if os.path.exists(os.path.join(base, fname)):
+            if os.path.exists(os.path.join(DATA_DIR, fname)):
                 return True
         return False
 
@@ -269,6 +313,18 @@ class MenuController:
         elif choice == 'join':
             self.game.screen_mode = 'menu_mp_join'
 
+    def _paste_mp_ip(self):
+        """Вставить адрес из буфера обмена, отбросив лишние символы."""
+        text = read_clipboard_text()
+        if not text:
+            return
+        cleaned = ''.join(ch for ch in text.strip().lower()
+                          if ch in _MP_HOST_CHARS)
+        if not cleaned:
+            return
+        room = max(0, 40 - len(self.mp_ip))
+        self.mp_ip = (self.mp_ip + cleaned[:room])[:40]
+
     def _connect_mp(self):
         host = self.mp_ip.strip() or 'localhost'
         self.game.pending_multiplayer = {
@@ -278,7 +334,7 @@ class MenuController:
         }
 
     # ── Input ──
-    def handle_key(self, key, scancode=0):
+    def handle_key(self, key, scancode=0, unicode='', mods=0):
         from audio import Audio
         m = self.game.screen_mode
         # ─────────── Мультиплеер: выбор ───────────
@@ -298,24 +354,24 @@ class MenuController:
 
         # ─────────── Мультиплеер: ввод IP ───────────
         if m == 'menu_mp_join':
+            ctrl = bool(mods & pygame.KMOD_CTRL) if pygame.KMOD_CTRL else False
+            # На нелатинской раскладке Ctrl+V приходит другим кодом,
+            # поэтому ловим ещё и управляющий символ \x16.
+            if ctrl and (key == pygame.K_v or unicode == '\x16'):
+                self._paste_mp_ip()
+                return
             if key == pygame.K_BACKSPACE:
                 self.mp_ip = self.mp_ip[:-1]
-            elif key == pygame.K_RETURN:
+            elif key in (pygame.K_RETURN, pygame.K_KP_ENTER):
                 self._connect_mp()
             elif key == pygame.K_ESCAPE:
                 self.game.screen_mode = 'menu_multiplayer'
-            elif pygame.K_a <= key <= pygame.K_z:
-                if len(self.mp_ip) < 40:
-                    self.mp_ip += chr(key).lower()
-            elif pygame.K_0 <= key <= pygame.K_9:
-                if len(self.mp_ip) < 40:
-                    self.mp_ip += chr(key)
-            elif key in (pygame.K_PERIOD, pygame.K_DECIMAL):
-                if len(self.mp_ip) < 40:
-                    self.mp_ip += '.'
-            elif key == pygame.K_MINUS:
-                if len(self.mp_ip) < 40:
-                    self.mp_ip += '-'
+            elif not ctrl and len(self.mp_ip) < 40:
+                # event.unicode не зависит от раскладки: на русской
+                # клавиатуре «.» приходит сюда, а не как K_PERIOD.
+                ch = (unicode or _key_to_char(key)).lower()
+                if len(ch) == 1 and ch in _MP_HOST_CHARS:
+                    self.mp_ip += ch
             return
 
         if m == 'menu':

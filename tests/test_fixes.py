@@ -404,3 +404,144 @@ def test_mp_view_snapshot_updates_in_place(renderer):
     assert view.screen_mode == 'game'
     renderer.draw(view)                          # рисуется без ошибок
 
+
+
+# ════════════════════ 9. Поле по центру при смене разрешения ════════════════════
+def test_view_origin_centers_field_above_hud():
+    from core import config
+
+    original = (config.SCREEN_W, config.SCREEN_H)
+    try:
+        for width, height in config.RESOLUTIONS:
+            config.set_resolution(width, height)
+            ox, oy = config.view_origin()
+            field_w = config.VIEW_W * config.TILE
+            field_h = config.VIEW_H * config.TILE
+            # поле не вылезает за экран и за пределы области над HUD
+            assert ox >= 0 and oy >= 0
+            assert ox + field_w <= width
+            assert oy + field_h <= height - config.HUD_HEIGHT
+            # остаток пикселей делится на два края, а не уходит в один
+            assert abs(ox - (width - field_w - ox)) <= 1
+            assert abs(oy - (height - config.HUD_HEIGHT - field_h - oy)) <= 1
+    finally:
+        config.set_resolution(*original)
+
+
+def test_handle_key_accepts_event_unicode_and_mods(make_game):
+    g = make_game()
+    g.screen_mode = 'menu_mp_join'
+    g.menu.mp_ip = ''
+
+    # русская раскладка присылает unicode '.', а не K_PERIOD
+    g.handle_key(pygame.K_UNKNOWN, 0, '.', 0)
+    assert g.menu.mp_ip == '.'
+
+    # запасной путь по коду клавиши (нумпад и основная точка)
+    g.handle_key(pygame.K_KP_PERIOD)
+    g.handle_key(pygame.K_PERIOD)
+    assert g.menu.mp_ip == '...'
+
+    # цифры, дефис и двоеточие тоже набираются
+    g.handle_key(pygame.K_1, 0, '1', 0)
+    g.handle_key(pygame.K_MINUS, 0, '-', 0)
+    g.handle_key(pygame.K_COLON, 0, ':', 0)
+    assert g.menu.mp_ip == '...1-:'
+
+
+def test_join_page_ignores_keys_without_handler(make_game):
+    g = make_game()
+    g.screen_mode = 'menu_mp_join'
+    g.menu.mp_ip = 'host'
+    for key in (0, pygame.K_F1, pygame.K_INSERT, pygame.K_HOME,
+                pygame.K_KP_PLUS, pygame.K_RCTRL):
+        g.handle_key(key)                      # не должно быть исключений
+    assert g.menu.mp_ip == 'host'
+
+
+def test_join_page_ctrl_v_pastes_and_sanitizes(make_game, monkeypatch):
+    import game.menu_controller as menu_mod
+
+    g = make_game()
+    g.screen_mode = 'menu_mp_join'
+    g.menu.mp_ip = ''
+
+    monkeypatch.setattr(menu_mod, 'read_clipboard_text',
+                        lambda: '  192.168.0.10\r\n')
+    g.handle_key(pygame.K_v, 0, 'v', pygame.KMOD_CTRL)
+    assert g.menu.mp_ip == '192.168.0.10'
+
+    # нелатинская раскладка: другой keycode, но тот же Ctrl+V
+    g.menu.mp_ip = ''
+    g.handle_key(pygame.K_m, 0, '\x16', pygame.KMOD_CTRL)
+    assert g.menu.mp_ip == '192.168.0.10'
+
+    monkeypatch.setattr(menu_mod, 'read_clipboard_text', lambda: '')
+    before = g.menu.mp_ip
+    g.handle_key(pygame.K_v, 0, 'v', pygame.KMOD_CTRL)
+    assert g.menu.mp_ip == before              # пустой буфер ничего не ломает
+
+    # лишние символы отбрасываются, длина ограничена 40
+    monkeypatch.setattr(menu_mod, 'read_clipboard_text',
+                        lambda: 'x' * 100 + '!?/')
+    g.menu.mp_ip = ''
+    g.handle_key(pygame.K_v, 0, 'v', pygame.KMOD_CTRL)
+    assert g.menu.mp_ip == 'x' * 40
+
+
+def test_settings_file_lives_in_writable_data_dir():
+    from core import config
+    from core import settings
+
+    assert settings.SETTINGS_FILE == os.path.join(config.DATA_DIR,
+                                                  'settings.json')
+    assert os.path.isdir(config.DATA_DIR)
+
+
+def test_writable_data_dir_is_exe_dir_when_frozen(tmp_path, monkeypatch):
+    from core import config
+
+    fake_exe = tmp_path / 'Ethelgard.exe'
+    fake_exe.write_text('exe', encoding='utf-8')
+    monkeypatch.delenv('ETHELGARD_DATA_DIR', raising=False)
+    monkeypatch.setattr(config.sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(config.sys, 'executable', str(fake_exe))
+
+    assert config._writable_data_dir() == str(tmp_path)
+    assert not (tmp_path / '.write_test').exists()   # пробный файл удалён
+
+
+def test_writable_data_dir_env_override(tmp_path, monkeypatch):
+    from core import config
+
+    target = tmp_path / 'portable-data'
+    monkeypatch.setenv('ETHELGARD_DATA_DIR', str(target))
+
+    assert config._writable_data_dir() == os.path.abspath(str(target))
+    assert target.is_dir()
+
+
+# ════════════════════ 10. Мультиплеер: FPS и полный экран ════════════════════
+def test_mp_settings_has_fullscreen_toggle():
+    from net.client import SettingsMenu
+
+    settings = {'volume': 7, 'show_fps': False, 'show_minimap': True,
+                'fullscreen': False}
+    saved = []
+    menu = SettingsMenu(1280, 720, settings, saved.append)
+
+    labels = [label for label, _ in menu.rows]
+    assert 'Показать FPS' in labels
+    assert 'Полный экран' in labels
+
+    for _ in range(labels.index('Полный экран')):
+        menu.handle_key(pygame.K_DOWN)
+    menu.handle_key(pygame.K_RETURN)
+    assert settings['fullscreen'] is True
+    assert menu.display_changed is True
+    assert saved and saved[-1]['fullscreen'] is True
+    assert dict(menu.rows)['Полный экран'] == 'Вкл'
+
+    menu.handle_key(pygame.K_RETURN)
+    assert settings['fullscreen'] is False
+    assert dict(menu.rows)['Полный экран'] == 'Выкл'

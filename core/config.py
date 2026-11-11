@@ -12,6 +12,39 @@ if hasattr(sys, '_MEIPASS'):
 else:
     ASSETS_DIR = os.path.join(BASE_DIR, 'assets')
 
+
+def _writable_data_dir():
+    """Каталог для settings.json и сейвов.
+
+    В onefile-exe `__file__` смотрит во временную папку PyInstaller, которая
+    удаляется при выходе, поэтому настройки «не сохранялись». Сначала
+    пробуем папку рядом с exe (portable-режим), а если она только для
+    чтения — %APPDATA%/Ethelgard.
+    """
+    env = os.environ.get('ETHELGARD_DATA_DIR')
+    if env:
+        target = os.path.abspath(os.path.expanduser(env))
+    elif getattr(sys, 'frozen', False):
+        target = os.path.dirname(os.path.abspath(sys.executable))
+        try:
+            probe = os.path.join(target, '.write_test')
+            with open(probe, 'w', encoding='utf-8') as f:
+                f.write('ok')
+            os.remove(probe)
+        except OSError:
+            base = os.environ.get('APPDATA') or os.path.expanduser('~')
+            target = os.path.join(base, 'Ethelgard')
+    else:
+        target = BASE_DIR
+    try:
+        os.makedirs(target, exist_ok=True)
+    except OSError:
+        target = BASE_DIR
+    return target
+
+
+DATA_DIR = _writable_data_dir()
+
 # ── Базовые размеры ──
 TILE = 64
 HUD_HEIGHT = 170
@@ -40,6 +73,17 @@ def set_resolution(width, height):
     SCREEN_H = height
     VIEW_W = width // TILE
     VIEW_H = (height - HUD_HEIGHT) // TILE
+
+
+def view_origin():
+    """Левый верхний угол игрового поля.
+
+    Поле — целое число тайлов, поэтому при некоторых разрешениях остаётся
+    несколько пикселей. Центрируем его в области над HUD, иначе карта
+    прижимается к левому верхнему углу и смотрится «съехавшей».
+    """
+    return ((SCREEN_W - VIEW_W * TILE) // 2,
+            (SCREEN_H - HUD_HEIGHT - VIEW_H * TILE) // 2)
 
 
 # ── Игровые параметры ──

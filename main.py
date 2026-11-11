@@ -100,7 +100,8 @@ def _run_game_loop(game, screen, clock):
                         and not game.dead and not game.victory):
                     game.open_menu(from_game=True)
                     continue
-                game.handle_key(event.key, event.scancode)
+                game.handle_key(event.key, event.scancode,
+                                event.unicode, event.mod)
 
         keys = pygame.key.get_pressed()
         game.handle_input_continuous(keys)
@@ -177,7 +178,7 @@ def main():
         if mode == 'mp_host':
             if result.get('fresh_start'):
                 import os as _os
-                _base = _os.path.dirname(_os.path.abspath(__file__))
+                _base = config.DATA_DIR
                 for fname in ('savegame_mp_world.json',
                               'savegame_mp_players.json'):
                     try:

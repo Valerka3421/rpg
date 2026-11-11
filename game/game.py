@@ -935,12 +935,12 @@ class Game:
         return True
 
     # ════════════════════════ МАРШРУТИЗАЦИЯ INPUT ════════════════════════
-    def handle_key(self, key, scancode=0):
+    def handle_key(self, key, scancode=0, unicode='', mods=0):
         # Меню и все его подэкраны
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
                                 'menu_multiplayer', 'menu_mp_join'):
-            self.menu.handle_key(key, scancode);
+            self.menu.handle_key(key, scancode, unicode, mods);
             return
         if self.screen_mode == 'shop':
             self.shop.handle_key(key); return
@@ -1105,8 +1105,13 @@ class Game:
         from core.config import TILE, MAP_W, MAP_H
         cam_x = max(0, min(self.player.x - config.VIEW_W // 2, MAP_W - config.VIEW_W))
         cam_y = max(0, min(self.player.y - config.VIEW_H // 2, MAP_H - config.VIEW_H))
-        tx = mx // TILE + cam_x
-        ty = my // TILE + cam_y
+        ox, oy = config.view_origin()
+        field_w = config.VIEW_W * TILE
+        field_h = config.VIEW_H * TILE
+        if not (ox <= mx < ox + field_w and oy <= my < oy + field_h):
+            return False
+        tx = (mx - ox) // TILE + cam_x
+        ty = (my - oy) // TILE + cam_y
 
         if (self.world_mode == 'overworld' and self.elder
                 and (tx, ty) == (self.elder.x, self.elder.y)

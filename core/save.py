@@ -1,7 +1,11 @@
 """Сериализация + слоты + dungeon_cache."""
 import os
 import json
-from core.config import MAP_W, MAP_H, BASE_DIR, Tile
+from core.config import MAP_W, MAP_H, DATA_DIR, Tile
+
+# Имя BASE_DIR сохранено для тестов/совместимости, но указывает на
+# записываемый каталог (рядом с exe или в %APPDATA%), а не на _MEIPASS.
+BASE_DIR = DATA_DIR
 from core.data import xp_to_next
 from core.entities import Entity, Player, Room, Dungeon
 
