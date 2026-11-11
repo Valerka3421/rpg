@@ -187,50 +187,200 @@ class ScreensRenderer(BaseRenderer):
         return f"DEF = 0 + {df_part} DEF + {armor} = {df_part + armor}"
 
     # ════════════════════════ ИНВЕНТАРЬ ════════════════════════
+    @staticmethod
+    def _in_rect(rect, pos):
+        x, y, w, h = rect
+        return x <= pos[0] <= x + w and y <= pos[1] <= y + h
+
     def draw_inventory(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
-        from core.config import INVENTORY_PAGE_SIZE
+        from core.config import INVENTORY_COLS, INVENTORY_ROWS
         p = game.player
-        game._ui_hits['inventory'] = {'items': [], 'equip': []}
+        game._ui_hits['inventory'] = {'items': [], 'equip': [], 'pages': []}
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        hovered = None
 
         self.text("ИНВЕНТАРЬ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
                   align_right=True)
+        self.text("Q/E — страницы", self._modal_right(game), cy0 + 34,
+                  T.TEXT_MUTED, font=T.FONT_SMALL, align_right=True)
         y = cy0 + 56
         y = T.section(self.screen, cx0, y, cw, "Снаряжение")
 
         row_w = cw
         if p.weapon:
-            self._draw_equip(cx0, y, "Оружие", p.weapon, "U", "ATK")
-            game._ui_hits['inventory']['equip'].append(('weapon', (cx0, y, row_w, 30)))
+            rect = (cx0, y, row_w, 32)
+            if self._in_rect(rect, (mx, my)):
+                T.rounded_rect(self.screen, T.ROW_HOVER,
+                               (cx0 - 6, y - 2, row_w + 12, 36),
+                               radius=6, border_color=T.ROW_BORDER)
+                hovered = ('equip', p.weapon)
+            self._draw_equip(cx0 + 4, y, "Оружие", p.weapon, "U", "ATK")
+            game._ui_hits['inventory']['equip'].append(('weapon', rect))
         else:
             self.text("  Оружие: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
         y += 36
 
         if p.armor:
-            self._draw_equip(cx0, y, "Броня", p.armor, "V", "DEF")
-            game._ui_hits['inventory']['equip'].append(('armor', (cx0, y, row_w, 30)))
+            rect = (cx0, y, row_w, 32)
+            if self._in_rect(rect, (mx, my)):
+                T.rounded_rect(self.screen, T.ROW_HOVER,
+                               (cx0 - 6, y - 2, row_w + 12, 36),
+                               radius=6, border_color=T.ROW_BORDER)
+                hovered = ('equip', p.armor)
+            self._draw_equip(cx0 + 4, y, "Броня", p.armor, "V", "DEF")
+            game._ui_hits['inventory']['equip'].append(('armor', rect))
         else:
             self.text("  Броня: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
         y += 44
 
         y = T.section(self.screen, cx0, y, cw, "Рюкзак")
         items = sorted(p.inventory.items())
-        if not items:
-            self.text("  (пусто)", cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
-            return
-        total = max(1, (len(items) + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE)
+        total = max(1, (len(items) + INVENTORY_PAGE_SIZE - 1)
+                    // INVENTORY_PAGE_SIZE)
         page = min(game.inv_page, total - 1)
+        game.inv_page = page
         start = page * INVENTORY_PAGE_SIZE
-        for i, (key, count) in enumerate(items[start:start + INVENTORY_PAGE_SIZE]):
-            row_y = y
-            game._ui_hits['inventory']['items'].append((key, (cx0, row_y, row_w, 42)))
-            y = self._draw_item_row(cx0, y, i + 1, key, count, p.level, game)
-        if total > 1:
-            self.text(f"Стр. {page + 1}/{total}",
-                      self._modal_right(game), y + 6,
-                      T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
+        page_items = items[start:start + INVENTORY_PAGE_SIZE]
+
+        # Сетка: 3×3 предметов на страницу. Ячейки одинакового размера,
+        # поэтому предметы не «прыгают» при смене содержимого.
+        gap = 12
+        cols, rows = INVENTORY_COLS, INVENTORY_ROWS
+        avail_h = (cy0 + ch) - y - 46
+        cell_w = min(220, (cw - gap * (cols - 1)) // cols)
+        cell_h = max(88, min(152, (avail_h - gap * (rows - 1)) // rows))
+        grid_w = cols * cell_w + gap * (cols - 1)
+        grid_x = cx0 + (cw - grid_w) // 2
+
+        for idx in range(INVENTORY_PAGE_SIZE):
+            row, col = divmod(idx, cols)
+            rect = (grid_x + col * (cell_w + gap),
+                    y + row * (cell_h + gap), cell_w, cell_h)
+            if idx < len(page_items):
+                key, count = page_items[idx]
+                hover = self._in_rect(rect, (mx, my))
+                self._draw_inv_slot(key, count, rect, p.level, game, hover)
+                game._ui_hits['inventory']['items'].append((key, rect))
+                if hover:
+                    hovered = ('item', (key, count))
+            else:
+                T.rounded_rect(self.screen, (25, 22, 18), rect, radius=8,
+                               border_color=(48, 42, 32))
+
+        grid_bottom = y + rows * cell_h + (rows - 1) * gap
+        if not page_items:
+            self.text("Рюкзак пуст", grid_x + grid_w // 2,
+                      y + (rows * cell_h + (rows - 1) * gap) // 2,
+                      T.TEXT_MUTED, font=T.FONT_BODY, center=True)
+
+        # ── Страницы ──
+        page_y = grid_bottom + 10
+        bw, bh = 38, 28
+        prev_rect = (grid_x, page_y, bw, bh)
+        next_rect = (grid_x + grid_w - bw, page_y, bw, bh)
+        self._draw_page_button("‹", prev_rect, page > 0, page > 0 and
+                               self._in_rect(prev_rect, (mx, my)))
+        self._draw_page_button("›", next_rect, page < total - 1,
+                               page < total - 1 and
+                               self._in_rect(next_rect, (mx, my)))
+        self.text(f"Стр. {page + 1}/{total}", cx0 + cw // 2, page_y + 4,
+                  T.TEXT_DIM, font=T.FONT_SMALL, center=True)
+        game._ui_hits['inventory']['pages'] = [
+            ('prev', prev_rect), ('next', next_rect),
+        ]
+
+        if hovered:
+            self._draw_inventory_tooltip(game, hovered, (mx, my))
+
+    def _draw_inv_slot(self, key, count, rect, player_level, game, hover):
+        x, y, w, h = rect
+        bg = (58, 49, 35) if hover else (32, 28, 22)
+        border = T.ROW_BORDER if hover else T.PANEL_BORDER
+        T.rounded_rect(self.screen, bg, rect, radius=8, border_color=border)
+
+        icon_size = max(40, min(64, h - 50))
+        self.icons.draw_item(key, x + (w - icon_size) // 2, y + 8,
+                             size=icon_size)
+
+        base, _ = parse_item_key(key)
+        it = ITEMS.get(base, {})
+        lvl_req = it.get('level_req', 1)
+        color = item_display_color(key)
+        if lvl_req > 1 and player_level < lvl_req:
+            color = T.HP_CRIT
+        label = self.fit_text(item_display_name(key), w - 14, T.FONT_SMALL)
+        self.text(label, x + w // 2, y + h - 22, color,
+                  font=T.FONT_SMALL, center=True)
+
+        if count > 1:
+            badge = T.render(f"x{count}", (255, 240, 190), T.FONT_TINY)
+            bw, bh = badge.get_width() + 8, badge.get_height() + 2
+            bx, by = x + w - bw - 5, y + 5
+            T.rounded_rect(self.screen, (44, 36, 22), (bx, by, bw, bh),
+                           radius=6, border_color=(120, 96, 52))
+            self.screen.blit(badge, (bx + 4, by + 1))
+
+    def _draw_page_button(self, label, rect, enabled, hover):
+        bg = T.ROW_HOVER if enabled and hover else (30, 27, 21)
+        border = T.ROW_BORDER if enabled else T.PANEL_BORDER_DARK
+        T.rounded_rect(self.screen, bg, rect, radius=6, border_color=border)
+        self.text(label, rect[0] + rect[2] // 2, rect[1] + rect[3] // 2 - 2,
+                  T.TEXT if enabled else T.TEXT_MUTED,
+                  font=T.FONT_BODY, center=True)
+
+    def _draw_inventory_tooltip(self, game, hovered, pos):
+        kind, payload = hovered
+        if kind == 'equip':
+            key, count = payload, 1
+        else:
+            key, count = payload
+        base, _ = parse_item_key(key)
+        it = ITEMS.get(base, {})
+
+        lines = [(item_display_name(key), T.TITLE_LIGHT, T.FONT_BODY)]
+        if count > 1:
+            lines.append((f"Количество: {count}", T.TEXT_DIM, T.FONT_SMALL))
+        desc = it.get('desc', '')
+        if desc:
+            lines.append((desc, T.TEXT_MUTED, T.FONT_TINY))
+        lvl_req = it.get('level_req', 1)
+        if lvl_req > 1:
+            ok = game.player.level >= lvl_req
+            lines.append((f"Требуется уровень {lvl_req}",
+                          T.TEXT_DIM if ok else T.HP_CRIT, T.FONT_SMALL))
+        if kind == 'equip':
+            stat = "ATK" if it.get('type') == 'weapon' else "DEF"
+            bonus = it.get('value', 0) + parse_item_key(key)[1]
+            if bonus:
+                lines.append((f"+{bonus} {stat}", T.HEAL, T.FONT_SMALL))
+        elif it.get('type') in ('weapon', 'armor'):
+            deltas = self.compare_item(game, key, it['type'])
+            dt, dc = self.format_delta(deltas)
+            if dt:
+                lines.append((dt, dc, T.FONT_SMALL))
+
+        rendered = []
+        max_w = 0
+        total_h = 0
+        for text, color, font in lines:
+            text = self.fit_text(text, 400, font)
+            surf = T.render(text, color, font)
+            rendered.append((surf, total_h))
+            max_w = max(max_w, surf.get_width())
+            total_h += surf.get_height() + 4
+
+        pad = 10
+        w = max_w + pad * 2
+        h = total_h + pad * 2 - 4
+        x = min(max(8, pos[0] + 18), config.SCREEN_W - w - 8)
+        y = min(max(8, pos[1] + 18), config.SCREEN_H - h - 8)
+        T.rounded_rect(self.screen, (18, 16, 13), (x, y, w, h), radius=8,
+                       border_color=T.ROW_BORDER)
+        for surf, dy in rendered:
+            self.screen.blit(surf, (x + pad, y + pad + dy))
 
     def _draw_equip(self, x, y, label, key, unequip_key=None, stat=""):
         if key:
@@ -245,33 +395,6 @@ class ScreensRenderer(BaseRenderer):
                 self.text(desc, x + 36, y + 26, T.TEXT_MUTED, font=T.FONT_TINY)
         else:
             self.text(f"{label}: —", x + 4, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
-
-    def _draw_item_row(self, x, y, idx, key, count, player_level=1, game=None):
-        it = ITEMS.get(parse_item_key(key)[0], {})
-        self.icons.draw_item(key, x, y, size=28)
-        label = item_display_name(key)
-        if count > 1:
-            label += f"  x{count}"
-        self.text(label, x + 36, y + 4, item_display_color(key))
-
-        lvl_req = it.get('level_req', 1)
-        desc = it.get('desc', '')
-        if lvl_req > 1:
-            prefix = f"[Ур.{lvl_req}] "
-            color = T.TEXT_MUTED if player_level >= lvl_req else T.HP_CRIT
-        else:
-            prefix = ""
-            color = T.TEXT_MUTED
-        if desc:
-            self.text(f"{prefix}{desc}", x + 36, y + 24, color, font=T.FONT_TINY)
-
-        if game and it.get('type') in ('weapon', 'armor'):
-            deltas = self.compare_item(game, key, it['type'])
-            dt, dc = self.format_delta(deltas)
-            if dt:
-                self.text(dt, x + 36, y + 42, dc, font=T.FONT_TINY)
-                return y + 58
-        return y + 44
 
     # ════════════════════════ МАГАЗИН ════════════════════════
     def draw_shop(self, game):
@@ -295,7 +418,7 @@ class ScreensRenderer(BaseRenderer):
         else:
             y = T.section(self.screen, cx0, y, cw, "Продать")
             self._draw_shop_sell(game, cx0, y, cw)
-        self.text("1–9 — купить/продать · S — режим · R — обновить · Q/E — страницы",
+        self.text("S — режим · R — обновить · Q/E — страницы",
                   cx0 + cw // 2, cy0 + ch - 22, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 
@@ -327,7 +450,7 @@ class ScreensRenderer(BaseRenderer):
             can_afford = game.player.gold >= price
             row_y = y
             self.icons.draw_item(key, x0, y, size=28)
-            self.text(f"{i + 1}. " + item_display_name(key), x0 + 36, y + 4,
+            self.text(item_display_name(key), x0 + 36, y + 4,
                       color if can_afford else T.TEXT_MUTED)
             self.text(f"{price} з.", self._modal_right(game), y + 4,
                       T.GOLD if can_afford else T.TEXT_MUTED, align_right=True)
@@ -361,7 +484,7 @@ class ScreensRenderer(BaseRenderer):
             label = item_display_name(key)
             if count > 1:
                 label += f"  x{count}"
-            self.text(f"{i + 1}. " + label, x0 + 36, y + 4,
+            self.text(label, x0 + 36, y + 4,
                       item_display_color(key))
             self.text(f"{price} з.", self._modal_right(game), y + 4, T.GOLD,
                       align_right=True)

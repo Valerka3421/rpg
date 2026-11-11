@@ -4,7 +4,7 @@ import time
 import pygame
 
 from core import config
-from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE
+from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE, INVENTORY_PAGE_SIZE
 from core.entities import Player, Entity, Dungeon, Message
 from core.world import compute_fov
 from core.data import ITEMS, parse_item_key
@@ -57,7 +57,7 @@ class ClientView:
         self._modal_content_rect = (0, 0, 0, 0)
         self._modal_close_rect = None
         self._ui_hits = {
-            'inventory': {'items': [], 'equip': []},
+            'inventory': {'items': [], 'equip': [], 'pages': []},
             'stats': {'plus': []},
             'craft': {'hammer': []},
             'shop': {'rows': []},
@@ -87,6 +87,16 @@ class ClientView:
         return (MODAL_MARGIN_X, MODAL_MARGIN_Y,
                 config.SCREEN_W - MODAL_MARGIN_X * 2,
                 config.SCREEN_H - MODAL_MARGIN_Y * 2)
+
+    def inv_pages_count(self):
+        n = len(self.player.inventory)
+        return max(1, (n + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE)
+
+    def inv_next_page(self):
+        self.inv_page = min(self.inv_pages_count() - 1, self.inv_page + 1)
+
+    def inv_prev_page(self):
+        self.inv_page = max(0, self.inv_page - 1)
 
     def craftable_list(self):
         """Список рецептов — та же логика, что у сервера."""
@@ -182,6 +192,13 @@ class ClientView:
         if self.screen_mode == 'shop':
             self._handle_shop_key(key)
             return
+        if self.screen_mode == 'inventory':
+            if key == pygame.K_q:
+                self.inv_prev_page()
+                return
+            if key == pygame.K_e:
+                self.inv_next_page()
+                return
         if self.screen_mode != 'game':
             if key in (pygame.K_ESCAPE, pygame.K_i, pygame.K_c,
                        pygame.K_k, pygame.K_l):
@@ -238,12 +255,6 @@ class ClientView:
             self.shop.page = min(self.shop.pages_count() - 1, self.shop.page + 1)
         elif key == pygame.K_r and self.shop_submode == 'buy':
             self.send_fn({'type': 'reroll'})
-        elif pygame.K_1 <= key <= pygame.K_9:
-            idx = self.shop.page * SHOP_PAGE_SIZE + (key - pygame.K_1)
-            if self.shop_submode == 'buy':
-                self.send_fn({'type': 'buy', 'idx': idx})
-            else:
-                self.send_fn({'type': 'sell', 'idx': idx})
 
     # ════════════════════════ ВВОД: МЫШЬ ════════════════════════
     def handle_mouse_motion(self, pos):
@@ -287,6 +298,13 @@ class ClientView:
         return x <= pos[0] <= x + w and y <= pos[1] <= y + h
 
     def _click_inventory(self, pos):
+        for action, rect in self._ui_hits['inventory'].get('pages', []):
+            if self._hit(rect, pos):
+                if action == 'prev':
+                    self.inv_prev_page()
+                else:
+                    self.inv_next_page()
+                return True
         for slot, rect in self._ui_hits['inventory']['equip']:
             if self._hit(rect, pos):
                 self.send_fn({'type': 'unequip', 'slot': slot})

@@ -24,6 +24,7 @@ echo Сборка...
 if exist "assets" (
     python -m PyInstaller --noconfirm --onefile --windowed --name Aethelgard ^
         --add-data "assets;assets" ^
+        --icon "assets\icon.ico" ^
         --collect-all pygame ^
         main.py
 ) else (

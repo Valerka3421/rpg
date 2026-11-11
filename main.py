@@ -24,6 +24,8 @@ def _apply_resolution(game, new_w, new_h, fullscreen):
     flags = pygame.FULLSCREEN if fullscreen else 0
     screen = pygame.display.set_mode((new_w, new_h), flags)
     pygame.display.set_caption(f"Этельгард — {new_w}×{new_h}")
+    from render.window_icon import apply_window_icon
+    apply_window_icon()
 
     config.set_resolution(new_w, new_h)
 
@@ -52,6 +54,8 @@ def _run_game_loop(game, screen, clock):
         screen = pygame.display.set_mode(
             (config.SCREEN_W, config.SCREEN_H), pygame.FULLSCREEN)
         game.renderer.screen = screen
+        from render.window_icon import apply_window_icon
+        apply_window_icon()
 
     while True:
         dt = clock.tick(60) / 1000.0
@@ -163,6 +167,8 @@ def main():
         screen = pygame.display.set_mode(
             (config.SCREEN_W, config.SCREEN_H), flags)
         pygame.display.set_caption(f"Этельгард — {config.SCREEN_W}×{config.SCREEN_H}")
+        from render.window_icon import apply_window_icon
+        apply_window_icon()
         clock = pygame.time.Clock()
 
         # Пересоздать Game при каждой итерации (возврат из MP → новое меню)

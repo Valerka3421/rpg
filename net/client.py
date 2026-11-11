@@ -352,6 +352,8 @@ class Client:
         flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
         screen = pygame.display.set_mode((SW, SH), flags)
         pygame.display.set_caption("Этельгард MP")
+        from render.window_icon import apply_window_icon
+        apply_window_icon()
 
         if self.skip_class_select:
             # Класс придёт из сейва на сервере — экран не нужен
@@ -396,6 +398,8 @@ class Client:
             nonlocal screen
             flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
             screen = pygame.display.set_mode((SW, SH), flags)
+            from render.window_icon import apply_window_icon
+            apply_window_icon()
             renderer.screen = screen
             for sub in ('menu', 'game', 'screens', 'overlay', 'icons'):
                 r = getattr(renderer, sub, None)

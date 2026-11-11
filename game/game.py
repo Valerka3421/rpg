@@ -1138,6 +1138,13 @@ class Game:
 
     def _handle_inventory_click(self, pos):
         hits = self._ui_hits.get('inventory', {})
+        for action, rect in hits.get('pages', []):
+            if self._hit(rect, pos):
+                if action == 'prev':
+                    self.inv_prev_page()
+                else:
+                    self.inv_next_page()
+                return True
         for slot, rect in hits.get('equip', []):
             if self._hit(rect, pos):
                 if slot == 'weapon':
@@ -1148,6 +1155,7 @@ class Game:
         for key, rect in hits.get('items', []):
             if self._hit(rect, pos):
                 self.use_item(key)
+                self.inv_page = min(self.inv_page, self.inv_pages_count() - 1)
                 return True
         return False
 

@@ -88,12 +88,6 @@ class ShopController:
     def prev_page(self):
         self.page = max(0, self.page - 1)
 
-    def _digit_count(self):
-        g = self.game
-        if g.shop_submode == 'buy':
-            return len(g.shop_stock) - self.page * SHOP_PAGE_SIZE
-        return len(g.player.inventory) - self.page * SHOP_PAGE_SIZE
-
     def handle_key(self, key):
         g = self.game
         if key in (pygame.K_t, pygame.K_ESCAPE):
@@ -107,10 +101,3 @@ class ShopController:
             self.prev_page()
         elif key == pygame.K_e:
             self.next_page()
-        elif pygame.K_1 <= key <= pygame.K_9:
-            idx = key - pygame.K_1
-            if idx < min(SHOP_PAGE_SIZE, max(0, self._digit_count())):
-                if g.shop_submode == 'buy':
-                    self.buy(idx)
-                else:
-                    self.sell(idx)

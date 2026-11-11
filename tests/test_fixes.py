@@ -250,21 +250,20 @@ def test_shop_mouse_click_buys(make_game, renderer):
     assert g.shop_stock[0]['sold'] is True
 
 
-def test_shop_keyboard_buys(make_game, renderer):
+def test_shop_digit_keys_do_nothing(make_game, renderer):
     g = _shop_game(make_game(), renderer)
-    g.handle_key(pygame.K_2)
-    assert g.player.inventory.get('potion_m') == 1
-    assert g.player.gold == 90
+    g.handle_key(pygame.K_2)                  # цифры больше не покупают
+    assert g.player.inventory == {}
+    assert g.player.gold == 100
 
 
-def test_shop_keyboard_sells(make_game, renderer):
+def test_shop_keyboard_sells_via_mode_only(make_game, renderer):
     g = _shop_game(make_game(), renderer)
     g.player.inventory = {'potion_s': 1}
     g.handle_key(pygame.K_s)                  # режим продажи
     assert g.shop_submode == 'sell'
-    g.handle_key(pygame.K_1)
-    assert 'potion_s' not in g.player.inventory
-    assert g.player.gold == 102
+    g.handle_key(pygame.K_1)                  # цифра не продаёт
+    assert 'potion_s' in g.player.inventory
 
 
 def test_shop_mouse_sells(make_game, renderer):
@@ -386,7 +385,10 @@ def test_mp_client_shop_opens_and_draws(renderer):
     view.handle_mouse_click((rect[0] + 3, rect[1] + 3))
     assert sent == [{'type': 'buy', 'idx': 0}]
     view.handle_key(pygame.K_s)
-    view.handle_key(pygame.K_1)
+    view.player.inventory = {'potion_s': 1}
+    renderer.draw(view)
+    _, sell_rect = view._ui_hits['shop']['rows'][0]
+    view.handle_mouse_click((sell_rect[0] + 3, sell_rect[1] + 3))
     assert sent[-1] == {'type': 'sell', 'idx': 0}
 
 
@@ -545,3 +547,90 @@ def test_mp_settings_has_fullscreen_toggle():
     menu.handle_key(pygame.K_RETURN)
     assert settings['fullscreen'] is False
     assert dict(menu.rows)['Полный экран'] == 'Выкл'
+
+
+# ════════════════════ 11. Инвентарь-сетка ════════════════════
+def _grid_inventory_game(g, renderer):
+    from core.config import INVENTORY_PAGE_SIZE
+    g.renderer = renderer
+    g.player.inventory = {
+        'potion_s': 2, 'potion_m': 1, 'potion_l': 1,
+        'dagger': 1, 'shortsword': 1, 'sword': 1,
+        'axe': 1, 'greatsword': 1, 'warhammer': 1,
+        'padded': 1, 'leather': 1, 'chain': 1,
+    }
+    assert len(g.player.inventory) == 12
+    assert INVENTORY_PAGE_SIZE == 9
+    g.inv_page = 0
+    g.mouse_pos = (-1, -1)
+    g.screen_mode = 'inventory'
+    g.draw()
+    return g
+
+
+def test_inventory_items_form_grid(make_game, renderer):
+    g = _grid_inventory_game(make_game(), renderer)
+    hits = g._ui_hits['inventory']
+    items = hits['items']
+    assert len(items) == 9
+    rects = [rect for _, rect in items]
+    # первый ряд — три ячейки на одной высоте
+    assert len({r[1] for r in rects[:3]}) == 1
+    assert len({r[0] for r in rects[:3]}) == 3
+    # второй ряд ниже первого
+    assert rects[3][1] > rects[0][1]
+    assert len(hits['pages']) == 2
+
+
+def test_inventory_page_button_turns_page(make_game, renderer):
+    g = _grid_inventory_game(make_game(), renderer)
+    assert g.inv_pages_count() == 2
+    pages = dict(g._ui_hits['inventory']['pages'])
+    x, y, w, h = pages['next']
+    assert g.handle_mouse_click((x + w // 2, y + h // 2)) is True
+    assert g.inv_page == 1
+    # на второй странице — оставшиеся 3 предмета
+    g.draw()
+    assert len(g._ui_hits['inventory']['items']) == 3
+    pages = dict(g._ui_hits['inventory']['pages'])
+    x, y, w, h = pages['prev']
+    g.handle_mouse_click((x + w // 2, y + h // 2))
+    assert g.inv_page == 0
+
+
+def test_inventory_hover_changes_slot_background(make_game, renderer):
+    g = _grid_inventory_game(make_game(), renderer)
+    rect = g._ui_hits['inventory']['items'][0][1]
+    normal = tuple(renderer.screen.get_at((rect[0] + 6, rect[1] + 6))[:3])
+    g.handle_mouse_motion((rect[0] + rect[2] // 2, rect[1] + rect[3] // 2))
+    g.draw()
+    hover = tuple(renderer.screen.get_at((rect[0] + 6, rect[1] + 6))[:3])
+    assert hover != normal
+
+
+def test_mp_inventory_grid_has_pages(renderer):
+    from net.view import ClientView
+    view = ClientView()
+    view.player.inventory = {
+        'potion_s': 1, 'potion_m': 1, 'potion_l': 1,
+        'dagger': 1, 'shortsword': 1, 'sword': 1,
+        'axe': 1, 'greatsword': 1, 'warhammer': 1,
+        'padded': 1, 'leather': 1, 'chain': 1,
+    }
+    view.screen_mode = 'inventory'
+    view.inv_page = 0
+    renderer.draw(view)
+    assert len(view._ui_hits['inventory']['items']) == 9
+    next_rect = dict(view._ui_hits['inventory']['pages'])['next']
+    x, y, w, h = next_rect
+    view.handle_mouse_click((x + w // 2, y + h // 2))
+    assert view.inv_page == 1
+    view.handle_key(pygame.K_q)
+    assert view.inv_page == 0
+
+
+# ════════════════════ 12. Иконка окна ════════════════════
+def test_window_icon_is_loaded(screen):
+    from render.window_icon import ICON_PATH, apply_window_icon
+    assert os.path.isfile(ICON_PATH)
+    assert apply_window_icon() is True
