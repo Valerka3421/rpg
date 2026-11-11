@@ -1,9 +1,12 @@
-"""Процедурные тайлы 64×64.
+"""Процедурные тайлы 64×64 в духе Stoneshard.
 
-Раньше каждый тайл рисовался десятком примитивов прямо в кадре. Теперь
-тайл — это Surface с деталями (кладка, плиты, трещины, мох, факелы),
-который строится один раз на вариант, кэшируется и только блитится.
-Это и красивее, и быстрее.
+Палитра намеренно тяжёлая и приглушённая: тёплый серо-коричневый камень,
+почти чёрный раствор, оливковый мох и янтарный огонь. Холодные акценты
+оставлены только теням — так сцена читается как сырое подземелье, а не
+как разноцветная аркада.
+
+Тайл строится один раз на вариант, кэшируется и только блитится, поэтому
+вся детализация (кладка, сколы, подтёки, гравий, лужи) бесплатна в кадре.
 """
 import math
 
@@ -14,61 +17,133 @@ from render import textures
 SIZE = 64
 
 # ── Палитра подземелья ──
-WALL_BASE = (78, 71, 96)
-MORTAR = (26, 23, 36)
-FLOOR_BASE = (56, 52, 59)
-FLOOR_GROUT = (30, 28, 33)
-TORCH_GLOW = (255, 168, 72)
-MOSS = (72, 104, 62)
+WALL_BASE = (74, 68, 59)          # тёплый серо-коричневый камень
+MORTAR = (24, 22, 19)             # почти чёрный раствор
+FLOOR_BASE = (60, 56, 49)
+FLOOR_GROUT = (31, 29, 25)
+TORCH_GLOW = (255, 170, 94)
+MOSS = (74, 84, 49)               # оливковый мох
+MOSS_DARK = (47, 55, 32)
+RUST = (104, 70, 40)
+BRONZE = (186, 142, 76)
+BONE = (192, 180, 152)
 
 # ── Палитра поверхности ──
-GRASS_BASE = (62, 108, 56)
-GRASS_DARK = (44, 82, 42)
-TREE_BASE = (46, 96, 48)
-TRUNK = (86, 62, 38)
-STONE = (96, 92, 104)
-STONE_DARK = (58, 55, 68)
+GRASS_BASE = (55, 64, 42)         # выцветшая олива, а не «газон»
+GRASS_DARK = (39, 46, 32)
+GRASS_DRY = (98, 92, 58)
+TREE_BASE = (46, 58, 40)
+TREE_DARK = (27, 35, 24)
+TRUNK = (66, 52, 38)
+STONE = (86, 82, 74)
+STONE_DARK = (48, 46, 41)
 
 
-def _new():
-    return pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+def _new(fill=None):
+    s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    if fill is not None:
+        s.fill(fill)
+    return s
+
+
+def _clamp(value):
+    return 0 if value < 0 else (255 if value > 255 else int(value))
+
+
+def _grime(s, rng, count=280, spread=13):
+    """Мелкий разнотон поверх тайла: убирает «пластиковую» заливку."""
+    for _ in range(count):
+        x = rng.randrange(SIZE)
+        y = rng.randrange(SIZE)
+        c = s.get_at((x, y))
+        if c.a < 40:
+            continue
+        d = rng.randint(-spread, spread)
+        s.set_at((x, y), (_clamp(c.r + d), _clamp(c.g + d),
+                          _clamp(c.b + d), c.a))
+
+
+def _chip(s, rect, color, rng):
+    """Сколотый угол блока — кладка перестаёт быть ровной сеткой."""
+    size = rng.randint(3, 8)
+    corner = rng.choice(('tl', 'tr', 'bl', 'br'))
+    if corner == 'tl':
+        pts = [(rect.x, rect.y), (rect.x + size, rect.y),
+               (rect.x, rect.y + size)]
+    elif corner == 'tr':
+        pts = [(rect.right - 1, rect.y), (rect.right - 1 - size, rect.y),
+               (rect.right - 1, rect.y + size)]
+    elif corner == 'bl':
+        pts = [(rect.x, rect.bottom - 1), (rect.x + size, rect.bottom - 1),
+               (rect.x, rect.bottom - 1 - size)]
+    else:
+        pts = [(rect.right - 1, rect.bottom - 1),
+               (rect.right - 1 - size, rect.bottom - 1),
+               (rect.right - 1, rect.bottom - 1 - size)]
+    pygame.draw.polygon(s, color, pts)
+
+
+def _crack(s, x, y, steps, color, rng, drift=3):
+    """Ломаная трещина: короткие сегменты со случайным уводом."""
+    pts = [(x, y)]
+    for _ in range(steps):
+        x += rng.randint(-drift, drift)
+        y += rng.randint(4, 7)
+        pts.append((x, y))
+    pygame.draw.lines(s, color, False, pts, 1)
 
 
 # ════════════════════════ КЛАДКА СТЕН ════════════════════════
 def _wall_blocks(s, variant, base_color=WALL_BASE, mortar=MORTAR):
     s.fill(mortar)
     rng = textures.rng_for(variant, 2, seed=31)
-    for row in range(2):
-        y = row * 32
+    # 4 ряда невысоких блоков со смещением — кладка читается как кладка,
+    # а не как 2 «шоколадки» на тайл.
+    for row in range(4):
+        y = row * 16
         offset = 0 if row % 2 == 0 else 16
         for col in range(-1, 3):
             x = col * 32 + offset
-            rect = pygame.Rect(x + 2, y + 2, 28, 28)
-            shade = 0.80 + textures.hash01(x, y, variant) * 0.36
-            block = textures.shade(base_color, shade)
-            textures.bevel_rect(s, rect, block, width=2)
-            textures.speckles(s, rect.inflate(-8, -8), block, rng, 22, 0.10)
-            # выщербленный угол (залит раствором)
-            if textures.hash01(x, y, variant + 7) < 0.32:
-                corner = rng.choice(((x + 2, y + 2, 1, 1),
-                                     (x + 27, y + 2, -1, 1),
-                                     (x + 2, y + 27, 1, -1),
-                                     (x + 27, y + 27, -1, -1)))
-                cx, cy, dx, dy = corner
-                size = rng.randint(3, 6)
-                pygame.draw.polygon(s, mortar, [
-                    (cx, cy), (cx + dx * size, cy), (cx, cy + dy * size)])
-            # трещина
-            if textures.hash01(x, y, variant + 13) < 0.22:
-                cx = x + rng.randint(8, 18)
-                cy = y + 4
-                pygame.draw.lines(s, textures.shade(block, 0.45), False, [
-                    (cx, cy), (cx + 3, cy + 8), (cx - 1, cy + 15),
-                    (cx + 3, cy + 22)], 1)
-    # объём всего тайла: свет сверху, тень снизу
-    pygame.draw.rect(s, textures.shade(base_color, 1.55), (0, 0, SIZE, 2))
-    pygame.draw.rect(s, textures.shade(base_color, 1.25), (0, 2, SIZE, 1))
-    pygame.draw.rect(s, textures.shade(base_color, 0.45), (0, SIZE - 4, SIZE, 4))
+            rect = pygame.Rect(x + 1, y + 1, 30, 13)
+            tone = (0.76 + textures.hash01(x, y, variant) * 0.34)
+            block = textures.shade(base_color, tone)
+            textures.bevel_rect(s, rect, block, width=1,
+                                light=textures.shade(block, 1.24),
+                                dark=textures.shade(block, 0.52))
+            pygame.draw.line(s, textures.shade(block, 1.10),
+                             (rect.x + 2, rect.y + 1),
+                             (rect.right - 3, rect.y + 1))
+            textures.speckles(s, rect.inflate(-6, -4), block, rng, 18, 0.13)
+            textures.grain(s, rect.inflate(-5, -3), textures.shade(block, 0.80),
+                           6, rng)
+
+            # сколы
+            if textures.hash01(x, y, variant + 7) < 0.42:
+                _chip(s, rect, mortar, rng)
+            if textures.hash01(x, y, variant + 17) < 0.20:
+                _chip(s, rect, textures.shade(base_color, 0.62), rng)
+
+            # трещина по блоку
+            if textures.hash01(x, y, variant + 13) < 0.20:
+                _crack(s, x + rng.randint(6, 20), y + 3,
+                       rng.randint(1, 2), textures.shade(block, 0.38), rng,
+                       drift=2)
+
+            # сырой подтёк сверху
+            if textures.hash01(x, y, variant + 29) < 0.26:
+                sx = x + rng.randint(4, 26)
+                wet = textures.mix(block, mortar, 0.55)
+                pygame.draw.line(s, wet, (sx, y + 1),
+                                 (sx + rng.choice((-1, 0, 1)), y + 1 +
+                                  rng.randint(6, 14)), 1)
+
+    # объём всего тайла: свет сверху, провал снизу
+    pygame.draw.rect(s, textures.shade(base_color, 1.30), (0, 0, SIZE, 2))
+    pygame.draw.rect(s, textures.shade(base_color, 1.08), (0, 2, SIZE, 1))
+    pygame.draw.rect(s, textures.shade(base_color, 0.40), (0, SIZE - 4, SIZE, 4))
+    pygame.draw.line(s, textures.shade(base_color, 0.52), (0, SIZE - 5),
+                     (SIZE, SIZE - 5))
+    _grime(s, rng)
 
 
 def _wall(variant):
@@ -79,44 +154,60 @@ def _wall(variant):
 
 def _wall_moss(variant):
     s = _new()
-    s.fill(MORTAR)
     _wall_blocks(s, variant + 5)
     rng = textures.rng_for(variant, 5, seed=57)
-    for _ in range(3):
-        cx = rng.randint(4, SIZE - 8)
-        cy = rng.randint(4, SIZE - 8)
-        radius = rng.randint(4, 9)
-        pygame.draw.circle(s, textures.shade(MOSS, 0.8), (cx, cy), radius)
-        pygame.draw.circle(s, MOSS, (cx - 1, cy - 1), max(2, radius - 3))
-    textures.grain(s, (0, 0, SIZE, SIZE), textures.shade(MOSS, 0.7), 24, rng)
+    # мох растёт из швов, а не кругами поверх кладки
+    for _ in range(7):
+        x = rng.randint(2, SIZE - 10)
+        y = rng.choice((1, 29, 31, 60)) + rng.randint(-1, 1)
+        w = rng.randint(6, 18)
+        h = rng.randint(2, 5)
+        pygame.draw.ellipse(s, MOSS_DARK, (x, y, w, h))
+        pygame.draw.ellipse(s, MOSS, (x + 1, y, max(2, w - 4),
+                                      max(2, h - 2)))
+    for _ in range(10):                      # мелкие пятна
+        x = rng.randint(3, SIZE - 4)
+        y = rng.randint(3, SIZE - 4)
+        pygame.draw.circle(s, textures.shade(MOSS, rng.uniform(0.7, 1.1)),
+                           (x, y), rng.choice((1, 1, 2)))
+    _grime(s, rng, 160, 10)
     return s
 
 
 def _wall_torch(variant):
     s = _new()
-    s.fill(MORTAR)
     _wall_blocks(s, variant + 9)
     cx = 32
-    # кронштейн
-    pygame.draw.polygon(s, (40, 36, 46), [
-        (cx - 6, 38), (cx + 6, 38), (cx + 3, 46), (cx - 3, 46)])
-    pygame.draw.rect(s, (58, 52, 66), (cx - 2, 30, 4, 12))
-    pygame.draw.circle(s, (74, 66, 82), (cx, 40), 3)
+
+    # копоть вокруг факела
+    soot = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    for radius in range(20, 0, -2):
+        alpha = int(70 * (1 - radius / 20) ** 2)
+        pygame.draw.circle(soot, (8, 6, 5, alpha), (cx, 14), radius)
+    s.blit(soot, (0, 0))
+
+    # железный кронштейн
+    pygame.draw.polygon(s, (44, 40, 36), [
+        (cx - 7, 40), (cx + 7, 40), (cx + 4, 47), (cx - 4, 47)])
+    pygame.draw.rect(s, (58, 52, 45), (cx - 2, 32, 4, 11))
+    pygame.draw.circle(s, (34, 31, 28), (cx, 41), 3)
+    pygame.draw.circle(s, (96, 82, 60), (cx, 40), 2)
+
     # древко
-    pygame.draw.rect(s, (88, 60, 36), (cx - 2, 18, 4, 14))
-    pygame.draw.rect(s, (120, 86, 50), (cx - 2, 18, 1, 14))
+    pygame.draw.rect(s, (82, 59, 38), (cx - 2, 20, 4, 14))
+    pygame.draw.rect(s, (112, 82, 50), (cx - 2, 20, 1, 14))
+
     # пламя: тёмный контур, оранжевый, светлый сердечник
-    pygame.draw.polygon(s, (40, 20, 12), [
-        (cx, 0), (cx + 7, 13), (cx + 4, 19), (cx - 4, 19), (cx - 7, 13)])
-    pygame.draw.polygon(s, (222, 90, 30), [
-        (cx, 2), (cx + 6, 13), (cx + 3, 18), (cx - 3, 18), (cx - 6, 13)])
-    pygame.draw.polygon(s, (255, 150, 52), [
-        (cx, 6), (cx + 4, 13), (cx + 2, 17), (cx - 2, 17), (cx - 4, 13)])
-    pygame.draw.polygon(s, (255, 236, 164), [
+    pygame.draw.polygon(s, (36, 18, 8), [
+        (cx, 0), (cx + 8, 14), (cx + 4, 20), (cx - 4, 20), (cx - 8, 14)])
+    pygame.draw.polygon(s, (198, 92, 34), [
+        (cx, 2), (cx + 6, 14), (cx + 3, 19), (cx - 3, 19), (cx - 6, 14)])
+    pygame.draw.polygon(s, (240, 150, 62), [
+        (cx, 6), (cx + 4, 14), (cx + 2, 18), (cx - 2, 18), (cx - 4, 14)])
+    pygame.draw.polygon(s, (255, 226, 160), [
         (cx, 10), (cx + 2, 14), (cx, 17), (cx - 2, 14)])
-    # искры
-    pygame.draw.circle(s, (255, 210, 120), (cx + 5, 6), 1)
-    pygame.draw.circle(s, (255, 180, 90), (cx - 6, 10), 1)
+    pygame.draw.circle(s, (255, 200, 110), (cx + 5, 7), 1)
+    pygame.draw.circle(s, (255, 170, 80), (cx - 6, 11), 1)
     return s
 
 
@@ -125,101 +216,148 @@ def _floor(variant):
     s = _new()
     s.fill(FLOOR_GROUT)
     rng = textures.rng_for(variant, 9, seed=73)
+
     for gy in range(2):
         for gx in range(2):
             rect = pygame.Rect(gx * 32 + 1, gy * 32 + 1, 30, 30)
-            shade = 0.82 + textures.hash01(gx, gy, variant) * 0.32
-            stone = textures.shade(FLOOR_BASE, shade)
+            tone = 0.80 + textures.hash01(gx, gy, variant) * 0.34
+            stone = textures.shade(FLOOR_BASE, tone)
             textures.bevel_rect(s, rect, stone, width=2,
                                 light=textures.shade(stone, 1.28),
-                                dark=textures.shade(stone, 0.55))
-            textures.speckles(s, rect.inflate(-6, -6), stone, rng, 24, 0.12)
+                                dark=textures.shade(stone, 0.48))
+            textures.speckles(s, rect.inflate(-6, -6), stone, rng, 28, 0.14)
+            textures.grain(s, rect.inflate(-8, -8), textures.shade(stone, 0.82),
+                           8, rng)
+            if textures.hash01(gx, gy, variant + 3) < 0.48:
+                _chip(s, rect, FLOOR_GROUT, rng)
 
     def crack():
-        x = rng.randint(8, 52)
-        y = rng.randint(6, 14)
-        pygame.draw.lines(s, textures.shade(FLOOR_BASE, 0.45), False, [
-            (x, y), (x + 5, y + 8), (x + 1, y + 16), (x + 6, y + 24)], 1)
+        _crack(s, rng.randint(8, 52), rng.randint(6, 14), 3,
+               textures.shade(FLOOR_BASE, 0.40), rng)
 
     def pebbles():
         for _ in range(4):
             x = rng.randint(8, 52)
             y = rng.randint(8, 52)
             r = rng.randint(1, 2)
-            pygame.draw.circle(s, textures.shade(FLOOR_BASE, 1.30), (x, y), r)
-            pygame.draw.circle(s, textures.shade(FLOOR_BASE, 0.55),
+            pygame.draw.circle(s, textures.shade(FLOOR_BASE, 1.32), (x, y), r)
+            pygame.draw.circle(s, textures.shade(FLOOR_BASE, 0.50),
                                (x + 1, y + 1), r, 1)
 
     def moss():
-        for _ in range(3):
-            x = rng.randint(4, 52)
-            y = rng.choice((2, 30, 58))
-            pygame.draw.ellipse(s, textures.shade(MOSS, 0.8),
-                                (x, y, rng.randint(7, 13), 3))
+        # мох в швах между плитами
+        for _ in range(4):
+            x = rng.randint(2, 48)
+            y = rng.choice((0, 30, 31, 60)) + rng.randint(-1, 1)
+            pygame.draw.ellipse(s, MOSS_DARK, (x, y, rng.randint(8, 16), 3))
+            pygame.draw.ellipse(s, MOSS, (x + 1, y, rng.randint(5, 11), 2))
 
     def puddle():
-        pygame.draw.ellipse(s, (28, 36, 52), (10, 34, 44, 20))
-        pygame.draw.ellipse(s, (44, 60, 82), (16, 38, 22, 8))
+        # стоячая вода: тёмная, мутная, с холодным бликом
+        pygame.draw.ellipse(s, (24, 28, 30), (12, 36, 40, 16))
+        pygame.draw.ellipse(s, (37, 44, 47), (18, 39, 22, 7))
+        pygame.draw.line(s, (58, 68, 72), (22, 41), (34, 41), 1)
+
+    def stain():
+        # тёмное пятно (кровь/масло) с рваным краем
+        for _ in range(5):
+            pygame.draw.circle(s, (44, 34, 27),
+                               (rng.randint(18, 46), rng.randint(18, 46)),
+                               rng.randint(3, 7))
+        crack()
+
+    def gravel():
+        for _ in range(12):
+            x = rng.randint(4, 58)
+            y = rng.randint(4, 58)
+            c = textures.shade(FLOOR_BASE, rng.uniform(0.55, 1.25))
+            pygame.draw.rect(s, c, (x, y, rng.choice((1, 2)), 1))
+        if textures.hash01(variant, 5, 77) < 0.5:
+            pygame.draw.circle(s, BONE, (rng.randint(12, 50),
+                                         rng.randint(12, 50)), 2)
+            pygame.draw.circle(s, textures.shade(BONE, 0.6),
+                               (rng.randint(12, 50), rng.randint(12, 50)),
+                               1)
 
     # 12 вариантов: 6 обычных плит, 2 трещины, 2 камешка, мох, лужа
     decor = {6: crack, 7: pebbles, 8: moss, 9: puddle,
-             10: crack, 11: pebbles}
+             10: stain, 11: gravel}
     fn = decor.get(variant % 12)
     if fn:
         fn()
+    _grime(s, rng, 220, 11)
     return s
 
 
 # ════════════════════════ ЛЕСТНИЦЫ ════════════════════════
 def _stairs_down(variant=0):
     s = _floor(0)
-    # каменный портал
-    pygame.draw.rect(s, textures.shade(WALL_BASE, 0.6), (2, 2, 60, 60))
-    pygame.draw.rect(s, textures.shade(WALL_BASE, 1.2), (4, 4, 56, 56), 2)
-    # яма
-    pygame.draw.rect(s, (10, 9, 16), (8, 8, 48, 50))
+    rng = textures.rng_for(variant, 11, seed=83)
+    # каменная рама
+    pygame.draw.rect(s, textures.shade(WALL_BASE, 0.55), (2, 2, 60, 60))
+    textures.bevel_rect(s, pygame.Rect(3, 3, 58, 58),
+                        textures.shade(WALL_BASE, 0.72), width=2)
+    _grime(s, rng, 80, 8)
+
+    # провал
+    pygame.draw.rect(s, (8, 7, 6), (8, 8, 48, 50))
     # ступени уходят вниз: сверху узкие и светлые, снизу шире и темнее
     for i in range(4):
         y = 10 + i * 11
         inset = 4 + i * 2
-        col = textures.shade((120, 112, 136), 0.95 - i * 0.18)
+        col = textures.shade((104, 96, 82), 0.95 - i * 0.19)
         pygame.draw.rect(s, col, (8 + inset, y, 48 - inset * 2, 9))
-        pygame.draw.line(s, textures.shade(col, 1.35),
+        pygame.draw.line(s, textures.shade(col, 1.30),
                          (8 + inset, y), (56 - inset, y))
+        pygame.draw.line(s, textures.shade(col, 0.55),
+                         (8 + inset, y + 8), (56 - inset, y + 8))
     # дно
-    pygame.draw.rect(s, (6, 5, 10), (16, 54, 32, 4))
-    # маркер
-    pygame.draw.polygon(s, (245, 200, 90), [
-        (32, 56), (26, 46), (38, 46)])
+    pygame.draw.rect(s, (4, 4, 4), (16, 54, 32, 4))
+
+    # янтарный маркер + слабое свечение
+    glow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    pygame.draw.ellipse(glow, (210, 150, 60, 55), (18, 42, 28, 20))
+    s.blit(glow, (0, 0))
+    pygame.draw.polygon(s, textures.shade(BRONZE, 0.45), [
+        (32, 60), (25, 48), (39, 48)])
+    pygame.draw.polygon(s, BRONZE, [
+        (32, 56), (27, 48), (37, 48)])
     return s
 
 
 def _stairs_up(variant=0):
     s = _floor(2)
-    pygame.draw.rect(s, textures.shade(WALL_BASE, 0.6), (2, 2, 60, 60))
-    pygame.draw.rect(s, textures.shade(WALL_BASE, 1.2), (4, 4, 56, 56), 2)
-    pygame.draw.rect(s, (10, 9, 16), (8, 8, 48, 52))
-    # лестница: рельсы и перекладины
-    rail = (132, 96, 58)
-    rail_hi = (176, 132, 82)
-    for x in (20, 44):
-        pygame.draw.rect(s, rail, (x - 2, 10, 4, 48))
-        pygame.draw.rect(s, rail_hi, (x - 2, 10, 1, 48))
-    for i in range(5):
-        y = 14 + i * 9
-        pygame.draw.rect(s, rail, (18, y, 28, 3))
-        pygame.draw.rect(s, rail_hi, (18, y, 28, 1))
-    # свет сверху + маркер
+    rng = textures.rng_for(variant, 12, seed=87)
+    pygame.draw.rect(s, textures.shade(WALL_BASE, 0.55), (2, 2, 60, 60))
+    textures.bevel_rect(s, pygame.Rect(3, 3, 58, 58),
+                        textures.shade(WALL_BASE, 0.72), width=2)
+    pygame.draw.rect(s, (8, 7, 6), (8, 8, 48, 52))
+    _grime(s, rng, 70, 8)
+
+    # ступени, ведущие вверх, к тёплому свету
+    for i in range(4):
+        y = 46 - i * 9
+        inset = 2 + i * 2
+        col = textures.shade((110, 102, 88), 0.55 + i * 0.16)
+        pygame.draw.rect(s, col, (10 + inset, y, 44 - inset * 2, 7))
+        pygame.draw.line(s, textures.shade(col, 1.28),
+                         (10 + inset, y), (54 - inset, y))
+        pygame.draw.line(s, textures.shade(col, 0.52),
+                         (10 + inset, y + 6), (54 - inset, y + 6))
+
+    # холодный свет сверху
     glow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
-    pygame.draw.ellipse(glow, (150, 255, 170, 60), (14, 2, 36, 18))
+    pygame.draw.ellipse(glow, (176, 180, 168, 46), (16, 2, 32, 18))
     s.blit(glow, (0, 0))
-    pygame.draw.polygon(s, (140, 240, 150), [
-        (32, 6), (25, 16), (39, 16)])
+    pygame.draw.polygon(s, textures.shade(BRONZE, 0.45), [
+        (32, 12), (25, 22), (39, 22)])
+    pygame.draw.polygon(s, BRONZE, [
+        (32, 15), (27, 22), (37, 22)])
     return s
 
 
 def _exit_daylight(variant=0):
-    """Выход на поверхность: каменная арка, из которой льётся дневной свет."""
+    """Выход на поверхность: каменная арка, из которой льётся свет."""
     s = _new()
     _wall_blocks(s, 4)
     cx, top, bottom, half_w = 32, 8, 60, 18
@@ -231,17 +369,17 @@ def _exit_daylight(variant=0):
                       bottom - top - half_w))
     pygame.draw.circle(mask, (255, 255, 255, 255), (cx, top + half_w), half_w)
 
-    # сам проём: тёмная ниша
+    # проём: тёмная ниша
     niche = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
-    niche.fill((14, 12, 20, 255))
+    niche.fill((12, 11, 10, 255))
     niche.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
     s.blit(niche, (0, 0))
 
-    # свет: сверху почти белый, книзу уходит в тёплую тень
+    # свет: пасмурный день, книзу уходит в тёплую пыль
     light = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     for y in range(top, bottom):
         t = (y - top) / max(1, bottom - top)
-        col = textures.mix((255, 253, 236), (178, 138, 82), t ** 0.75)
+        col = textures.mix((214, 210, 190), (150, 124, 88), t ** 0.75)
         pygame.draw.line(light, col, (cx - half_w, y), (cx + half_w + 1, y))
     light.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
     s.blit(light, (0, 0))
@@ -250,18 +388,19 @@ def _exit_daylight(variant=0):
     for i in range(3):
         y = bottom - 4 - i * 5
         width = half_w * 2 - 4 - i * 4
-        col = textures.shade((190, 178, 152), 1.0 - i * 0.10)
+        col = textures.shade((156, 146, 124), 1.0 - i * 0.10)
         pygame.draw.rect(s, col, (cx - width // 2, y, width, 3))
-        pygame.draw.line(s, textures.shade(col, 1.25),
+        pygame.draw.line(s, textures.shade(col, 1.22),
                          (cx - width // 2, y), (cx + width // 2, y))
 
     # наличник арки
-    pygame.draw.arc(s, (128, 120, 150), (cx - half_w - 2, top - 2,
-                                         half_w * 2 + 4, half_w * 2 + 4),
+    frame = textures.shade(WALL_BASE, 1.12)
+    pygame.draw.arc(s, frame, (cx - half_w - 2, top - 2,
+                               half_w * 2 + 4, half_w * 2 + 4),
                     0, math.pi, 2)
-    pygame.draw.line(s, (128, 120, 150), (cx - half_w - 2, top + half_w),
+    pygame.draw.line(s, frame, (cx - half_w - 2, top + half_w),
                      (cx - half_w - 2, bottom - 2), 2)
-    pygame.draw.line(s, (128, 120, 150), (cx + half_w + 2, top + half_w),
+    pygame.draw.line(s, frame, (cx + half_w + 2, top + half_w),
                      (cx + half_w + 2, bottom - 2), 2)
 
     # тёплый ореол вокруг проёма
@@ -269,22 +408,24 @@ def _exit_daylight(variant=0):
     halo.fill((0, 0, 0))
     for radius in range(half_w + 14, 0, -1):
         t = radius / (half_w + 14)
-        k = int(26 * (1 - t) ** 2)
+        k = int(24 * (1 - t) ** 2)
         if k <= 0:
             continue
-        pygame.draw.circle(halo, (k, int(k * 0.7), int(k * 0.35)),
+        pygame.draw.circle(halo, (k, int(k * 0.72), int(k * 0.38)),
                            (cx, top + half_w + 6), radius)
     s.blit(halo, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
 
-    # трава на пороге и зелёная стрелка «наверх»
+    # трава на пороге и янтарная стрелка «наверх»
     rng = textures.rng_for(3, 3, seed=91)
     for _ in range(6):
         x = rng.randint(cx - half_w + 2, cx + half_w - 2)
         y = rng.randint(bottom - 2, bottom + 2)
-        pygame.draw.line(s, (96, 150, 74), (x, y), (x, y - rng.randint(2, 4)))
-    pygame.draw.polygon(s, (150, 235, 150), [(cx, bottom + 1),
-                                             (cx - 5, bottom - 6),
-                                             (cx + 5, bottom - 6)])
+        pygame.draw.line(s, textures.shade(GRASS_BASE, 1.15),
+                         (x, y), (x, y - rng.randint(2, 4)))
+    pygame.draw.polygon(s, textures.shade(BRONZE, 0.45), [
+        (cx, bottom + 4), (cx - 6, bottom - 5), (cx + 6, bottom - 5)])
+    pygame.draw.polygon(s, BRONZE, [
+        (cx, bottom + 1), (cx - 5, bottom - 5), (cx + 5, bottom - 5)])
     return s
 
 
@@ -294,45 +435,61 @@ def _grass(variant):
     s.fill(GRASS_BASE)
     rng = textures.rng_for(variant, 4, seed=17)
     v = variant % 8
-    textures.speckles(s, (0, 0, SIZE, SIZE), GRASS_BASE, rng, 420, 0.13)
+    textures.speckles(s, (0, 0, SIZE, SIZE), GRASS_BASE, rng, 420, 0.16)
+    # Крупные пятна тона: без них поле из одинаковых тайлов выглядит
+    # заливкой. Пятна полупрозрачные и низкочастотные, поэтому швы между
+    # клетками не читаются.
+    patch = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    for _ in range(2):
+        px = rng.randint(-10, SIZE - 20)
+        py = rng.randint(-10, SIZE - 20)
+        pw = rng.randint(30, 56)
+        ph = rng.randint(24, 44)
+        tone = (GRASS_DARK if rng.random() < 0.5
+                else textures.shade(GRASS_BASE, 1.10))
+        pygame.draw.ellipse(patch, (*tone, 42), (px, py, pw, ph))
+    s.blit(patch, (0, 0))
     # травинки
-    for _ in range(32):
+    for _ in range(34):
         x = rng.randint(2, SIZE - 3)
         y = rng.randint(4, SIZE - 3)
         h = rng.randint(2, 6)
-        col = textures.shade(GRASS_BASE, rng.uniform(0.68, 1.32))
+        col = textures.shade(GRASS_BASE, rng.uniform(0.62, 1.30))
         pygame.draw.line(s, col, (x, y), (x + rng.choice((-1, 0, 1)), y - h))
-    if v == 4:                               # цветы
+
+    if v == 4:                               # сухие цветы
         for _ in range(4):
             x = rng.randint(6, SIZE - 8)
             y = rng.randint(6, SIZE - 8)
-            pygame.draw.circle(s, (226, 220, 148), (x, y), 2)
-            pygame.draw.circle(s, (214, 176, 62), (x, y), 1)
+            pygame.draw.circle(s, textures.shade(BONE, 0.95), (x, y), 2)
+            pygame.draw.circle(s, textures.shade(RUST, 1.25), (x, y), 1)
     elif v == 5:                             # проплешина земли в углу
         x, y = rng.choice(((2, 4), (34, 8), (6, 38), (36, 40)))
-        pygame.draw.ellipse(s, (92, 80, 56), (x, y, 24, 16))
-        pygame.draw.ellipse(s, (74, 63, 44), (x + 5, y + 4, 13, 8))
+        pygame.draw.ellipse(s, (72, 64, 48), (x, y, 24, 16))
+        pygame.draw.ellipse(s, (56, 49, 37), (x + 5, y + 4, 13, 8))
         for _ in range(4):
             gx = x + rng.randint(2, 20)
             gy = y + rng.randint(3, 13)
-            pygame.draw.line(s, textures.shade(GRASS_BASE, 1.1),
+            pygame.draw.line(s, textures.shade(GRASS_DRY, 0.9),
                              (gx, gy), (gx, gy - rng.randint(2, 4)))
     elif v == 6:                             # камни
         for _ in range(3):
             x = rng.randint(8, SIZE - 12)
             y = rng.randint(8, SIZE - 10)
             r = rng.randint(2, 3)
-            pygame.draw.circle(s, (96, 98, 88), (x, y), r)
-            pygame.draw.circle(s, (126, 128, 116), (x - 1, y - 1),
-                               max(1, r - 1))
-    elif v == 7:                             # высокая трава
+            pygame.draw.circle(s, textures.shade(STONE_DARK, 1.15), (x, y), r)
+            pygame.draw.circle(s, textures.shade(STONE, 0.9),
+                               (x - 1, y - 1), max(1, r - 1))
+    elif v == 7:                             # высокая сухая трава
         for _ in range(12):
             x = rng.randint(4, SIZE - 6)
             y = rng.randint(12, SIZE - 4)
-            pygame.draw.line(s, textures.shade(GRASS_BASE, 1.18),
+            pygame.draw.line(s, textures.shade(GRASS_DRY, 1.0),
                              (x, y), (x + 1, y - rng.randint(4, 8)))
-            pygame.draw.line(s, textures.shade(GRASS_BASE, 0.82),
+            pygame.draw.line(s, textures.shade(GRASS_BASE, 0.78),
                              (x + 2, y), (x + 2, y - rng.randint(3, 6)))
+
+    _grime(s, rng, 200, 10)
     return s
 
 
@@ -341,52 +498,67 @@ def _tree(variant):
     rng = textures.rng_for(variant, 6, seed=43)
     # тень под кроной
     shadow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
-    pygame.draw.ellipse(shadow, (0, 0, 0, 95), (6, 44, 52, 16))
+    pygame.draw.ellipse(shadow, (0, 0, 0, 110), (4, 44, 56, 16))
     s.blit(shadow, (0, 0))
-    # ствол
-    pygame.draw.rect(s, TRUNK, (29, 36, 6, 22))
-    pygame.draw.rect(s, textures.shade(TRUNK, 0.65), (33, 36, 2, 22))
-    pygame.draw.line(s, textures.shade(TRUNK, 1.25), (29, 38), (29, 54), 1)
-    # крона: несколько кругов, но контур — только у объединения
+
+    # ствол с корнями
+    pygame.draw.polygon(s, textures.shade(TRUNK, 0.55), [
+        (27, 54), (30, 34), (34, 34), (37, 54)])
+    pygame.draw.rect(s, TRUNK, (29, 34, 6, 21))
+    pygame.draw.rect(s, textures.shade(TRUNK, 0.62), (33, 34, 2, 21))
+    pygame.draw.line(s, textures.shade(TRUNK, 1.22), (29, 36), (29, 54), 1)
+    pygame.draw.line(s, textures.shade(TRUNK, 0.45), (26, 55), (30, 51), 2)
+    pygame.draw.line(s, textures.shade(TRUNK, 0.45), (38, 55), (34, 51), 2)
+
+    # крона: тёмная олива, свет только сверху-слева
     crown = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
-    circles = [(24, 27, 14), (40, 25, 15), (32, 17, 16),
-               (18, 36, 9), (46, 36, 9)]
+    circles = [(24, 27, 14), (40, 25, 15), (32, 16, 16),
+               (17, 36, 9), (47, 36, 9)]
     for cx, cy, r in circles:
         pygame.draw.circle(crown, TREE_BASE, (cx, cy), r)
-    # объём: тень снизу, свет сверху
     for cx, cy, r in circles:
-        pygame.draw.circle(crown, textures.shade(TREE_BASE, 0.72),
-                           (cx, cy + r // 3), max(3, r - 3))
+        pygame.draw.circle(crown, TREE_DARK, (cx, cy + r // 3), max(3, r - 3))
     for cx, cy, r in circles:
         pygame.draw.circle(crown, textures.shade(TREE_BASE, 1.16),
                            (cx - r // 4, cy - r // 3), max(3, r // 2))
     # листва: мелкие пятна
-    for _ in range(26):
-        x = rng.randint(12, 52)
-        y = rng.randint(8, 44)
+    for _ in range(30):
+        x = rng.randint(10, 54)
+        y = rng.randint(6, 46)
         if crown.get_at((x, y))[3] < 40:
             continue
-        factor = rng.uniform(0.75, 1.3)
+        factor = rng.uniform(0.68, 1.22)
         pygame.draw.circle(crown, textures.shade(TREE_BASE, factor), (x, y), 1)
-    s.blit(textures.silhouette(crown, textures.shade(TREE_BASE, 0.4), 1), (0, 0))
+    s.blit(textures.silhouette(crown, TREE_DARK, 1), (0, 0))
     s.blit(crown, (0, 0))
     return s
 
 
 def _cave_entrance(variant=0):
     s = _grass(1)
+    rng = textures.rng_for(variant, 8, seed=97)
     # каменистый холм
-    pygame.draw.ellipse(s, STONE_DARK, (4, 26, 56, 34))
-    pygame.draw.ellipse(s, STONE, (8, 22, 48, 30))
-    pygame.draw.ellipse(s, textures.shade(STONE, 1.2), (14, 24, 22, 12))
+    pygame.draw.ellipse(s, STONE_DARK, (3, 25, 58, 35))
+    pygame.draw.ellipse(s, textures.shade(STONE, 0.82), (7, 20, 50, 32))
+    pygame.draw.ellipse(s, textures.shade(STONE, 1.05), (13, 22, 24, 13))
+    # слои породы
+    for i in range(4):
+        pygame.draw.arc(s, textures.shade(STONE_DARK, 0.9 + i * 0.1),
+                        (6 + i * 3, 22 + i * 5, 52 - i * 6, 24 - i * 3),
+                        math.pi, math.pi * 1.9, 1)
     # вход
-    pygame.draw.rect(s, (10, 9, 14), (18, 30, 28, 26), border_radius=10)
+    pygame.draw.ellipse(s, (9, 8, 7), (17, 29, 30, 28))
+    pygame.draw.ellipse(s, (16, 14, 12), (20, 32, 24, 22))
     for i in range(3):
-        y = 34 + i * 7
-        pygame.draw.rect(s, textures.shade((110, 104, 118), 1.0 - i * 0.2),
-                         (22 + i, y, 20 - i * 2, 4))
-    # маркер вниз
-    pygame.draw.polygon(s, (245, 200, 90), [(32, 58), (26, 48), (38, 48)])
+        y = 36 + i * 6
+        pygame.draw.rect(s, textures.shade((92, 86, 74), 1.0 - i * 0.22),
+                         (22 + i, y, 20 - i * 2, 3))
+    # янтарный маркер вниз
+    pygame.draw.polygon(s, textures.shade(BRONZE, 0.45), [
+        (32, 61), (25, 49), (39, 49)])
+    pygame.draw.polygon(s, BRONZE, [
+        (32, 57), (27, 49), (37, 49)])
+    _grime(s, rng, 120, 8)
     return s
 
 
@@ -474,10 +646,10 @@ class Tiles:
             center = size // 2
             for radius in range(center, 0, -1):
                 t = radius / center
-                k = int(78 * (1 - t) ** 2)
+                k = int(88 * (1 - t) ** 2)
                 if k <= 0:
                     continue
-                pygame.draw.circle(glow, (k, int(k * 0.62), int(k * 0.26)),
+                pygame.draw.circle(glow, (k, int(k * 0.58), int(k * 0.25)),
                                    (center, center), radius)
             cls._glow = glow
         return cls._glow

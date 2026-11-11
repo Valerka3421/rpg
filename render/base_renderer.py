@@ -70,12 +70,12 @@ class BaseRenderer:
                          border_radius=radius)
 
         if selected:
-            top_c, bottom_c = (90, 74, 42), (52, 42, 22)
-            border = (245, 215, 105)
+            top_c, bottom_c = (96, 76, 44), (56, 44, 25)
+            border = (206, 166, 82)
             glow = True
         else:
-            top_c, bottom_c = (44, 46, 64), (24, 26, 38)
-            border = (65, 68, 92)
+            top_c, bottom_c = (44, 39, 31), (24, 21, 17)
+            border = (72, 62, 46)
             glow = False
 
         grad = pygame.Surface((w, h), pygame.SRCALPHA)
@@ -91,10 +91,10 @@ class BaseRenderer:
         pygame.draw.rect(grad, border, (0, 0, w, h), width=2,
                          border_radius=radius)
         if glow:
-            pygame.draw.line(grad, (255, 235, 140),
+            pygame.draw.line(grad, (236, 206, 142),
                              (10, 1), (w - 10, 1), 1)
             inner = pygame.Surface((w, h), pygame.SRCALPHA)
-            pygame.draw.rect(inner, (255, 220, 100, 25), (0, 0, w, h),
+            pygame.draw.rect(inner, (206, 166, 82, 24), (0, 0, w, h),
                              border_radius=radius)
             grad.blit(inner, (0, 0))
         parts = (shadow, grad)
@@ -151,7 +151,7 @@ class BaseRenderer:
             return None, None
         total = sum(d[1] for d in deltas if not d[2])
         positive = total > 0
-        color = (140, 240, 140) if positive else (255, 120, 120)
+        color = (140, 212, 116) if positive else (210, 92, 74)
         arrow = "▲" if positive else "▼"
         parts = []
         for name, val, is_pct in deltas:

@@ -62,11 +62,11 @@ class PauseMenu:
 
     def draw(self, screen):
         overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 180))
+        overlay.fill((7, 6, 5, 185))
         screen.blit(overlay, (0, 0))
         font_big = pygame.font.SysFont('consolas', 36, bold=True)
         font = pygame.font.SysFont('consolas', 22)
-        title = font_big.render('ПАУЗА', True, (245, 220, 110))
+        title = font_big.render('ПАУЗА', True, (214, 178, 98))
         screen.blit(title, (self.sw // 2 - title.get_width() // 2,
                             self.sh // 2 - (len(self.items) * 76) // 2 - 60))
         for i, (text, (x, y, w, h)) in enumerate(zip(self.items, self.rects)):
@@ -130,11 +130,11 @@ class SettingsMenu:
 
     def draw(self, screen):
         overlay = pygame.Surface((self.sw, self.sh), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))
+        overlay.fill((7, 6, 5, 205))
         screen.blit(overlay, (0, 0))
         font_big = pygame.font.SysFont('consolas', 36, bold=True)
         font = pygame.font.SysFont('consolas', 22)
-        title = font_big.render('НАСТРОЙКИ', True, (245, 220, 110))
+        title = font_big.render('НАСТРОЙКИ', True, (214, 178, 98))
         screen.blit(title, (self.sw // 2 - title.get_width() // 2,
                             self.sh // 2 - 150))
         y = self.sh // 2 - 60
@@ -206,13 +206,13 @@ class Client:
             if len(buf) > 10_000_000:
                 raise ConnectionError("welcome too big")
 
-    def _show_message(self, screen, sw, sh, line1, line2, color=(220, 220, 235)):
+    def _show_message(self, screen, sw, sh, line1, line2, color=(222, 214, 198)):
         """Показать сообщение с перерисовкой и event.pump."""
         font_big = pygame.font.SysFont("consolas", 24)
         font_sm = pygame.font.SysFont("consolas", 16)
-        screen.fill((12, 12, 18))
+        screen.fill((14, 12, 10))
         t1 = font_big.render(line1, True, color)
-        t2 = font_sm.render(line2, True, (150, 150, 170))
+        t2 = font_sm.render(line2, True, (150, 140, 120))
         screen.blit(t1, (sw // 2 - t1.get_width() // 2, sh // 2 - 20))
         screen.blit(t2, (sw // 2 - t2.get_width() // 2, sh // 2 + 20))
         pygame.display.flip()
@@ -230,8 +230,8 @@ class Client:
         n = len(CLASS_ORDER)
 
         while True:
-            screen.fill((12, 12, 18))
-            title = font_big.render('ВЫБОР КЛАССА', True, (245, 220, 110))
+            screen.fill((14, 12, 10))
+            title = font_big.render('ВЫБОР КЛАССА', True, (214, 178, 98))
             screen.blit(title, (sw // 2 - title.get_width() // 2, 40))
 
             bw = sw - 120
@@ -244,8 +244,8 @@ class Client:
                 cls = CLASSES[key]
                 y = by + i * (bh + gap)
                 sel = (i == selected)
-                bg = (90, 74, 42) if sel else (44, 46, 64)
-                border = (245, 215, 105) if sel else (65, 68, 92)
+                bg = (96, 76, 44) if sel else (44, 39, 31)
+                border = (206, 166, 82) if sel else (72, 62, 46)
                 pygame.draw.rect(screen, bg, (bx, y, bw, bh), border_radius=8)
                 pygame.draw.rect(screen, border, (bx, y, bw, bh), 2,
                                  border_radius=8)
@@ -262,14 +262,14 @@ class Client:
                 line = (f"ATK {stats['atk']}  DEF {stats['df']}  "
                         f"HP {stats['max_hp']}  Укл {int(stats['dodge'] * 100)}%  "
                         f"Крит {int(stats['crit'] * 100)}%")
-                screen.blit(font_sm.render(line, True, (220, 220, 235)),
+                screen.blit(font_sm.render(line, True, (222, 214, 198)),
                             (bx + 20, y + 42))
-                screen.blit(font_sm.render(cls['desc'], True, (140, 140, 155)),
+                screen.blit(font_sm.render(cls['desc'], True, (150, 140, 120)),
                             (bx + 20, y + 68))
 
             hint = font_sm.render(
                 '↑↓ / мышь — выбор · Enter — начать · Esc — назад',
-                True, (110, 110, 130))
+                True, (98, 90, 74))
             screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 30))
             pygame.display.flip()
 

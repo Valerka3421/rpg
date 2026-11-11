@@ -13,15 +13,18 @@ from render.base_renderer import BaseRenderer
 
 from render.constants import MONSTER_SPRITES
 
+# Глубокие тени Stoneshard — не серые, а холодные сине-зелёные.
+DARK_TINT = (5, 7, 12)
+
 class GameRenderer(BaseRenderer):
     def __init__(self, screen, icons):
         super().__init__(screen)
         self.icons = icons
         self._shadow_sm = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
-        pygame.draw.ellipse(self._shadow_sm, (0, 0, 0, 90),
+        pygame.draw.ellipse(self._shadow_sm, (0, 0, 0, 105),
                             (TILE // 5, TILE - 10, TILE * 3 // 5, 6))
         self._shadow_lg = pygame.Surface((TILE, TILE), pygame.SRCALPHA)
-        pygame.draw.ellipse(self._shadow_lg, (0, 0, 0, 110),
+        pygame.draw.ellipse(self._shadow_lg, (0, 0, 0, 125),
                             (TILE // 6, TILE - 10, TILE * 2 // 3, 8))
         self._tile_wall = Sprites.get('tiles/wall', (TILE, TILE))
         self._tile_floor = Sprites.get('tiles/floor', (TILE, TILE))
@@ -33,12 +36,12 @@ class GameRenderer(BaseRenderer):
         self._wall_shadow_h = pygame.Surface((TILE, 9), pygame.SRCALPHA)
         for i in range(9):
             alpha = int(58 * (1 - i / 9) ** 1.6)
-            pygame.draw.line(self._wall_shadow_h, (0, 0, 0, alpha),
+            pygame.draw.line(self._wall_shadow_h, (8, 9, 13, alpha),
                              (0, i), (TILE, i))
         self._wall_shadow_v = pygame.Surface((9, TILE), pygame.SRCALPHA)
         for i in range(9):
             alpha = int(46 * (1 - i / 9) ** 1.6)
-            pygame.draw.line(self._wall_shadow_v, (0, 0, 0, alpha),
+            pygame.draw.line(self._wall_shadow_v, (8, 9, 13, alpha),
                              (i, 0), (i, TILE))
         # Кэши: карта и основа миникарты перерисовываются редко
         self._map_surface = None
@@ -156,11 +159,11 @@ class GameRenderer(BaseRenderer):
             radius = (FOV_RADIUS + 1) * TILE
             half = max(1, radius // 2)
             small = pygame.Surface((half * 2, half * 2), pygame.SRCALPHA)
-            small.fill((0, 0, 0, 115))
+            small.fill((*DARK_TINT, 135))
             for r in range(half, 0, -2):
                 t = r / half
-                alpha = int(115 * t ** 1.7)
-                pygame.draw.circle(small, (0, 0, 0, alpha), (half, half), r)
+                alpha = int(135 * t ** 1.7)
+                pygame.draw.circle(small, (*DARK_TINT, alpha), (half, half), r)
             self._light_grad = pygame.transform.smoothscale(
                 small, (radius * 2, radius * 2))
         return self._light_grad
@@ -172,7 +175,7 @@ class GameRenderer(BaseRenderer):
                int(self._ry(game.player)), cam_x, cam_y, size)
         if self._dark_key != key:
             overlay = pygame.Surface(size, pygame.SRCALPHA)
-            overlay.fill((0, 0, 0, 120))
+            overlay.fill((*DARK_TINT, 135))
             grad = self._light_gradient()
             radius = grad.get_width() // 2
             sx = (int(self._rx(game.player)) - cam_x) * TILE + TILE // 2
@@ -291,7 +294,7 @@ class GameRenderer(BaseRenderer):
                 pygame.draw.rect(self.screen, T.HP,
                                  (px + 4, py + 4, int(bw * m.hp / m.max_hp), 5))
             if m.boss:
-                T.rounded_rect(self.screen, (255, 200, 50),
+                T.rounded_rect(self.screen, T.STAIRS,
                                (px, py, TILE - 1, TILE - 1), width=2, radius=4)
             self._draw_statuses(m, px, py)
 
@@ -367,7 +370,7 @@ class GameRenderer(BaseRenderer):
         self.icons.draw_player(player.class_key, draw_x, draw_y, size=TILE)
         # Ник над игроком
         self.text(player.class_name, draw_x + TILE // 2, draw_y - 6,
-                  (200, 220, 255), font=T.FONT_TINY, center=True)
+                  (210, 200, 178), font=T.FONT_TINY, center=True)
         self._draw_statuses(player, px, py)
 
     def _draw_statuses(self, entity, px, py):
@@ -464,8 +467,8 @@ class GameRenderer(BaseRenderer):
             x, y, w, h = rect
             hover = x <= mx <= x + w and y <= my <= y + h
 
-            bg = (60, 55, 80) if hover else (28, 30, 44)
-            border = (245, 215, 105) if hover else (70, 75, 100)
+            bg = (66, 54, 38) if hover else (30, 27, 22)
+            border = (206, 166, 82) if hover else (78, 66, 48)
 
             # Тень — одна поверхность на размер кнопки (кэш)
             shadow = self._toolbar_shadow.get((w, h))
@@ -490,7 +493,7 @@ class GameRenderer(BaseRenderer):
         if self._mini_key == key and self._mini_scaled is not None:
             return self._mini_scaled
         mini = pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
-        mini.fill((10, 10, 16, 200))
+        mini.fill((12, 11, 9, 210))
         for my in range(MAP_H):
             row = game.dungeon.tiles[my]
             for mx in range(MAP_W):
@@ -498,15 +501,15 @@ class GameRenderer(BaseRenderer):
                     continue
                 tile = row[mx]
                 if tile == Tile.WALL:
-                    color = (70, 60, 85, 200)
+                    color = (82, 74, 62, 210)
                 elif tile == Tile.STAIRS:
-                    color = (240, 200, 90, 255)
+                    color = (206, 166, 82, 255)
                 elif tile == Tile.EXIT:
-                    color = (140, 240, 140, 255)
+                    color = (150, 190, 130, 255)
                 elif tile == Tile.UPSTAIRS:
-                    color = (90, 200, 120, 255)
+                    color = (110, 160, 110, 255)
                 else:
-                    color = (55, 50, 65, 200)
+                    color = (56, 52, 45, 210)
                 mini.set_at((mx, my), color)
         self._mini_scaled = pygame.transform.scale(
             mini, (MAP_W * MINIMAP_SCALE, MAP_H * MINIMAP_SCALE))
@@ -532,15 +535,15 @@ class GameRenderer(BaseRenderer):
         scaled_w, scaled_h = scaled.get_size()
         pos_x = config.SCREEN_W - scaled_w - MINIMAP_MARGIN
         pos_y = MINIMAP_MARGIN
-        pygame.draw.rect(self.screen, (40, 40, 55),
+        pygame.draw.rect(self.screen, (52, 45, 34),
                          (pos_x - 2, pos_y - 2, scaled_w + 4, scaled_h + 4))
         self.screen.blit(scaled, (pos_x, pos_y))
-        pygame.draw.rect(self.screen, (90, 90, 110),
+        pygame.draw.rect(self.screen, (100, 86, 62),
                          (pos_x - 2, pos_y - 2, scaled_w + 4, scaled_h + 4), 1)
 
         if game.merchant:
             self._minimap_marker(pos_x, pos_y, game.merchant,
-                                 (240, 200, 100), size=2)
+                                 (206, 170, 96), size=2)
         # Сокомандники видны на мини-карте всегда — это «радар» отряда
         my_id = getattr(game, 'my_id', None)
         my_player = getattr(game, 'player', None)
@@ -548,6 +551,6 @@ class GameRenderer(BaseRenderer):
             if pid == my_id or remote is my_player:
                 continue
             color = CLASSES.get(getattr(remote, 'class_key', 'default'),
-                                {}).get('color', (140, 200, 255))
+                                {}).get('color', (176, 170, 150))
             self._minimap_marker(pos_x, pos_y, remote, color, size=3)
         self._minimap_marker(pos_x, pos_y, game.player, (255, 255, 255), size=3)

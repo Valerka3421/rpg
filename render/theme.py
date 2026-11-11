@@ -4,40 +4,48 @@ import pygame
 
 
 class Theme:
-    BG          = (12, 12, 18)
-    BG_HUD      = (8, 8, 14)
-    BG_MAP_DIM  = (20, 18, 26)
-    PANEL       = (22, 22, 32)
-    PANEL_DARK  = (14, 14, 22)
-    PANEL_HEADER = (32, 32, 46)
-    PANEL_BORDER = (55, 55, 75)
-    PANEL_BORDER_DARK = (35, 35, 50)
+    # Палитра Stoneshard: тёплая почти-чёрная база, бронза, пергамент.
+    # Холодные синие/фиолетовые оттенки оставлены только глубоким теням.
+    BG          = (14, 12, 10)
+    BG_HUD      = (9, 8, 7)
+    BG_MAP_DIM  = (18, 16, 13)
+    PANEL       = (30, 26, 21)
+    PANEL_DARK  = (18, 16, 13)
+    PANEL_HEADER = (42, 36, 28)
+    PANEL_BORDER = (78, 66, 48)
+    PANEL_BORDER_DARK = (46, 39, 29)
 
-    TEXT        = (225, 225, 235)
-    TEXT_DIM    = (140, 140, 155)
-    TEXT_MUTED  = (90, 90, 105)
+    TEXT        = (222, 214, 198)
+    TEXT_DIM    = (150, 140, 120)
+    TEXT_MUTED  = (98, 90, 74)
 
-    HP          = (200, 60, 60)
-    HP_CRIT     = (255, 100, 100)
-    HP_BG       = (50, 20, 20)
-    XP          = (80, 160, 240)
-    GOLD        = (240, 210, 90)
-    DMG         = (255, 100, 100)
-    CRIT        = (255, 200, 50)
-    HEAL        = (120, 240, 120)
-    DODGE       = (180, 180, 255)
-    WIN         = (255, 220, 80)
-    MERCH       = (240, 200, 100)
-    KEY_BG      = (40, 40, 60)
-    KEY_BORDER  = (70, 70, 100)
-    KEY_TEXT    = (220, 220, 240)
+    HP          = (166, 48, 42)
+    HP_CRIT     = (220, 84, 64)
+    HP_BG       = (44, 22, 18)
+    XP          = (92, 126, 138)
+    GOLD        = (206, 166, 82)
+    DMG         = (214, 82, 66)
+    CRIT        = (232, 178, 74)
+    HEAL        = (120, 172, 104)
+    DODGE       = (150, 166, 178)
+    WIN         = (222, 190, 96)
+    MERCH       = (206, 170, 96)
+    KEY_BG      = (36, 31, 24)
+    KEY_BORDER  = (72, 62, 46)
+    KEY_TEXT    = (216, 206, 186)
 
-    WALL        = (70, 60, 85)
-    WALL_DIM    = (30, 26, 38)
-    FLOOR       = (38, 33, 48)
-    FLOOR_DIM   = (20, 18, 26)
-    PLAYER      = (120, 230, 130)
-    STAIRS      = (240, 200, 90)
+    WALL        = (74, 68, 59)
+    WALL_DIM    = (32, 29, 25)
+    FLOOR       = (56, 52, 45)
+    FLOOR_DIM   = (22, 20, 17)
+    PLAYER      = (140, 186, 132)
+    STAIRS      = (206, 166, 82)
+
+    # Заголовки и акценты интерфейса — бронза/пергамент
+    TITLE       = (214, 178, 98)
+    TITLE_LIGHT = (238, 222, 188)
+    ROW_HOVER   = (54, 45, 33)
+    ROW_BORDER  = (110, 91, 62)
 
     R_SM = 3
     R_MD = 6
@@ -119,9 +127,9 @@ class Theme:
     def shadow(surface, rect, offset=3, alpha=120, radius=6):
         sh = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
         try:
-            pygame.draw.rect(sh, (0, 0, 0, alpha), sh.get_rect(), border_radius=radius)
+            pygame.draw.rect(sh, (5, 4, 3, alpha), sh.get_rect(), border_radius=radius)
         except TypeError:
-            sh.fill((0, 0, 0, alpha))
+            sh.fill((5, 4, 3, alpha))
         surface.blit(sh, (rect[0] + offset, rect[1] + offset))
 
     @classmethod
@@ -147,7 +155,7 @@ class Theme:
     @classmethod
     def section(cls, surface, x, y, width, title):
         f = cls.FONT_H2
-        t = cls.render(f"  {title}  ", (180, 180, 220), f)
+        t = cls.render(f"  {title}  ", (190, 172, 138), f)
         cx = x + width // 2
         surface.blit(t, (cx - t.get_width() // 2, y))
         line_y = y + t.get_height() // 2

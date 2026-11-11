@@ -19,13 +19,13 @@ class ScreensRenderer(BaseRenderer):
         from core.config import (MODAL_TOP_PAD, MODAL_CLOSE_SIZE,
                                  MODAL_CLOSE_PAD, MODAL_CONTENT_PAD)
         ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 140))
+        ov.fill((6, 5, 4, 165))
         self.screen.blit(ov, (0, 0))
 
         rect = game._modal_panel_rect()
         panel = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
-        pygame.draw.rect(panel, (22, 22, 32, 235), panel.get_rect(), border_radius=10)
-        pygame.draw.rect(panel, (70, 72, 95, 255), panel.get_rect(),
+        pygame.draw.rect(panel, (30, 26, 21, 238), panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, (78, 66, 48, 255), panel.get_rect(),
                          width=2, border_radius=10)
         self.screen.blit(panel, (rect[0], rect[1]))
 
@@ -34,13 +34,13 @@ class ScreensRenderer(BaseRenderer):
         pad = MODAL_CLOSE_PAD
         xx = rect[0] + rect[2] - size - pad
         yy = rect[1] + pad
-        T.rounded_rect(self.screen, (60, 30, 30), (xx, yy, size, size),
-                       radius=6, border_color=(200, 90, 90))
+        T.rounded_rect(self.screen, (54, 26, 22), (xx, yy, size, size),
+                       radius=6, border_color=(160, 68, 58))
         cx, cy = xx + size // 2, yy + size // 2
         r = 9
-        pygame.draw.line(self.screen, (240, 120, 120),
+        pygame.draw.line(self.screen, (200, 74, 64),
                          (cx - r, cy - r), (cx + r, cy + r), 3)
-        pygame.draw.line(self.screen, (240, 120, 120),
+        pygame.draw.line(self.screen, (200, 74, 64),
                          (cx + r, cy - r), (cx - r, cy + r), 3)
 
         game._modal_close_rect = (xx, yy, size, size)
@@ -68,7 +68,7 @@ class ScreensRenderer(BaseRenderer):
         game._ui_hits['stats'] = {'plus': []}
 
         class_name = getattr(p, 'class_name', 'Приключенец')
-        self.text("ХАРАКТЕРИСТИКИ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text("ХАРАКТЕРИСТИКИ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"{class_name} · Уровень {p.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
         y = cy0 + 56
@@ -92,13 +92,13 @@ class ScreensRenderer(BaseRenderer):
             btn_x = cx0
             btn_y = y - 4
             can_alloc = p.free_points > 0
-            bg = (40, 80, 40) if can_alloc else (45, 45, 58)
-            border = (120, 220, 120) if can_alloc else (85, 85, 105)
+            bg = (40, 64, 34) if can_alloc else (45, 40, 32)
+            border = (120, 170, 104) if can_alloc else (78, 66, 48)
             T.rounded_rect(self.screen, bg,
                            (btn_x, btn_y, btn_size, btn_size),
                            radius=5, border_color=border)
             self.text(str(val), btn_x + btn_size // 2, btn_y + btn_size // 2,
-                      (220, 255, 200) if can_alloc else (200, 200, 215),
+                      (214, 232, 196) if can_alloc else (200, 190, 170),
                       font=T.FONT_BODY, center=True)
             if can_alloc:
                 game._ui_hits['stats']['plus'].append(
@@ -107,7 +107,7 @@ class ScreensRenderer(BaseRenderer):
             # ── Номер + название справа от кнопки ──
             text_x = cx0 + btn_size + 16
             self.text(f"{name} ({abbr})", text_x, y, T.TEXT)
-            self.text(gain, text_x + 240, y, (150, 200, 150), font=T.FONT_SMALL)
+            self.text(gain, text_x + 240, y, (134, 180, 116), font=T.FONT_SMALL)
             y += 22
             self.text(f"  └ {detail}", text_x, y, T.TEXT_MUTED, font=T.FONT_TINY)
             y += 26
@@ -120,7 +120,7 @@ class ScreensRenderer(BaseRenderer):
                 book_key = PERK_BOOK_MAP[flag]
                 name, desc, _ = PERK_INFO[flag]
                 self.icons.draw_item(book_key, cx0 + 20, y - 2, size=24)
-                self.text(name, cx0 + 52, y, (200, 150, 255), font=T.FONT_BODY)
+                self.text(name, cx0 + 52, y, (198, 168, 118), font=T.FONT_BODY)
                 self.text(f"— {desc}", cx0 + 52 + T.FONT_BODY.size(name)[0] + 8,
                           y + 2, T.TEXT_MUTED, font=T.FONT_TINY)
                 y += 28
@@ -194,7 +194,7 @@ class ScreensRenderer(BaseRenderer):
         p = game.player
         game._ui_hits['inventory'] = {'items': [], 'equip': []}
 
-        self.text("ИНВЕНТАРЬ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text("ИНВЕНТАРЬ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
                   align_right=True)
         y = cy0 + 56
@@ -381,7 +381,7 @@ class ScreensRenderer(BaseRenderer):
         from core.config import HAMMER_SIZE
         game._ui_hits['craft'] = {'hammer': []}
 
-        self.text("КРАФТ", cx0, cy0, (200, 220, 255), font=T.FONT_H1)
+        self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"Уровень {game.player.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
         y = cy0 + 56
@@ -420,7 +420,7 @@ class ScreensRenderer(BaseRenderer):
             hover = (hx <= mx <= hx + HAMMER_SIZE and hy <= my <= hy + HAMMER_SIZE)
             bg_h = (60, 90, 60) if (can_full and hover) else \
                 (40, 70, 40) if can_full else (40, 40, 50)
-            border_h = (150, 240, 150) if can_full else (80, 80, 100)
+            border_h = (120, 170, 104) if can_full else (78, 66, 48)
             T.rounded_rect(self.screen, bg_h, (hx, hy, HAMMER_SIZE, HAMMER_SIZE),
                            radius=6, border_color=border_h)
             self.icons.draw_toolbar_icon('craft', hx + 2, hy + 2,
@@ -435,7 +435,7 @@ class ScreensRenderer(BaseRenderer):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
 
-        frame_color = (240, 210, 100) if game.dialogue.npc_type == 'elder' \
+        frame_color = (206, 166, 82) if game.dialogue.npc_type == 'elder' \
             else T.MERCH
 
         # ── Портрет ──
@@ -501,13 +501,13 @@ class ScreensRenderer(BaseRenderer):
             brect = (cx0, btn_y + i * (btn_h + btn_gap), cw, btn_h)
             selected = (i == game.dialogue.selection)
             self.draw_button_bg(brect, selected)
-            color = (255, 240, 180) if selected else (200, 200, 215)
+            color = (238, 222, 188) if selected else (200, 190, 170)
             self.text(opt[1], brect[0] + brect[2] // 2, brect[1] + brect[3] // 2,
                       color, font=T.FONT_H2, center=True)
             if selected:
                 ax = brect[0] + 20
                 ay = brect[1] + brect[3] // 2
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 8), (ax + 14, ay), (ax, ay + 8)])
 
     # ════════════════════════ КВЕСТЫ ════════════════════════
@@ -515,7 +515,7 @@ class ScreensRenderer(BaseRenderer):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core.data import QUESTS
-        self.text("КВЕСТЫ", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text("КВЕСТЫ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         y = cy0 + 56
         # Секция + отступ до карточек (синхронизировано с button_rects)
         y = T.section(self.screen, cx0, y, cw, "Список")
@@ -528,9 +528,9 @@ class ScreensRenderer(BaseRenderer):
             return
 
         STATE = {
-            'available': ('[ВЗЯТЬ]', (140, 200, 255)),
-            'active': ('[АКТИВЕН]', (220, 220, 140)),
-            'completed': ('[СДАТЬ]', (140, 240, 140)),
+            'available': ('[ВЗЯТЬ]', (176, 186, 192)),
+            'active': ('[АКТИВЕН]', (206, 190, 138)),
+            'completed': ('[СДАТЬ]', (134, 190, 118)),
         }
         for i, (idx, crect) in enumerate(game.quests.button_rects()):
             if i >= len(items):
@@ -541,24 +541,24 @@ class ScreensRenderer(BaseRenderer):
             cx_, cy_, cw_, ch_ = crect
             if selected:
                 T.rounded_rect(self.screen, (60, 60, 80), crect,
-                               radius=T.R_MD, border_color=(245, 215, 105))
-                T.rounded_rect(self.screen, (245, 215, 105), crect,
+                               radius=T.R_MD, border_color=(206, 166, 82))
+                T.rounded_rect(self.screen, (206, 166, 82), crect,
                                width=1, radius=T.R_MD)
             else:
                 T.rounded_rect(self.screen, (32, 32, 46), crect,
                                radius=T.R_MD, border_color=(60, 60, 85))
             label, label_color = STATE[state]
-            self.text(q['name'], cx_ + 16, cy_ + 12, (255, 240, 180), font=T.FONT_H2)
+            self.text(q['name'], cx_ + 16, cy_ + 12, (238, 222, 188), font=T.FONT_H2)
             self.text(label, cx_ + cw_ - 16, cy_ + 12, label_color,
                       font=T.FONT_H2, align_right=True)
             self.text(q['desc'], cx_ + 16, cy_ + 40, T.TEXT_DIM, font=T.FONT_SMALL)
             if state == 'active':
                 st = game.quest_log.active.get(key, {})
                 self.text(f"Прогресс: {st.get('progress', 0)}/{st.get('count', q['count'])}",
-                          cx_ + 16, cy_ + 58, (200, 220, 160), font=T.FONT_SMALL)
+                          cx_ + 16, cy_ + 58, (196, 192, 160), font=T.FONT_SMALL)
             elif state == 'completed':
                 self.text("Готово к сдаче!", cx_ + 16, cy_ + 58,
-                          (140, 240, 140), font=T.FONT_SMALL)
+                          (134, 190, 118), font=T.FONT_SMALL)
             else:
                 self.text(f"+{q['reward_gold']} з.  +{q['reward_xp']} XP",
                           cx_ + 16, cy_ + 58, (240, 210, 90), font=T.FONT_SMALL)
@@ -567,7 +567,7 @@ class ScreensRenderer(BaseRenderer):
     def draw_run_stats(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
-        self.text("СТАТИСТИКА ЗАБЕГА", cx0, cy0, (240, 220, 120), font=T.FONT_H1)
+        self.text("СТАТИСТИКА ЗАБЕГА", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         y = cy0 + 56
 
         s = game.run_summary()
@@ -577,7 +577,7 @@ class ScreensRenderer(BaseRenderer):
         left_x = cx0
         right_x = cx0 + cw // 2 + 20
         y_col = y
-        self.text("─── ОБЩЕЕ ───", left_x, y_col, (180, 180, 220), font=T.FONT_H2)
+        self.text("─── ОБЩЕЕ ───", left_x, y_col, (190, 172, 138), font=T.FONT_H2)
         y_col += 40
         left = [
             ("Время", f"{mins}:{secs:02d}"), ("Убито мобов", str(s['kills'])),
@@ -597,7 +597,7 @@ class ScreensRenderer(BaseRenderer):
         from core.data import MONSTERS, BOSSES
         y_col = y
         self.text("─── УБИТО ПО ТИПАМ ───", right_x, y_col,
-                  (180, 180, 220), font=T.FONT_H2)
+                  (190, 172, 138), font=T.FONT_H2)
         y_col += 40
         all_m = {m['ch']: m['name'] for m in MONSTERS.values()}
         all_m.update({b['ch']: b['name'] for b in BOSSES.values()})

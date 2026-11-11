@@ -13,19 +13,19 @@ class MenuRenderer(BaseRenderer):
 
     # ════════════════════════ ГЛАВНОЕ МЕНЮ ════════════════════════
     def draw_main(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
         title_text = "ЭТЕЛЬГАРД"
-        title_surf = T.render(title_text, (245, 220, 110), T.FONT_H1)
+        title_surf = T.render(title_text, (214, 178, 98), T.FONT_H1)
         shadow_surf = T.render(title_text, (0, 0, 0), T.FONT_H1)
         tx = cx - title_surf.get_width() // 2
         self.screen.blit(shadow_surf, (tx + 3, 103))
         self.screen.blit(title_surf, (tx, 100))
 
         line_y = 155
-        pygame.draw.line(self.screen, (120, 100, 50),
+        pygame.draw.line(self.screen, (96, 78, 46),
                          (cx - 220, line_y), (cx + 220, line_y), 1)
-        pygame.draw.line(self.screen, (200, 170, 80),
+        pygame.draw.line(self.screen, (176, 142, 82),
                          (cx - 150, line_y + 3), (cx + 150, line_y + 3), 1)
         self.text("Открытый мир · Подземелья · Дракон", cx, 172,
                   T.TEXT_DIM, font=T.FONT_SMALL, center=True)
@@ -36,20 +36,20 @@ class MenuRenderer(BaseRenderer):
                 break
             selected = (i == game.menu.selection)
             self.draw_button_bg(rect, selected)
-            color = (255, 240, 180) if selected else (200, 200, 215)
+            color = (238, 222, 188) if selected else (200, 190, 170)
             self.text(labels[i], rect[0] + rect[2] // 2, rect[1] + rect[3] // 2,
                       color, font=T.FONT_H2, center=True)
             if selected:
                 ax = rect[0] - 22
                 ay = rect[1] + rect[3] // 2
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
 
     # ════════════════════════ Мультиплеер ════════════════════════
     def draw_menu_multiplayer(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
-        title = T.render("МУЛЬТИПЛЕЕР", (245, 220, 110), T.FONT_H1)
+        title = T.render("МУЛЬТИПЛЕЕР", (214, 178, 98), T.FONT_H1)
         self.screen.blit(title, (cx - title.get_width() // 2, 100))
         self.text("Играй с другом по локальной сети",
                   cx, 160, T.TEXT_DIM, font=T.FONT_SMALL, center=True)
@@ -60,20 +60,20 @@ class MenuRenderer(BaseRenderer):
                 break
             selected = (i == game.menu.mp_selection)
             self.draw_button_bg(rect, selected)
-            color = (255, 240, 180) if selected else (200, 200, 215)
+            color = (238, 222, 188) if selected else (200, 190, 170)
             self.text(labels[i], rect[0] + rect[2] // 2,
                       rect[1] + rect[3] // 2, color,
                       font=T.FONT_H2, center=True)
             if selected:
                 ax = rect[0] - 22
                 ay = rect[1] + rect[3] // 2
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
 
         # Пометка про сохранение
         if game.menu._has_mp_save():
             self.text("● Есть сохранение мультиплеера",
-                      cx, 180, (140, 220, 140),
+                      cx, 180, (134, 190, 118),
                       font=T.FONT_TINY, center=True)
         else:
             self.text("Сохранения нет",
@@ -84,9 +84,9 @@ class MenuRenderer(BaseRenderer):
                   font=T.FONT_SMALL, center=True)
 
     def draw_menu_mp_join(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
-        title = T.render("ПРИСОЕДИНИТЬСЯ", (245, 220, 110), T.FONT_H1)
+        title = T.render("ПРИСОЕДИНИТЬСЯ", (214, 178, 98), T.FONT_H1)
         self.screen.blit(title, (cx - title.get_width() // 2, 100))
 
         self.text("Введи IP-адрес хоста:", cx, 200, T.TEXT,
@@ -96,13 +96,13 @@ class MenuRenderer(BaseRenderer):
         field_w, field_h = 460, 56
         field_x = cx - field_w // 2
         field_y = 240
-        T.rounded_rect(self.screen, (20, 20, 30),
+        T.rounded_rect(self.screen, (24, 21, 17),
                        (field_x, field_y, field_w, field_h),
-                       radius=8, border_color=(120, 120, 160))
+                       radius=8, border_color=(110, 91, 62))
         cursor = "_" if (pygame.time.get_ticks() // 500) % 2 else ""
         self.text(game.menu.mp_ip + cursor,
                   field_x + field_w // 2, field_y + field_h // 2,
-                  (220, 240, 220), font=T.FONT_H2, center=True)
+                  (228, 220, 200), font=T.FONT_H2, center=True)
 
         self.text("Например: localhost или 192.168.1.5",
                   cx, field_y + field_h + 14,
@@ -115,7 +115,7 @@ class MenuRenderer(BaseRenderer):
             # Первая кнопка всегда "selected" для визуальной привязки
             selected = (i == 0)
             self.draw_button_bg(rect, selected)
-            color = (255, 240, 180) if selected else (200, 200, 215)
+            color = (238, 222, 188) if selected else (200, 190, 170)
             self.text(btn_labels[i], rect[0] + rect[2] // 2,
                       rect[1] + rect[3] // 2, color,
                       font=T.FONT_H2, center=True)
@@ -127,10 +127,10 @@ class MenuRenderer(BaseRenderer):
     # ════════════════════════ СОХРАНЕНИЯ ════════════════════════
     def draw_saves(self, game):
         from core.save import save_slot_info
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
         title = "ЗАГРУЗИТЬ ИГРУ" if game.menu.saves_mode == 'load' else "СОХРАНИТЬ ИГРУ"
-        title_surf = T.render(title, (245, 220, 110), T.FONT_H1)
+        title_surf = T.render(title, (214, 178, 98), T.FONT_H1)
         self.screen.blit(title_surf, (cx - title_surf.get_width() // 2, 80))
 
         for slot in (1, 2, 3):
@@ -146,7 +146,7 @@ class MenuRenderer(BaseRenderer):
             if selected:
                 ax = rect[0] - 22
                 ay = rect[1] + rect[3] // 2
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
 
     def _draw_slot(self, rect, slot, info, selected, from_game, mode, game=None):
@@ -160,22 +160,22 @@ class MenuRenderer(BaseRenderer):
 
         # ── Иконка слева ──
         if info is None:
-            T.rounded_rect(self.screen, (35, 35, 50),
+            T.rounded_rect(self.screen, (34, 29, 23),
                            (ix, iy, icon_size, icon_size),
-                           radius=T.R_SM, border_color=(70, 70, 90))
+                           radius=T.R_SM, border_color=(72, 62, 46))
             self.text("—", ix + icon_size // 2, iy + icon_size // 2,
                       T.TEXT_MUTED, font=T.FONT_H2, center=True)
         else:
             cls = CLASSES.get(info.get('class_key', 'default'),
                               CLASSES['default'])
-            T.rounded_rect(self.screen, (30, 30, 40),
+            T.rounded_rect(self.screen, (30, 26, 21),
                            (ix, iy, icon_size, icon_size),
                            radius=T.R_SM, border_color=cls['color'])
             self.icons.draw_class_icon(info.get('class_key', 'default'),
                                        ix, iy, size=icon_size)
 
         # ── Заголовок слота ──
-        slot_color = (255, 240, 180) if selected else (200, 200, 215)
+        slot_color = (238, 222, 188) if selected else (200, 190, 170)
         self.text(f"Слот {slot}", x + 76, y + 16, slot_color, font=T.FONT_H2)
 
         # ── Содержимое: пусто / заполнено ──
@@ -205,7 +205,7 @@ class MenuRenderer(BaseRenderer):
 
             if mode == 'save':
                 self.text("клик перезапишет", x + w - 20, y + h - 24,
-                          (240, 180, 80), font=T.FONT_TINY, align_right=True)
+                          (208, 158, 82), font=T.FONT_TINY, align_right=True)
 
         # ── Мусорка — ТОЛЬКО для заполненного слота ──
         if game is not None and info is not None:
@@ -252,9 +252,9 @@ class MenuRenderer(BaseRenderer):
                              int(1 * k))
     # ════════════════════════ НАСТРОЙКИ ════════════════════════
     def draw_settings(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
-        title = T.render("НАСТРОЙКИ", (245, 220, 110), T.FONT_H1)
+        title = T.render("НАСТРОЙКИ", (214, 178, 98), T.FONT_H1)
         self.screen.blit(title, (cx - title.get_width() // 2, 100))
 
         current_res = tuple(game.settings.get('resolution', [1280, 720]))
@@ -279,12 +279,12 @@ class MenuRenderer(BaseRenderer):
 
             cy = y + h // 2 - 11
 
-            label_color = (255, 240, 180) if selected else (200, 200, 215)
+            label_color = (238, 222, 188) if selected else (200, 190, 170)
             self.text(label, x + 28, cy, label_color, font=T.FONT_H2)
 
             val_zone_center = x + w - 100
             val_w = T.FONT_H2.size(val)[0]
-            val_color = (245, 215, 105) if selected else T.TEXT_DIM
+            val_color = (206, 166, 82) if selected else T.TEXT_DIM
             self.text(val, val_zone_center, y + h // 2, val_color,
                       font=T.FONT_H2, center=True)
 
@@ -293,16 +293,16 @@ class MenuRenderer(BaseRenderer):
                 val_right = val_zone_center + val_w // 2
                 ay = y + h // 2
                 lb = val_left - 16
-                pygame.draw.polygon(self.screen, (200, 180, 100),
+                pygame.draw.polygon(self.screen, (176, 142, 82),
                                     [(lb, ay - 7), (lb - 10, ay), (lb, ay + 7)])
                 rb = val_right + 16
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(rb, ay - 7), (rb + 10, ay), (rb, ay + 7)])
 
     def draw_controls(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
-        title = T.render("УПРАВЛЕНИЕ", (245, 220, 110), T.FONT_H1)
+        title = T.render("УПРАВЛЕНИЕ", (214, 178, 98), T.FONT_H1)
         self.screen.blit(title, (cx - title.get_width() // 2, 60))
 
         # Данные: категория → [(клавиша, описание)]
@@ -332,10 +332,10 @@ class MenuRenderer(BaseRenderer):
         col_x = 100
         y = 150
         for cat, rows in sections:
-            self.text(cat, col_x, y, (245, 220, 110), font=T.FONT_H2)
+            self.text(cat, col_x, y, (214, 178, 98), font=T.FONT_H2)
             y += 32
             for key_str, desc in rows:
-                self.text(key_str, col_x + 20, y, (180, 200, 240),
+                self.text(key_str, col_x + 20, y, (196, 176, 138),
                           font=T.FONT_BODY)
                 self.text(desc, col_x + 200, y, T.TEXT, font=T.FONT_BODY)
                 y += 26
@@ -346,9 +346,9 @@ class MenuRenderer(BaseRenderer):
 
     # ════════════════════════ ВЫБОР КЛАССА ════════════════════════
     def draw_class_select(self, game):
-        self.draw_gradient_bg((8, 10, 18), (22, 20, 32))
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
-        title = T.render("ВЫБОР КЛАССА", (245, 220, 110), T.FONT_H1)
+        title = T.render("ВЫБОР КЛАССА", (214, 178, 98), T.FONT_H1)
         self.screen.blit(title, (cx - title.get_width() // 2, 80))
         self.text("Каждый класс — уникальный старт", cx, 148,
                   T.TEXT_DIM, font=T.FONT_SMALL, center=True)
@@ -364,7 +364,7 @@ class MenuRenderer(BaseRenderer):
             if selected:
                 ax = rect[0] - 22
                 ay = rect[1] + rect[3] // 2
-                pygame.draw.polygon(self.screen, (240, 210, 100),
+                pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
 
 

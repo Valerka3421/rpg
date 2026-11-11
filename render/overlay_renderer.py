@@ -12,7 +12,7 @@ class OverlayRenderer(BaseRenderer):
     # ════════════════════════ DEATH RECAP ════════════════════════
     def draw_death(self, game):
         ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 220)); self.screen.blit(ov, (0, 0))
+        ov.fill((7, 6, 5, 225)); self.screen.blit(ov, (0, 0))
         panel_w, panel_h = 700, 480
         rect = ((config.SCREEN_W - panel_w) // 2, (config.SCREEN_H - panel_h) // 2,
                 panel_w, panel_h)
@@ -61,7 +61,7 @@ class OverlayRenderer(BaseRenderer):
     # ════════════════════════ ПОБЕДА ════════════════════════
     def draw_victory(self, game):
         ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
-        ov.fill((0, 0, 0, 210)); self.screen.blit(ov, (0, 0))
+        ov.fill((7, 6, 5, 215)); self.screen.blit(ov, (0, 0))
         panel_w, panel_h = 520, 170
         rect = ((config.SCREEN_W - panel_w) // 2, (config.SCREEN_H - panel_h) // 2,
                 panel_w, panel_h)

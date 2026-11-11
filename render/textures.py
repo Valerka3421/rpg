@@ -10,8 +10,10 @@ import random
 import pygame
 
 # ── Палитра ──
-INK = (9, 8, 13)              # обводка спрайтов
-SHADOW_COLOR = (0, 0, 0)
+# Тёплый почти-чёрный контур: холодная фиолетовая обводка выдавала
+# «мультяшность», а Stoneshard строит силуэт на коричнево-чёрном.
+INK = (11, 8, 6)
+SHADOW_COLOR = (5, 4, 3)
 
 
 # ════════════════════ ЦВЕТ ════════════════════
@@ -32,6 +34,43 @@ def mix(a, b, t):
 
 def with_alpha(color, alpha):
     return (color[0], color[1], color[2], clamp_byte(alpha))
+
+
+# ════════════════════ ЦВЕТОКОРРЕКЦИЯ ════════════════════
+def desaturate(surface, amount=0.30):
+    """Смешать изображение с серым: убирает кислотные цвета."""
+    if amount <= 0:
+        return surface
+    gray = pygame.transform.grayscale(surface)
+    gray.fill((255, 255, 255, clamp_byte(255 * amount)),
+              special_flags=pygame.BLEND_RGBA_MULT)
+    out = surface.copy()
+    out.blit(gray, (0, 0))
+    return out
+
+
+def stoneshard_grade(surface, amount=0.35):
+    """Единый грейд для всех спрайтов: приглушённые цвета, тёплый верх,
+    холодный низ.
+
+    Применяется к процедурным и PNG-спрайтам, чтобы предметы, монстры и
+    игрок не выбивались из палитры тайлов. Вертикальный градиент даёт
+    объём и «подземное» освещение даже плоским иконкам.
+    """
+    out = desaturate(surface, amount)
+    # убираем холодный фиолетовый уклон и слегка прижимаем яркость
+    out.fill((244, 232, 210), special_flags=pygame.BLEND_RGB_MULT)
+    w, h = out.get_size()
+    if w and h:
+        top = (255, 250, 236)
+        bottom = (126, 134, 152)
+        ramp = pygame.Surface((1, h), pygame.SRCALPHA)
+        for y in range(h):
+            t = (y / max(1, h - 1)) ** 0.85
+            ramp.set_at((0, y), (*mix(top, bottom, t), 255))
+        ramp = pygame.transform.scale(ramp, (w, h))
+        out.blit(ramp, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    return out
 
 
 # ════════════════════ ДЕТЕРМИНИРОВАННЫЙ ШУМ ════════════════════
@@ -127,11 +166,12 @@ def silhouette(surface, color=INK, width=1, threshold=40):
 
 
 def finish(surface, outline=INK, width=1, shadow=True,
-           shadow_offset=(1, 2), shadow_alpha=80, threshold=40):
-    """Финальная обработка спрайта: тень + обводка + сам спрайт.
+           shadow_offset=(2, 3), shadow_alpha=110, threshold=40):
+    """Финальная обработка спрайта: грейд + тень + обводка + сам спрайт.
 
     Возвращает новую поверхность того же размера; исходник не меняется.
     """
+    surface = stoneshard_grade(surface)
     size = surface.get_size()
     result = pygame.Surface(size, pygame.SRCALPHA)
     if shadow:
@@ -162,10 +202,17 @@ def light_factor(distance, max_distance, inner=0.65, outer=1.0):
 
 
 def apply_light(surface, factor):
-    """Копия поверхности, умноженная по яркости (для кэша освещённых тайлов)."""
+    """Копия поверхности с холодным затемнением.
+
+    В тенях Stoneshard уходит не в серый, а в сине-зелёный сумрак, поэтому
+    множитель не нейтральный: красный гаснет быстрее синего.
+    """
     if abs(factor - 1.0) < 0.001:
         return surface
     lit = surface.copy()
-    value = clamp_byte(255 * factor)
-    lit.fill((value, value, value, 255), special_flags=pygame.BLEND_RGB_MULT)
+    f = max(0.0, min(1.0, factor))
+    r = clamp_byte(255 * (0.28 + 0.72 * f))
+    g = clamp_byte(255 * (0.32 + 0.68 * f))
+    b = clamp_byte(255 * (0.40 + 0.60 * f))
+    lit.fill((r, g, b, 255), special_flags=pygame.BLEND_RGB_MULT)
     return lit

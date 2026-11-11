@@ -120,12 +120,12 @@ class ClientView:
         h = 30
         y = config.SCREEN_H - h - 6
         rect = (8, y, config.SCREEN_W - 16, h)
-        T.rounded_rect(screen, (18, 18, 28), rect, radius=6,
-                       border_color=(120, 120, 160))
+        T.rounded_rect(screen, T.PANEL_DARK, rect, radius=6,
+                       border_color=T.PANEL_BORDER)
         text = f"Чат: {self.chat_buffer}_"
-        T.text(screen, text, 20, y + 6, (230, 240, 255), font=T.FONT_BODY)
+        T.text(screen, text, 20, y + 6, T.TEXT, font=T.FONT_BODY)
         T.text(screen, "Enter — отправить · Esc — отмена",
-               config.SCREEN_W - 20, y + 8, (120, 120, 140),
+               config.SCREEN_W - 20, y + 8, T.TEXT_MUTED,
                font=T.FONT_SMALL, align_right=True)
 
     def handle_chat_key(self, key, text=''):

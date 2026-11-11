@@ -62,6 +62,11 @@ class Sprites:
             if finish:
                 from render import textures
                 img = textures.finish(img, shadow=True)
+            else:
+                # PNG-тайлы и иконки тоже приводим к общей палитре, иначе
+                # они выбиваются из процедурной графики яркими цветами.
+                from render import textures
+                img = textures.stoneshard_grade(img, amount=0.22)
             cls._cache[key] = img
             return img
         except Exception:

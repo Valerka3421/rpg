@@ -110,7 +110,10 @@ def test_apply_light_returns_copy(renderer):
     dark = textures.apply_light(src, 0.5)
     assert dark is not src
     assert src.get_at((0, 0))[:3] == (100, 100, 100)
-    assert dark.get_at((0, 0))[:3] == (50, 50, 50)
+    # тень не нейтрально-серая: холодный сдвиг (R гаснет сильнее B)
+    r, g, b = dark.get_at((0, 0))[:3]
+    assert r < g < b
+    assert r < 80 and b < 90
 
 
 def test_light_factor_monotonic():
