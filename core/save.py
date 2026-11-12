@@ -43,6 +43,7 @@ def player_to_dict(p):
         'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
         'df_stat': p.df_stat,
         'weapon': p.weapon, 'armor': p.armor,
+        'head': p.head, 'legs': p.legs,
         'inventory': dict(p.inventory),
         'gold': p.gold,
         'double_strike': p.double_strike,
@@ -64,6 +65,8 @@ def player_from_dict(d):
     p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
     p.df_stat = d.get('df_stat', 5)
     p.weapon, p.armor = d['weapon'], d['armor']
+    p.head = d.get('head')
+    p.legs = d.get('legs')
     p.inventory = dict(d['inventory'])
     p.gold = d.get('gold', 0)
     p.double_strike = d.get('double_strike', False)

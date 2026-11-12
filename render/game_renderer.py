@@ -1,5 +1,6 @@
 """Игровое поле: карта, сущности, HUD, мини-карта, floating texts."""
 from core import config
+from core import overworld as ov
 import pygame
 import math
 from core.config import (TILE, MAP_W, MAP_H, MAX_DEPTH, Tile,
@@ -7,7 +8,6 @@ from core.config import (TILE, MAP_W, MAP_H, MAX_DEPTH, Tile,
 from core.data import STATUSES, CLASSES
 from render.theme import Theme as T
 from render.sprites import Sprites
-from render import textures
 from render.tiles import Tiles
 from render.base_renderer import BaseRenderer
 
@@ -15,6 +15,10 @@ from render.constants import MONSTER_SPRITES
 
 # Глубокие тени Stoneshard — не серые, а холодные сине-зелёные.
 DARK_TINT = (5, 7, 12)
+
+# Должно совпадать с TTL в game.floats (создаётся в game/game.py).
+# Вынесено из _draw_floats, чтобы не был «магическим числом».
+FLOAT_TTL = 0.7
 
 class GameRenderer(BaseRenderer):
     def __init__(self, screen, icons):
@@ -48,11 +52,11 @@ class GameRenderer(BaseRenderer):
         self._map_key = None
         self._field_surface = None
         self._light_grad = None
-        self._dark_surface = None
-        self._dark_key = None
         self._mini_scaled = None
         self._mini_key = None
         self._toolbar_shadow = {}
+
+        self._light_gradient()
 
     # ════════════════════════ ПОЛЕ ════════════════════════
     @staticmethod
@@ -81,9 +85,6 @@ class GameRenderer(BaseRenderer):
         cam_x = max(0, min(int(px) - config.VIEW_W // 2, MAP_W - config.VIEW_W))
         cam_y = max(0, min(int(py) - config.VIEW_H // 2, MAP_H - config.VIEW_H))
 
-        # Поле рисуется в собственную поверхность и блитится по центру
-        # области над HUD. Так остаток пикселей от целочисленного VIEW_W/H
-        # распределяется по краям, а не уходит в один чёрный угол.
         size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
         if self._field_surface is None or self._field_surface.get_size() != size:
             self._field_surface = pygame.Surface(size)
@@ -91,14 +92,20 @@ class GameRenderer(BaseRenderer):
         self.screen = self._field_surface
         try:
             self._field_surface.fill(T.BG)
+            # 1) Пол, лестницы, выход — низкий слой
             self._draw_map_cached(game, cam_x, cam_y)
+            # 2) Объекты на полу
             self._draw_loot(game, cam_x, cam_y)
             self._draw_monsters(game, cam_x, cam_y)
             self._draw_merchant(game, cam_x, cam_y)
             self._draw_elder(game, cam_x, cam_y)
+            self._draw_quest_board(game, cam_x, cam_y)
             self._draw_player(game, cam_x, cam_y)
             for remote in self.visible_remotes(game):
                 self._draw_remote_player(remote, cam_x, cam_y)
+            # 3) Стены/деревья — поверх сущностей (объём, «нависают»)
+            self._draw_walls_layer(game, cam_x, cam_y)
+            # 4) Всплывающие цифры — поверх всего
             self._draw_floats(game, cam_x, cam_y)
         finally:
             self.screen = previous
@@ -106,6 +113,7 @@ class GameRenderer(BaseRenderer):
         ox, oy = config.view_origin()
         self.screen.blit(self._field_surface, (ox, oy))
         self.draw_toolbar(game)
+
 
     def _draw_map_cached(self, game, cam_x, cam_y):
         """Карта (стены/пол/лестницы) меняется только при шаге, смене этажа
@@ -133,7 +141,6 @@ class GameRenderer(BaseRenderer):
     def _draw_map(self, game, cam_x, cam_y):
         """Тайлы + запечённое освещение + ореолы факелов."""
         self._is_overworld = (game.world_mode == 'overworld')
-        px0, py0 = int(self._rx(game.player)), int(self._ry(game.player))
         torches = []
         for sy in range(config.VIEW_H):
             for sx in range(config.VIEW_W):
@@ -147,17 +154,60 @@ class GameRenderer(BaseRenderer):
                 if tile == Tile.WALL:
                     if self._draw_wall(px, py, mx, my, light) and vis:
                         torches.append((px, py))
-                else:
-                    self._draw_floor(px, py, mx, my, light)
-                    if tile == Tile.STAIRS:
-                        self._draw_stairs(px, py, light)
-                    elif tile == Tile.EXIT:
-                        self._draw_exit(px, py, light)
-                    elif tile == Tile.UPSTAIRS:
-                        self._draw_upstairs(px, py, light)
+                    continue
+                self._draw_floor(px, py, mx, my, light)
+                if tile == Tile.STAIRS:
+                    self._draw_stairs(px, py, light)
+                elif tile == Tile.EXIT:
+                    self._draw_exit(px, py, light)
+                elif tile == Tile.UPSTAIRS:
+                    self._draw_upstairs(px, py, light)
         self._draw_darkness(game, cam_x, cam_y)
         if not self._is_overworld:
             self._draw_wall_shadows(game, cam_x, cam_y)
+        if torches:
+            glow = Tiles.torch_glow()
+            half = glow.get_width() // 2
+            for px, py in torches:
+                self.screen.blit(
+                    glow, (px + TILE // 2 - half, py + 18 - half),
+                    special_flags=pygame.BLEND_RGB_ADD)
+
+    def _draw_walls_layer(self, game, cam_x, cam_y):
+        """Стены и деревья поверх сущностей — эффект глубины.
+
+        Рисуем на финальном экране (не в _map_surface), потому что этот слой
+        должен перекрывать игрока/мобов и «нависать» над сценой.
+        """
+        tiles = game.dungeon.tiles
+        torches = []
+        for sy in range(config.VIEW_H):
+            for sx in range(config.VIEW_W):
+                mx, my = sx + cam_x, sy + cam_y
+                if (mx, my) not in game.explored:
+                    continue
+                if tiles[my][mx] != Tile.WALL:
+                    continue
+                px, py = sx * TILE, sy * TILE
+                vis = (mx, my) in game.visible
+                light = 1.0 if vis else 0.72
+
+                if self._is_overworld:
+                    # Верхний слой должен выглядеть ровно как нижний:
+                    # те же варианты тайлов, но поверх сущностей.
+                    self._draw_wall(px, py, mx, my, light)
+                else:
+                    if self._tile_wall:
+                        self.screen.blit(self._tile_wall, (px, py))
+                        _, kind = Tiles.variant('wall', mx, my)
+                        if kind == 'wall_torch' and vis:
+                            torches.append((px, py))
+                    else:
+                        variant, kind = Tiles.variant('wall', mx, my)
+                        self.screen.blit(Tiles.get(kind, variant, light), (px, py))
+                        if kind == 'wall_torch' and vis:
+                            torches.append((px, py))
+
         if torches:
             glow = Tiles.torch_glow()
             half = glow.get_width() // 2
@@ -188,20 +238,15 @@ class GameRenderer(BaseRenderer):
     def _draw_darkness(self, game, cam_x, cam_y):
         """Плавное затемнение к краю обзора — без ступеней по тайлам."""
         size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
-        key = (id(game), int(self._rx(game.player)),
-               int(self._ry(game.player)), cam_x, cam_y, size)
-        if self._dark_key != key:
-            overlay = pygame.Surface(size, pygame.SRCALPHA)
-            overlay.fill((*DARK_TINT, 135))
-            grad = self._light_gradient()
-            radius = grad.get_width() // 2
-            sx = (int(self._rx(game.player)) - cam_x) * TILE + TILE // 2
-            sy = (int(self._ry(game.player)) - cam_y) * TILE + TILE // 2
-            overlay.blit(grad, (sx - radius, sy - radius),
-                         special_flags=pygame.BLEND_RGBA_MIN)
-            self._dark_surface = overlay
-            self._dark_key = key
-        self.screen.blit(self._dark_surface, (0, 0))
+        overlay = pygame.Surface(size, pygame.SRCALPHA)
+        overlay.fill((*DARK_TINT, 135))
+        grad = self._light_gradient()
+        radius = grad.get_width() // 2
+        sx = (int(self._rx(game.player)) - cam_x) * TILE + TILE // 2
+        sy = (int(self._ry(game.player)) - cam_y) * TILE + TILE // 2
+        overlay.blit(grad, (sx - radius, sy - radius),
+                     special_flags=pygame.BLEND_RGBA_MIN)
+        self.screen.blit(overlay, (0, 0))
 
     def _draw_wall_shadows(self, game, cam_x, cam_y):
         """Мягкая тень от стены на полу — стены «стоят», а не нарисованы."""
@@ -222,19 +267,25 @@ class GameRenderer(BaseRenderer):
     def _draw_wall(self, px, py, mx, my, light=1.0):
         """Возвращает True, если это стена с факелом."""
         if self._is_overworld:
-            variant, kind = Tiles.variant('tree', mx, my)
+            if ov.is_well(mx, my):
+                self.screen.blit(Tiles.get('village_well', 0, light), (px, py))
+                return False
+            kind = ov.wall_kind(mx, my)
+            variant, kind = Tiles.variant(kind, mx, my)
             self.screen.blit(Tiles.get(kind, variant, light), (px, py))
             return False
         if self._tile_wall:
             self.screen.blit(self._tile_wall, (px, py))
-            return False
+            _, kind = Tiles.variant('wall', mx, my)
+            return kind == 'wall_torch'
         variant, kind = Tiles.variant('wall', mx, my)
         self.screen.blit(Tiles.get(kind, variant, light), (px, py))
         return kind == 'wall_torch'
 
     def _draw_floor(self, px, py, mx, my, light=1.0):
         if self._is_overworld:
-            variant, kind = Tiles.variant('grass', mx, my)
+            kind = ov.ground_kind(mx, my)
+            variant, kind = Tiles.variant(kind, mx, my)
             self.screen.blit(Tiles.get(kind, variant, light), (px, py))
             return
         if self._tile_floor:
@@ -407,13 +458,25 @@ class GameRenderer(BaseRenderer):
 
     def _draw_floats(self, game, cam_x, cam_y):
         for f in game.floats:
-            alpha = min(255, int(f.life / 0.7 * 255))
+            alpha = min(255, int(f.life / FLOAT_TTL * 255))
             surf = T.FONT_SMALL.render(f.text, True, f.color)
             surf.set_alpha(alpha)
             sx = f.x - cam_x * TILE - surf.get_width() // 2
             sy = f.y - cam_y * TILE - surf.get_height() // 2
             self.screen.blit(surf, (sx, sy))
 
+    def _draw_quest_board(self, game, cam_x, cam_y):
+        board = getattr(game, 'quest_board', None)
+        if not board or (board.x, board.y) not in game.visible:
+            return
+        px = (self._rx(board) - cam_x) * TILE
+        py = (self._ry(board) - cam_y) * TILE
+        self.screen.blit(self._shadow_sm, (px, py))
+        img = Sprites.get('npc/quest_board', (TILE, TILE), finish=True)
+        if img:
+            self.screen.blit(img, (px, py))
+        else:
+            self.icons.draw_quest_board(px, py, size=TILE)
     # ════════════════════════ HUD ════════════════════════
     def draw_hud(self, game):
         y0 = config.SCREEN_H - config.HUD_HEIGHT
@@ -447,8 +510,10 @@ class GameRenderer(BaseRenderer):
         self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 32, T.XP, font=T.FONT_SMALL)
         self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
         self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
-        loc = "Открытый мир" if game.world_mode == 'overworld' \
-              else f"Подземелье {game.depth}/{MAX_DEPTH}"
+        if game.world_mode == 'overworld':
+            loc = ov.location_title(game.player.x, game.player.y)
+        else:
+            loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
         self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
         if p.free_points > 0:
             T.badge(self.screen, x, y + 94, f"● {p.free_points} очков (C)",
@@ -465,14 +530,13 @@ class GameRenderer(BaseRenderer):
         line_h = 20
         visible_count = max(3, (h - 30) // line_h)
         total = len(game.messages)
-        end = total - game.log_scroll
+        end = max(0, total - game.log_scroll)      # ← защита от перескролла
         start = max(0, end - visible_count)
         for i, msg in enumerate(game.messages[start:end]):
             text = self.fit_text(msg.text, w, font=T.FONT_SMALL)
             self.text(text, x, y + 24 + i * line_h, msg.color, font=T.FONT_SMALL)
 
     def draw_toolbar(self, game):
-        from core.config import TOOLBAR_BTN
         labels = {
             'inventory': 'Инв',
             'craft': 'Крафт',

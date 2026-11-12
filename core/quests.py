@@ -127,3 +127,39 @@ class QuestLog:
         ql.completed = set(d.get('completed', []))
         ql.turned_in = set(d.get('turned_in', []))
         return ql
+
+    def accept_generated(self, quest):
+        """Взять сгенерированный квест с доски."""
+        key = quest['id']
+        if key in self.active or key in self.turned_in:
+            return False
+        self.active[key] = {
+            'progress': 0, 'count': quest['count'], 'generated': True,
+            'type': quest['type'], 'target': quest['target'],
+            'name': quest['name'], 'desc': quest['desc'],
+            'reward_gold': quest['reward_gold'],
+            'reward_xp': quest['reward_xp'],
+        }
+        return True
+
+    def turn_in_generated(self, key, player, game):
+        data = self.active.get(key)
+        if not data or not data.get('generated'):
+            return False
+        if data['progress'] < data['count']:
+            return False
+        if data['type'] == 'collect':
+            need = data['count']
+            have = player.inventory.get(data['target'], 0)
+            if have < need:
+                return False
+            player.inventory[data['target']] -= need
+            if player.inventory[data['target']] <= 0:
+                del player.inventory[data['target']]
+        player.gold += data['reward_gold']
+        player.xp += data['reward_xp']
+        while player.xp >= player.xp_next:
+            game.level_up()
+        self.active.pop(key)
+        self.turned_in.add(key)
+        return True

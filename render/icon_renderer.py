@@ -134,6 +134,18 @@ class IconRenderer(BaseRenderer):
             self._ore(s)
         elif key in MATERIAL_KEYS:
             self._material(s, key)
+        elif key == 'leather_cap':
+            self._cap(s, (200, 170, 100), 'leather')
+        elif key == 'iron_helm':
+            self._helm(s, (180, 180, 190))
+        elif key == 'crown':
+            self._crown(s, (240, 210, 100))
+        elif key == 'cloth_pants':
+            self._pants(s, (150, 130, 100))
+        elif key == 'leather_boots':
+            self._boots(s, (160, 120, 80))
+        elif key == 'plate_greaves':
+            self._greaves(s, (220, 220, 240))
         else:
             return None
 
@@ -564,6 +576,71 @@ class IconRenderer(BaseRenderer):
         # ── Блик ──
         pygame.draw.line(s, (255, 255, 255, 120),
                          (CX - 16, 12), (CX - 16, 54), 1)
+    def _cap(self, s, color, style='leather'):
+        pygame.draw.ellipse(s, color, (12, 22, 40, 22))
+        pygame.draw.ellipse(s, T.shade(color, 0.55), (12, 22, 40, 22), 2)
+        pygame.draw.rect(s, T.shade(color, 0.75), (12, 38, 40, 8))
+        pygame.draw.rect(s, T.shade(color, 0.55), (12, 38, 40, 8), 1)
+        if style == 'leather':
+            for yy in (28, 34):
+                pygame.draw.line(s, T.shade(color, 0.7), (16, yy), (48, yy), 1)
+
+    def _helm(self, s, color):
+        pts = [(14, 46), (14, 26), (20, 16), (44, 16), (50, 26), (50, 46),
+               (44, 50), (20, 50)]
+        pygame.draw.polygon(s, color, pts)
+        pygame.draw.polygon(s, T.shade(color, 0.5), pts, 2)
+        pygame.draw.rect(s, (20, 20, 26), (24, 28, 16, 6))
+        pygame.draw.line(s, T.shade(color, 0.35), (24, 34), (40, 34), 1)
+        pygame.draw.line(s, T.shade(color, 1.25), (18, 22), (46, 22), 2)
+        pygame.draw.polygon(s, (200, 40, 40), [(32, 6), (28, 16), (36, 16)])
+
+    def _crown(self, s, gold):
+        pts = [(14, 46), (14, 22), (20, 30), (26, 16), (32, 26),
+               (38, 16), (44, 30), (50, 22), (50, 46), (44, 50), (20, 50)]
+        pygame.draw.polygon(s, gold, pts)
+        pygame.draw.polygon(s, T.shade(gold, 0.5), pts, 2)
+        for x in (20, 32, 44):
+            pygame.draw.circle(s, (200, 40, 40), (x, 42), 3)
+            pygame.draw.circle(s, (255, 200, 200), (x - 1, 41), 1)
+        pygame.draw.line(s, T.shade(gold, 1.3), (16, 46), (48, 46), 2)
+
+    def _pants(self, s, color):
+        pygame.draw.polygon(s, color, [(18, 10), (46, 10), (46, 22),
+                                       (38, 22), (38, 54), (26, 54),
+                                       (26, 22), (18, 22)])
+        pygame.draw.polygon(s, T.shade(color, 0.5),
+                            [(18, 10), (46, 10), (46, 22), (38, 22),
+                             (38, 54), (26, 54), (26, 22), (18, 22)], 2)
+        pygame.draw.line(s, T.shade(color, 0.7), (18, 22), (46, 22), 2)
+        pygame.draw.line(s, T.shade(color, 1.15), (26, 26), (26, 50), 1)
+        pygame.draw.line(s, T.shade(color, 1.15), (38, 26), (38, 50), 1)
+
+    def _boots(self, s, color):
+        for side in (-1, 1):
+            bx = CX + side * 12 - 8
+            pygame.draw.polygon(s, color, [
+                (bx, 16), (bx + 16, 16), (bx + 16, 38),
+                (bx + 20 if side > 0 else bx + 8, 46),
+                (bx + 4 if side > 0 else bx - 8, 46), (bx, 38)])
+            pygame.draw.polygon(s, T.shade(color, 0.5), [
+                (bx, 16), (bx + 16, 16), (bx + 16, 38),
+                (bx + 20 if side > 0 else bx + 8, 46),
+                (bx + 4 if side > 0 else bx - 8, 46), (bx, 38)], 2)
+
+    def _greaves(self, s, color):
+        pygame.draw.polygon(s, color, [(20, 8), (44, 8), (46, 30),
+                                       (44, 54), (36, 54), (36, 30),
+                                       (28, 30), (28, 54), (20, 54),
+                                       (18, 30)])
+        pygame.draw.polygon(s, T.shade(color, 0.5),
+                            [(20, 8), (44, 8), (46, 30), (44, 54),
+                             (36, 54), (36, 30), (28, 30), (28, 54),
+                             (20, 54), (18, 30)], 2)
+        pygame.draw.circle(s, (200, 200, 220), (26, 20), 2)
+        pygame.draw.circle(s, (200, 200, 220), (38, 20), 2)
+        pygame.draw.circle(s, (200, 200, 220), (26, 42), 2)
+        pygame.draw.circle(s, (200, 200, 220), (38, 42), 2)
 
     def _book_symbol(self, s, cx, cy, key, color):
         """Рисует символ типа книги в центре обложки."""
@@ -593,7 +670,7 @@ class IconRenderer(BaseRenderer):
             # Сердце
             pts = [(cx, cy + 10)]
             for angle in range(0, 360, 15):
-                rad = 8 + 2 * math.sin(angle * 3)
+                rad = 8 + 2 * math.sin(math.radians(angle) * 3)  # ← radians
                 px = cx + int(rad * math.cos(math.radians(angle - 90)))
                 py = cy + int(rad * math.sin(math.radians(angle - 90)) * 1.2) - 2
                 pts.append((px, py))
@@ -958,15 +1035,14 @@ class IconRenderer(BaseRenderer):
             self.screen.blit(img, (x, y))
             return
         ck = (class_key, size)
-        if ck not in self._class_icon_cache:
-            self._class_icon_cache[ck] = self._make_class_icon(class_key, size)
-        self.screen.blit(self._class_icon_cache[ck], (x, y))
+        icon = self._class_icon_cache.get(ck)
+        if icon is None:
+            icon = self._make_class_icon(class_key, size)
+            self._class_icon_cache[ck] = icon
+        self.screen.blit(icon, (x, y))
 
     def _make_class_icon(self, class_key, size):
         """Абстрактные иконки классов: оружие + символ."""
-        ck = (class_key, size)
-        if ck in self._class_icon_cache:
-            return self._class_icon_cache[ck]
         s = pygame.Surface((CANVAS, CANVAS), pygame.SRCALPHA)
         fn = {
             'warrior': self._class_icon_warrior,
@@ -977,9 +1053,7 @@ class IconRenderer(BaseRenderer):
         fn(s)
         if size != CANVAS:
             s = pygame.transform.smoothscale(s, (size, size))
-        s = textures.finish(s, shadow=False)
-        self._class_icon_cache[ck] = s
-        return s
+        return textures.finish(s, shadow=False)
 
     def _class_icon_warrior(self, s):
         # Скрещённые меч и щит
@@ -1661,6 +1735,29 @@ class IconRenderer(BaseRenderer):
         pygame.draw.line(s, (120, 80, 50), (54, 18), (54, 58), 3)
         pygame.draw.circle(s, (200, 100, 255), (54, 14), 5)
         pygame.draw.circle(s, (255, 200, 255), (52, 12), 2)
+
+    def draw_quest_board(self, px, py, size=CANVAS):
+        ck = ('board', size)
+        if not hasattr(self, '_board_cache'):
+            self._board_cache = {}
+        if ck not in self._board_cache:
+            s = pygame.Surface((CANVAS, CANVAS), pygame.SRCALPHA)
+            pygame.draw.rect(s, (140, 95, 55), (10, 20, 44, 32))
+            pygame.draw.rect(s, (80, 55, 30), (10, 20, 44, 32), 3)
+            for y in range(22, 50, 4):
+                pygame.draw.line(s, (110, 75, 40), (12, y), (52, y), 1)
+            pygame.draw.rect(s, (240, 230, 200), (16, 24, 32, 24))
+            pygame.draw.rect(s, (180, 170, 140), (16, 24, 32, 24), 1)
+            for y in range(28, 45, 4):
+                pygame.draw.line(s, (100, 90, 70), (20, y), (44, y), 1)
+            pygame.draw.circle(s, (200, 50, 50), (16, 26), 2)
+            pygame.draw.circle(s, (200, 50, 50), (48, 26), 2)
+            pygame.draw.rect(s, (90, 60, 35), (14, 52, 4, 10))
+            pygame.draw.rect(s, (90, 60, 35), (46, 52, 4, 10))
+            if size != CANVAS:
+                s = pygame.transform.smoothscale(s, (size, size))
+            self._board_cache[ck] = textures.finish(s, shadow=True)
+        self.screen.blit(self._board_cache[ck], (px, py))
 
     # ════════════════════════ ИКОНКИ ТУЛБАРА ════════════════════════
     def draw_toolbar_icon(self, name, x, y, size=44, hover=False):

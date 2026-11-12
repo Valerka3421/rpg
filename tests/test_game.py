@@ -523,23 +523,16 @@ def test_reroll_not_enough_gold(make_game):
 
 def test_inventory_pagination(make_game):
     g = make_game()
-    g.player.inventory = {
-        'potion_s': 1, 'potion_m': 1, 'potion_l': 1,
-        'dagger': 1, 'shortsword': 1, 'sword': 1,
-        'axe': 1, 'greatsword': 1, 'warhammer': 1,
-        'padded': 1, 'leather': 1, 'chain': 1,
-        'scale': 1, 'plate': 1, 'mithril': 1,
-    }
-    assert len(g.player.inventory) == 15
+    g.player.inventory = {f'item_{i}': 1 for i in range(30)}
     assert g.inv_pages_count() == 2
     g.inv_page = 0
-    g.inv_next_page()
+    g.inv_next_page();
     assert g.inv_page == 1
-    g.inv_next_page()
+    g.inv_next_page();
     assert g.inv_page == 1
-    g.inv_prev_page()
+    g.inv_prev_page();
     assert g.inv_page == 0
-    g.inv_prev_page()
+    g.inv_prev_page();
     assert g.inv_page == 0
 
 
@@ -579,8 +572,8 @@ def test_sell_on_second_page(make_game):
     assert g.player.gold > gold_before
 
 
-def test_inventory_page_size_is_9():
-    assert INVENTORY_PAGE_SIZE == 9
+def test_inventory_page_size_is_25():
+    assert INVENTORY_PAGE_SIZE == 25
 
 
 def test_craft_screen_opens(make_game):
@@ -1477,6 +1470,23 @@ def test_elder_exists_in_overworld(make_game):
     g = make_game()
     assert g.elder is not None
     assert g.elder.npc_type == 'elder'
+
+
+def test_new_game_spawns_in_village(make_game):
+    from core import overworld as ov
+    g = make_game()
+    assert (g.player.x, g.player.y) == ov.VILLAGE_CENTER
+    assert ov.in_village(g.player.x, g.player.y)
+    assert g.overworld.tiles[g.player.y][g.player.x] == Tile.FLOOR
+
+
+def test_elder_and_quest_board_live_in_village(make_game):
+    from core import overworld as ov
+    g = make_game()
+    assert (g.elder.x, g.elder.y) == ov.ELDER_POS
+    assert ov.in_village(g.elder.x, g.elder.y)
+    assert g.quest_board is not None
+    assert ov.in_village(g.quest_board.x, g.quest_board.y)
 
 
 def test_elder_blocks_movement(make_game):

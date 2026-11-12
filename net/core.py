@@ -14,6 +14,7 @@ from core.config import (
     COL_TEXT, COL_GOLD, COL_XP, COL_DMG, COL_HEAL, COL_MERCH,
 )
 from core import rules
+from core import overworld as ov
 from core.data import (BOSSES, make_shop_stock, reroll_price, item_sell_price,
                        item_display_name, xp_to_next)
 from core.entities import Player, Entity
@@ -60,15 +61,22 @@ class GameCore:
         # изменившийся, а не весь словарь 20 раз в секунду.
         self._inventory_cache = {}
 
-        # Elder рядом с входом
+        # Elder в деревне, на центральной площади
         self.elder = None
-        ex, ey = self.overworld.stairs_pos
-        spot = rules.find_free_tile(self.overworld, ex + 1, ey + 1)
-        if spot:
-            self.elder = Entity(spot[0], spot[1], 1, 1, 0, 0,
+        ex, ey = ov.ELDER_POS
+        if self.overworld.tiles[ey][ex] == Tile.FLOOR:
+            self.elder = Entity(ex, ey, 1, 1, 0, 0,
                                 "Старейшина", "E", (240, 210, 100), 0)
             self.elder.is_npc = True
             self.elder.npc_type = 'elder'
+        else:
+            spot = rules.find_free_tile(
+                self.overworld, ov.VILLAGE_CENTER[0], ov.VILLAGE_CENTER[1])
+            if spot:
+                self.elder = Entity(spot[0], spot[1], 1, 1, 0, 0,
+                                    "Старейшина", "E", (240, 210, 100), 0)
+                self.elder.is_npc = True
+                self.elder.npc_type = 'elder'
         rules.init_action_timers(self.overworld.monsters)
 
     # ════════════════════════ PLAYERS ════════════════════════
@@ -130,6 +138,7 @@ class GameCore:
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
             'df_stat': p.df_stat,
             'weapon': p.weapon, 'armor': p.armor,
+            'head': p.head, 'legs': p.legs,
             'inventory': dict(p.inventory),
             'gold': p.gold,
             'class_key': p.class_key,
@@ -150,6 +159,8 @@ class GameCore:
         p.df_stat = d['df_stat']
         p.weapon = d.get('weapon')
         p.armor = d.get('armor')
+        p.head = d.get('head')
+        p.legs = d.get('legs')
         p.inventory = dict(d.get('inventory', {}))
         p.gold = d.get('gold', 0)
         p.double_strike = d.get('double_strike', False)
@@ -529,7 +540,8 @@ class GameCore:
             self.dungeon = self.overworld
             self.merchant = None
             self.shop_stock = []
-            self._place_players_near(self.overworld, MAP_W // 2, MAP_H // 2)
+            self._place_players_near(self.overworld,
+                                     ov.DUNGEON_POS[0], ov.DUNGEON_POS[1] + 1)
             self.world_serial += 1
             self._event("Возвращение на поверхность", COL_HEAL)
         else:
@@ -835,6 +847,7 @@ class GameCore:
                 'str': p.str, 'agi': p.agi, 'vit': p.vit,
                 'luk': p.luk, 'df_stat': p.df_stat,
                 'weapon': p.weapon, 'armor': p.armor,
+                'head': p.head, 'legs': p.legs,
             }
             # Инвентарь меняется редко — шлём только при изменении.
             # Первый снапшот для игрока всегда содержит его.

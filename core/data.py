@@ -85,7 +85,27 @@ ITEMS = {
                    'desc': '+3 DEF.'},
     'mithril':    {'ch': '[', 'name': 'Мифрил', 'type': 'armor', 'value': 3,
                    'level_req': 7, 'color': (180, 210, 230), 'tier': 3, 'sell': 28,
-                   'dodge_bonus': 0.05, 'desc': '+3 DEF, +5% укл.'},
+                       'dodge_bonus': 0.05, 'desc': '+3 DEF, +5% укл.'},
+    # Шлемы
+    'leather_cap':   {'ch': '^', 'name': 'Кожаный шлем', 'type': 'head', 'value': 1,
+                      'level_req': 1, 'color': (200, 170, 100), 'tier': 1, 'sell': 5,
+                      'desc': '+1 DEF.'},
+    'iron_helm':     {'ch': '^', 'name': 'Железный шлем', 'type': 'head', 'value': 2,
+                      'level_req': 4, 'color': (180, 180, 190), 'tier': 2, 'sell': 12,
+                      'hp_bonus': 3, 'desc': '+2 DEF, +3 HP.'},
+    'crown':         {'ch': '^', 'name': 'Корона', 'type': 'head', 'value': 3,
+                      'level_req': 7, 'color': (240, 210, 100), 'tier': 3, 'sell': 30,
+                      'hp_bonus': 5, 'desc': '+3 DEF, +5 HP.'},
+    # Штаны
+    'cloth_pants':   {'ch': '|', 'name': 'Штаны', 'type': 'legs', 'value': 1,
+                      'level_req': 1, 'color': (150, 130, 100), 'tier': 1, 'sell': 4,
+                      'desc': '+1 DEF.'},
+    'leather_boots': {'ch': '|', 'name': 'Кожаные сапоги', 'type': 'legs', 'value': 1,
+                      'level_req': 1, 'color': (160, 120, 80), 'tier': 1, 'sell': 6,
+                      'dodge_bonus': 0.03, 'desc': '+1 DEF, +3% укл.'},
+    'plate_greaves': {'ch': '|', 'name': 'Латные поножи', 'type': 'legs', 'value': 2,
+                      'level_req': 6, 'color': (220, 220, 240), 'tier': 2, 'sell': 15,
+                      'desc': '+2 DEF.'},
     # Крафт-броня
     'leather_armor': {'ch': '[', 'name': 'Броня из огра', 'type': 'armor', 'value': 3,
                       'level_req': 5, 'color': (150, 110, 60), 'tier': 2, 'sell': 22,
@@ -400,6 +420,15 @@ def make_shop_stock(depth):
                    3: ['greatsword', 'warhammer']}[tier]
     armor_pool = {1: ['padded', 'leather'], 2: ['chain', 'scale'],
                   3: ['plate', 'mithril']}[tier]
+    head_pool = {1: ['leather_cap'], 2: ['leather_cap', 'iron_helm'],
+                 3: ['iron_helm', 'crown']}[tier]
+    legs_pool = {1: ['cloth_pants', 'leather_boots'],
+                 2: ['leather_boots', 'plate_greaves'],
+                 3: ['plate_greaves']}[tier]
+    if random.random() < 0.45:
+        add(random.choice(head_pool), 10 * tier)
+    if random.random() < 0.45:
+        add(random.choice(legs_pool),  8 * tier)
 
     add(potion_key, 5 * tier)
     add(potion_key, 5 * tier)
@@ -548,3 +577,99 @@ class ItemInstance:
     def from_key(cls, full_key):
         base, rarity = parse_item_key(full_key)
         return cls(base or '', rarity)
+
+
+# ════════════════════ ДОСКА ПОРУЧЕНИЙ ════════════════════
+BOARD_BOSS_FLOORS = {5: 'G', 10: 'L', 15: 'V', 20: 'A'}
+
+
+def _board_monsters_for(dmin, dmax):
+    res = [k for k, m in MONSTERS.items() if dmin <= m['min_depth'] <= dmax]
+    if not res and dmax > 0:
+        res = [k for k, m in MONSTERS.items() if m['min_depth'] <= dmax]
+    return res
+
+
+def _board_collect_targets(dmin, dmax):
+    chars = {MONSTERS[k]['ch'] for k in _board_monsters_for(dmin, dmax)
+             if k in MONSTERS}
+    targets = set()
+    for ch in chars:
+        for item_key, _ in MONSTER_DROPS.get(ch, []):
+            base = item_key.split('+')[0]
+            if ITEMS.get(base, {}).get('type') == 'material':
+                targets.add(base)
+    return sorted(targets)
+
+
+def _make_board_quest(dmin, dmax, seed):
+    r = random.Random(seed)
+
+    # Boss-охота
+    for bd, bch in BOARD_BOSS_FLOORS.items():
+        if dmin <= bd <= dmax and r.random() < 0.30:
+            boss = BOSSES[bd]
+            return {
+                'id': f"gen_boss_{bch}_{bd}_{seed}", 'type': 'kill',
+                'target': bch, 'count': 1,
+                'depth_min': dmin, 'depth_max': dmax,
+                'name': f"Охота: {boss['name']}",
+                'desc': f"Победить {boss['name']} (глубина {bd}).",
+                'reward_gold': 150 + bd * 12, 'reward_xp': 100 + bd * 10,
+            }
+
+    monsters = _board_monsters_for(dmin, dmax)
+    roll = r.random()
+
+    if roll < 0.55 and monsters:                     # kill
+        tgt = r.choice(monsters); m = MONSTERS[tgt]
+        count = r.randint(3, 7)
+        return {
+            'id': f"gen_kill_{tgt}_{dmin}_{seed}", 'type': 'kill',
+            'target': m['ch'], 'count': count,
+            'depth_min': dmin, 'depth_max': dmax,
+            'name': f"Уничтожить: {m['name']}",
+            'desc': f"Убить {count} × {m['name']}.",
+            'reward_gold': 25 + count * 6 + dmin * 3,
+            'reward_xp': 15 + count * 4 + dmin * 2,
+        }
+
+    if roll < 0.80:                                  # collect
+        targets = _board_collect_targets(dmin, dmax)
+        if targets:
+            tgt = r.choice(targets); it = ITEMS[tgt]
+            count = r.randint(2, 5)
+            return {
+                'id': f"gen_collect_{tgt}_{dmin}_{seed}", 'type': 'collect',
+                'target': tgt, 'count': count,
+                'depth_min': dmin, 'depth_max': dmax,
+                'name': f"Принести: {it['name']}",
+                'desc': f"Собрать {count} × {it['name']}.",
+                'reward_gold': 30 + count * 8 + dmin * 3,
+                'reward_xp': 20 + count * 5 + dmin * 2,
+            }
+
+    # reach (fallback)
+    target_depth = max(dmax, dmin + 1)
+    return {
+        'id': f"gen_reach_{target_depth}_{dmin}_{seed}", 'type': 'reach',
+        'target': target_depth, 'count': 1,
+        'depth_min': dmin, 'depth_max': dmax,
+        'name': "Спуститься в глубину",
+        'desc': f"Достичь глубины {target_depth}.",
+        'reward_gold': 40 + target_depth * 6,
+        'reward_xp': 30 + target_depth * 5,
+    }
+
+
+def generate_board_quests(dmin, dmax, count=3, base_seed=0):
+    dmin = max(0, dmin); dmax = min(20, dmax)
+    out, seen = [], set()
+    for i in range(count * 4):
+        if len(out) >= count:
+            break
+        q = _make_board_quest(dmin, dmax, base_seed + i * 7919)
+        if q['id'] in seen:
+            continue
+        out.append(q); seen.add(q['id'])
+    return out

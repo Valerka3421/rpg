@@ -612,13 +612,28 @@ def _grid_inventory_game(g, renderer):
     from core.config import INVENTORY_PAGE_SIZE
     g.renderer = renderer
     g.player.inventory = {
+        # 3 зелья
         'potion_s': 2, 'potion_m': 1, 'potion_l': 1,
+        # 6 оружий
         'dagger': 1, 'shortsword': 1, 'sword': 1,
         'axe': 1, 'greatsword': 1, 'warhammer': 1,
+        # 6 броней
         'padded': 1, 'leather': 1, 'chain': 1,
+        'scale': 1, 'plate': 1, 'mithril': 1,
+        # 6 ресурсов/материалов
+        'bone': 5, 'wood': 3, 'stone': 2, 'ore': 1,
+        'mushroom': 2, 'berry': 1,
+        # 5 книг
+        'book_str': 1, 'book_agi': 1, 'book_vit': 1,
+        'book_luk': 1, 'book_def': 1,
+        # 3 свитка
+        'scroll_heal': 1, 'scroll_fireball': 1, 'scroll_freeze': 1,
+        # 1 шлем
+        'leather_cap': 1,
     }
-    assert len(g.player.inventory) == 12
-    assert INVENTORY_PAGE_SIZE == 9
+    assert len(g.player.inventory) == 30
+    assert INVENTORY_PAGE_SIZE == 25
+    assert g.inv_pages_count() == 2      # 25 + 5
     g.inv_page = 0
     g.mouse_pos = (-1, -1)
     g.screen_mode = 'inventory'
@@ -630,13 +645,14 @@ def test_inventory_items_form_grid(make_game, renderer):
     g = _grid_inventory_game(make_game(), renderer)
     hits = g._ui_hits['inventory']
     items = hits['items']
-    assert len(items) == 9
+    assert len(items) == 25
     rects = [rect for _, rect in items]
-    # первый ряд — три ячейки на одной высоте
-    assert len({r[1] for r in rects[:3]}) == 1
-    assert len({r[0] for r in rects[:3]}) == 3
+    # первый ряд — пять ячеек на одной высоте, разные по X
+    assert len({r[1] for r in rects[:5]}) == 1
+    assert len({r[0] for r in rects[:5]}) == 5
     # второй ряд ниже первого
-    assert rects[3][1] > rects[0][1]
+    assert rects[5][1] > rects[0][1]
+    # всего две страницы
     assert len(hits['pages']) == 2
 
 
@@ -647,9 +663,9 @@ def test_inventory_page_button_turns_page(make_game, renderer):
     x, y, w, h = pages['next']
     assert g.handle_mouse_click((x + w // 2, y + h // 2)) is True
     assert g.inv_page == 1
-    # на второй странице — оставшиеся 3 предмета
+    # на второй странице — оставшиеся 5 предметов (30 - 25)
     g.draw()
-    assert len(g._ui_hits['inventory']['items']) == 3
+    assert len(g._ui_hits['inventory']['items']) == 5
     pages = dict(g._ui_hits['inventory']['pages'])
     x, y, w, h = pages['prev']
     g.handle_mouse_click((x + w // 2, y + h // 2))
@@ -670,19 +686,32 @@ def test_mp_inventory_grid_has_pages(renderer):
     from net.view import ClientView
     view = ClientView()
     view.player.inventory = {
-        'potion_s': 1, 'potion_m': 1, 'potion_l': 1,
+        'potion_s': 2, 'potion_m': 1, 'potion_l': 1,
         'dagger': 1, 'shortsword': 1, 'sword': 1,
         'axe': 1, 'greatsword': 1, 'warhammer': 1,
         'padded': 1, 'leather': 1, 'chain': 1,
+        'scale': 1, 'plate': 1, 'mithril': 1,
+        'bone': 5, 'wood': 3, 'stone': 2, 'ore': 1,
+        'mushroom': 2, 'berry': 1,
+        'book_str': 1, 'book_agi': 1, 'book_vit': 1,
+        'book_luk': 1, 'book_def': 1,
+        'scroll_heal': 1, 'scroll_fireball': 1, 'scroll_freeze': 1,
+        'leather_cap': 1,
     }
     view.screen_mode = 'inventory'
     view.inv_page = 0
     renderer.draw(view)
-    assert len(view._ui_hits['inventory']['items']) == 9
+    assert len(view._ui_hits['inventory']['items']) == 25
+
     next_rect = dict(view._ui_hits['inventory']['pages'])['next']
     x, y, w, h = next_rect
     view.handle_mouse_click((x + w // 2, y + h // 2))
     assert view.inv_page == 1
+
+    # на второй странице — 5
+    renderer.draw(view)
+    assert len(view._ui_hits['inventory']['items']) == 5
+
     view.handle_key(pygame.K_q)
     assert view.inv_page == 0
 
@@ -692,3 +721,42 @@ def test_window_icon_is_loaded(screen):
     from render.window_icon import ICON_PATH, apply_window_icon
     assert os.path.isfile(ICON_PATH)
     assert apply_window_icon() is True
+
+
+
+def test_equip_head_slot(make_game):
+    g = make_game()
+    g.player.level = 5
+    base_def = g.player.df
+    g.player.inventory = {'leather_cap': 1}
+    g.use_item('leather_cap')
+    assert g.player.head == 'leather_cap'
+    assert g.player.df == base_def + 1
+
+def test_equip_legs_slot_with_dodge(make_game):
+    g = make_game()
+    g.player.level = 5
+    base_dodge = g.player.dodge
+    g.player.inventory = {'leather_boots': 1}
+    g.use_item('leather_boots')
+    assert g.player.legs == 'leather_boots'
+    assert g.player.dodge > base_dodge
+
+def test_unequip_head_and_legs(make_game):
+    g = make_game()
+    g.player.head = 'leather_cap'; g.player.legs = 'cloth_pants'
+    g.player.recalc()
+    g.player.inventory = {}
+    g.unequip_head()
+    g.unequip_legs()
+    assert g.player.head is None and g.player.legs is None
+    assert g.player.inventory.get('leather_cap') == 1
+    assert g.player.inventory.get('cloth_pants') == 1
+
+def test_exit_dungeon_spawns_near_entrance(make_game):
+    from core import overworld as ov
+    g = make_game()
+    g.enter_dungeon()
+    g.exit_to_overworld()
+    ex, ey = ov.DUNGEON_POS
+    assert max(abs(g.player.x - ex), abs(g.player.y - ey)) <= 3

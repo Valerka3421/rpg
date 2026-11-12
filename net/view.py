@@ -391,6 +391,8 @@ class ClientView:
         p.df_stat = pd.get('df_stat', 5)
         p.weapon = pd.get('weapon')
         p.armor = pd.get('armor')
+        p.head = pd.get('head')
+        p.legs = pd.get('legs')
         return p
 
     def update_from_snapshot(self, snap, tiles, my_pid):

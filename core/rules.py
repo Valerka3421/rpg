@@ -399,8 +399,8 @@ def use_item(player, key, monsters=None, on_hit=None):
         consume(inventory, key)
         return UseResult(True, 'heal', f"{item['name']}: +{healed} HP", healed)
 
-    if kind in ('weapon', 'armor'):
-        slot = 'weapon' if kind == 'weapon' else 'armor'
+    if kind in ('weapon', 'armor', 'head', 'legs'):
+        slot = kind
         if getattr(player, slot) == key:
             return UseResult(False, 'equipped', 'Уже экипировано.')
         need = item.get('level_req', 1)

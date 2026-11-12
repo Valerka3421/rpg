@@ -68,6 +68,18 @@ def test_descend_and_ascend():
     assert core.dungeon is core.overworld
 
 
+def test_ascend_returns_players_near_entrance():
+    from core import overworld as ov
+    core = _core(players=3)
+    core._descend()
+    core.depth = 1
+    core._ascend()
+    ex, ey = ov.DUNGEON_POS
+    for p in core.players.values():
+        assert max(abs(p.x - ex), abs(p.y - ey)) <= 4
+        assert core.overworld.tiles[p.y][p.x] != Tile.WALL
+
+
 def test_descent_cached_floor_preserved():
     core = _core()
     core._descend()

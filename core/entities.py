@@ -49,41 +49,53 @@ class Player(Entity):
     # Единая формула статов — используется и в recalc, и в UI превью класса.
     @staticmethod
     def preview_stats(data):
-        """data: dict с str/agi/vit/luk/df_stat/weapon/armor (может быть частично)."""
-        str_   = data.get('str', 5)
-        agi    = data.get('agi', 5)
-        vit    = data.get('vit', 5)
-        luk    = data.get('luk', 5)
-        df_st  = data.get('df_stat', 5)
+        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs."""
+        str_ = data.get('str', 5)
+        agi = data.get('agi', 5)
+        vit = data.get('vit', 5)
+        luk = data.get('luk', 5)
+        df_st = data.get('df_stat', 5)
         weapon = data.get('weapon')
-        armor  = data.get('armor')
+        armor = data.get('armor')
+        head = data.get('head')
+        legs = data.get('legs')
 
         base_w, w_lvl = parse_item_key(weapon) if weapon else (None, 0)
-        base_a, a_lvl = parse_item_key(armor)  if armor  else (None, 0)
+        base_a, a_lvl = parse_item_key(armor) if armor else (None, 0)
+        base_h, h_lvl = parse_item_key(head) if head else (None, 0)
+        base_l, l_lvl = parse_item_key(legs) if legs else (None, 0)
         w_data = ITEMS.get(base_w, {}) if base_w else {}
         a_data = ITEMS.get(base_a, {}) if base_a else {}
+        h_data = ITEMS.get(base_h, {}) if base_h else {}
+        l_data = ITEMS.get(base_l, {}) if base_l else {}
 
         wb = w_data.get('value', 0) + w_lvl
         ab = a_data.get('value', 0) + a_lvl
-        hp_extra = a_data.get('hp_bonus', 0)
+        hb = h_data.get('value', 0) + h_lvl
+        lb = l_data.get('value', 0) + l_lvl
+        hp_extra = (a_data.get('hp_bonus', 0) + h_data.get('hp_bonus', 0)
+                    + l_data.get('hp_bonus', 0))
 
         w_crit = w_data.get('crit_bonus', 0.0)
         w_dodge = w_data.get('dodge_bonus', 0.0)
         a_dodge = a_data.get('dodge_bonus', 0.0)
+        h_dodge = h_data.get('dodge_bonus', 0.0)
+        l_dodge = l_data.get('dodge_bonus', 0.0)
 
         dodge_base = min(0.30, agi * 0.015)
-        dodge_total = max(0.0, min(0.40, dodge_base + w_dodge + a_dodge))
+        dodge_total = max(0.0, min(0.40, dodge_base + w_dodge + a_dodge
+                                   + h_dodge + l_dodge))
         crit_base = min(0.40, luk * 0.02)
         crit_total = min(0.50, crit_base + w_crit)
 
         return {
             'max_hp': 15 + vit * 2 + hp_extra,
             'atk': 2 + str_ // 2 + wb,
-            'df': df_st // 2 + ab,
+            'df': df_st // 2 + ab + hb + lb,
             'dodge': dodge_total,
             'crit': crit_total,
             '_w_crit_bonus': w_crit,
-            '_w_dodge_bonus': w_dodge,
+            '_w_dodge_bonus': w_dodge + h_dodge + l_dodge,
             '_a_dodge_bonus': a_dodge,
         }
 
@@ -103,6 +115,8 @@ class Player(Entity):
         self.df_stat = cls['df_stat']
         self.weapon = cls.get('start_weapon')
         self.armor = cls.get('start_armor')
+        self.head = None
+        self.legs = None
         self.inventory = {}
         for k, v in cls.get('start_items', {}).items():
             self.inventory[k] = self.inventory.get(k, 0) + v
@@ -124,6 +138,7 @@ class Player(Entity):
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
             'luk': self.luk, 'df_stat': self.df_stat,
             'weapon': self.weapon, 'armor': self.armor,
+            'head': self.head, 'legs': self.legs,
         })
         self.max_hp = stats['max_hp']
         self.atk = stats['atk']

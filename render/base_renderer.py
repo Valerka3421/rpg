@@ -149,7 +149,8 @@ class BaseRenderer:
     def format_delta(deltas):
         if not deltas:
             return None, None
-        total = sum(d[1] for d in deltas if not d[2])
+        numeric = [d for d in deltas if not d[2]] or deltas
+        total = sum(d[1] for d in numeric)
         positive = total > 0
         color = (140, 212, 116) if positive else (210, 92, 74)
         arrow = "▲" if positive else "▼"
