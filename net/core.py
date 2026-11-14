@@ -17,7 +17,8 @@ from core import rules
 from core import overworld as ov
 from core.data import (BOSSES, make_shop_stock, reroll_price, item_sell_price,
                        item_display_name, xp_to_next, ITEMS,
-                       craft_skill_reward, item_category, select_recipe)
+                       craft_skill_reward, item_category, select_recipe,
+                       MONSTERS_BY_CH)
 from core.entities import Player, Entity
 from core.world import (
     generate_overworld, generate_dungeon, place_entry_tile, has_los,
@@ -767,6 +768,12 @@ class GameCore:
         if closest is None:
             return
         ability = getattr(m, 'ability', None)
+        # Мирные животные не нападают; после урона убегают.
+        profile = MONSTERS_BY_CH.get(m.ch, {})
+        if profile.get('passive'):
+            if m.hp < m.max_hp or best <= 3:
+                self._monster_flee(m, closest)
+            return
         # Шаман лечит раненого союзника вместо хода.
         if ability == 'healer' and self._healer_action(m):
             return
@@ -797,6 +804,27 @@ class GameCore:
                                     (closest.x, closest.y), blocked)
             if nxt:
                 m.x, m.y = nxt
+
+    def _monster_flee(self, m, threat):
+        """Убегает от угрозы (олень после удара)."""
+        options = []
+        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = m.x + fx, m.y + fy
+            if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
+                continue
+            if self.dungeon.tiles[ny][nx] == Tile.WALL:
+                continue
+            if any(o is not m and o.hp > 0 and (o.x, o.y) == (nx, ny)
+                   for o in self.dungeon.monsters):
+                continue
+            score = (nx - threat.x) ** 2 + (ny - threat.y) ** 2
+            options.append((score, nx, ny))
+        if not options:
+            return False
+        best = max(s for s, _, _ in options)
+        nx, ny = random.choice([(x, y) for s, x, y in options if s == best])
+        return self._monster_move(m, nx, ny)
 
     def _healer_action(self, healer):
         """Лечит самого раненого союзника в радиусе 5. True — походил."""

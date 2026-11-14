@@ -3,7 +3,7 @@ import random
 
 
 MONSTERS = {
-    'rat':      {'ch': 'r', 'name': 'Крыса',  'hp': 3,  'atk': 1, 'df': 0, 'xp': 3,  'color': (170, 150, 130), 'min_depth': 1, 'ability': 'poison'},
+    'rat':      {'ch': 'r', 'name': 'Крыса',  'hp': 3,  'atk': 1, 'df': 0, 'xp': 3,  'color': (170, 150, 130), 'min_depth': 1, 'ability': 'poison', 'gold': False},
     'goblin':   {'ch': 'g', 'name': 'Гоблин', 'hp': 8,  'atk': 3, 'df': 1, 'xp': 6,  'color': (120, 190, 100), 'min_depth': 1},
     'archer':   {'ch': 'a', 'name': 'Гоблин-лучник', 'hp': 6, 'atk': 2, 'df': 0, 'xp': 7, 'color': (150, 200, 100), 'min_depth': 2, 'ability': 'ranged'},
     'skeleton': {'ch': 's', 'name': 'Скелет', 'hp': 12, 'atk': 4, 'df': 1, 'xp': 12, 'color': (220, 220, 220), 'min_depth': 2},
@@ -17,12 +17,16 @@ MONSTERS = {
     'wraith':   {'ch': 'W', 'name': 'Призрак','hp': 80, 'atk': 18, 'df': 4, 'xp': 140, 'color': (180, 180, 220), 'min_depth': 14, 'ability': 'bleeding'},
     # ── Лесные обитатели поверхности ──
     # overworld_only: они не должны появляться в подземелье.
-    'deer':     {'ch': 'e', 'name': 'Олень',   'hp': 8,  'atk': 2, 'df': 0, 'xp': 8,  'color': (170, 125, 80),  'min_depth': 1, 'overworld_only': True},
-    'wolf':     {'ch': 'w', 'name': 'Волк',    'hp': 14, 'atk': 4, 'df': 1, 'xp': 12, 'color': (130, 135, 145), 'min_depth': 1, 'overworld_only': True, 'ability': 'bleeding'},
-    'bear':     {'ch': 'b', 'name': 'Медведь', 'hp': 30, 'atk': 7, 'df': 2, 'xp': 25, 'color': (105, 72, 45),   'min_depth': 1, 'overworld_only': True},
-    'slime':    {'ch': 'j', 'name': 'Слайм',   'hp': 10, 'atk': 2, 'df': 1, 'xp': 6,  'color': (100, 190, 90),  'min_depth': 1, 'overworld_only': True, 'ability': 'poison'},
-    'boar':     {'ch': 'p', 'name': 'Кабан',   'hp': 18, 'atk': 5, 'df': 1, 'xp': 15, 'color': (120, 100, 80),  'min_depth': 1, 'overworld_only': True},
+    'deer':     {'ch': 'e', 'name': 'Олень',   'hp': 8,  'atk': 2, 'df': 0, 'xp': 8,  'color': (170, 125, 80),  'min_depth': 1, 'overworld_only': True, 'passive': True, 'flees': True, 'gold': False},
+    'wolf':     {'ch': 'w', 'name': 'Волк',    'hp': 14, 'atk': 4, 'df': 1, 'xp': 12, 'color': (130, 135, 145), 'min_depth': 1, 'overworld_only': True, 'ability': 'bleeding', 'gold': False},
+    'bear':     {'ch': 'b', 'name': 'Медведь', 'hp': 30, 'atk': 7, 'df': 2, 'xp': 25, 'color': (105, 72, 45),   'min_depth': 1, 'overworld_only': True, 'gold': False},
+    'slime':    {'ch': 'j', 'name': 'Слайм',   'hp': 10, 'atk': 2, 'df': 1, 'xp': 6,  'color': (100, 190, 90),  'min_depth': 1, 'overworld_only': True, 'ability': 'poison', 'gold': False},
+    'boar':     {'ch': 'p', 'name': 'Кабан',   'hp': 18, 'atk': 5, 'df': 1, 'xp': 15, 'color': (120, 100, 80),  'min_depth': 1, 'overworld_only': True, 'gold': False},
 }
+
+# Быстрый доступ к данным моба по символу: ИИ проверяет пассивность,
+# не зная ключа вида (у сущности есть только ch).
+MONSTERS_BY_CH = {v['ch']: dict(v, key=k) for k, v in MONSTERS.items()}
 
 BOSSES = {
     5:  {'ch': 'G', 'name': 'Король гоблинов',  'hp': 80,  'atk': 9,  'df': 2, 'xp': 150,  'color': (255, 100, 100)},
@@ -693,25 +697,28 @@ def make_shop_stock(depth):
 
 
 # ════════════════════ ДРОП ════════════════════
+# Только материалы/трофеи. Золото начисляется отдельно в
+# rules.roll_kill_reward и только разумным монстрам: животные (крыса,
+# олень, волк, медведь, слайм, кабан) монет не носят.
 MONSTER_DROPS = {
-    'r': [('gold_small', 0.60), ('mushroom', 0.25), ('rat_tail', 0.30)],
-    'g': [('gold_small', 0.70), ('wood', 0.25), ('goblin_ear', 0.25)],
-    'a': [('gold_small', 0.55), ('wood', 0.25), ('goblin_ear', 0.30)],
-    's': [('gold_medium', 0.45), ('stone', 0.30), ('bone', 0.45)],
-    'S': [('gold_medium', 0.40), ('mushroom', 0.30), ('goblin_ear', 0.35)],
-    'O': [('gold_medium', 0.55), ('ore', 0.20), ('orc_tusk', 0.25)],
-    'T': [('gold_medium', 0.60), ('wood', 0.40), ('ogre_leather', 0.35)],
-    'D': [('gold_large', 0.30), ('ore', 0.35), ('demon_scale', 0.30)],
-    'v': [('gold_large', 0.30), ('ore', 0.25), ('vampire_fang', 0.30)],
-    'd': [('gold_large', 0.40), ('ore', 0.35), ('dragon_scale', 0.25)],
-    'Y': [('gold_large', 0.35), ('stone', 0.70), ('golem_core', 0.30)],
-    'W': [('gold_large', 0.30), ('ore', 0.20), ('wraith_essence', 0.30)],
+    'r': [('rat_tail', 0.50), ('mushroom', 0.10)],
+    'g': [('goblin_ear', 0.50), ('wood', 0.15)],
+    'a': [('goblin_ear', 0.45), ('wood', 0.20)],
+    's': [('bone', 0.70), ('stone', 0.15)],
+    'S': [('goblin_ear', 0.45), ('mushroom', 0.25)],
+    'O': [('orc_tusk', 0.50), ('ore', 0.15)],
+    'T': [('ogre_leather', 0.50), ('wood', 0.30), ('stone', 0.20)],
+    'D': [('demon_scale', 0.50), ('ore', 0.20)],
+    'v': [('vampire_fang', 0.50), ('bone', 0.10)],
+    'd': [('dragon_scale', 0.45), ('ore', 0.20)],
+    'Y': [('golem_core', 0.35), ('stone', 0.70), ('ore', 0.20)],
+    'W': [('wraith_essence', 0.50), ('bone', 0.15)],
     # ── Лесные обитатели ──
-    'e': [('gold_small', 0.35), ('venison', 0.60), ('bone', 0.15)],
-    'w': [('gold_small', 0.50), ('wolf_pelt', 0.45), ('bone', 0.10)],
-    'b': [('gold_medium', 0.55), ('bear_pelt', 0.50), ('bear_claw', 0.35)],
-    'j': [('gold_small', 0.30), ('slime_gel', 0.65), ('mushroom', 0.20)],
-    'p': [('gold_small', 0.45), ('boar_tusk', 0.50), ('venison', 0.40)],
+    'e': [('venison', 0.70), ('bone', 0.20)],
+    'w': [('wolf_pelt', 0.60), ('venison', 0.20), ('bone', 0.15)],
+    'b': [('bear_pelt', 0.60), ('bear_claw', 0.50), ('venison', 0.25)],
+    'j': [('slime_gel', 0.80), ('mushroom', 0.15)],
+    'p': [('boar_tusk', 0.55), ('venison', 0.55), ('bone', 0.10)],
 }
 
 BOSS_DROPS = {

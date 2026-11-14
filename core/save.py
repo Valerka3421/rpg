@@ -89,12 +89,20 @@ def player_from_dict(d):
 
 def dungeon_to_dict(d):
     """Тайлы пишутся строками цифр — компактнее вложенных списков int."""
+    from core.harvest import serialize as harvest_serialize
     return {
+        'w': d.w, 'h': d.h,
         'tiles': [''.join(str(int(t)) for t in row) for row in d.tiles],
         'rooms': [{'x': r.x, 'y': r.y, 'w': r.w, 'h': r.h} for r in d.rooms],
         'monsters': [entity_to_dict(m) for m in d.monsters],
         'items': [{'x': k[0], 'y': k[1], 'key': v} for k, v in d.items.items()],
         'stairs_pos': list(d.stairs_pos) if d.stairs_pos else None,
+        'transitions': [
+            {'x': k[0], 'y': k[1], 'to': v.get('to'),
+             'entry': list(v.get('entry', (k[0], k[1])))}
+            for k, v in d.transitions.items()
+        ],
+        'harvestables': harvest_serialize(d),
     }
 
 
@@ -108,11 +116,37 @@ def _decode_tiles(rows):
     return tiles
 
 
-def dungeon_from_dict(d, is_overworld=False):
+def dungeon_from_dict(d, is_overworld=False, is_location=False):
     rows = _decode_tiles(d['tiles'])
     old_h = len(rows)
     old_w = max((len(r) for r in rows), default=0)
     needs_migration = old_w < MAP_W or old_h < MAP_H
+
+    if is_location:
+        # Карты локаций хранят собственный размер: не растягиваем их до
+        # размеров подземелья и не засыпаем пустые клетки стенами.
+        width = old_w or int(d.get('w', 1))
+        height = old_h or int(d.get('h', 1))
+        dun = Dungeon(width, height)
+        dun.tiles = rows
+        dun.rooms = [Room(r['x'], r['y'], r['w'], r['h'])
+                     for r in d.get('rooms', [])]
+        dun.monsters = [entity_from_dict(m) for m in d.get('monsters', [])]
+        dun.items = {(i['x'], i['y']): i['key'] for i in d.get('items', [])}
+        dun.stairs_pos = tuple(d['stairs_pos']) if d.get('stairs_pos') else None
+        for tr in d.get('transitions', []) or []:
+            try:
+                pos = (int(tr['x']), int(tr['y']))
+                entry = tr.get('entry') or list(pos)
+                dun.transitions[pos] = {
+                    'to': tr['to'],
+                    'entry': (int(entry[0]), int(entry[1])),
+                }
+            except (KeyError, TypeError, ValueError, IndexError):
+                continue
+        from core.harvest import deserialize as harvest_deserialize
+        dun.harvestables = harvest_deserialize(d.get('harvestables', []))
+        return dun
 
     if needs_migration and is_overworld:
         # Старый открытый мир 100×70. Собираем новый и переносим на него
@@ -145,6 +179,16 @@ def dungeon_from_dict(d, is_overworld=False):
     dun.monsters = [entity_from_dict(m) for m in d['monsters']]
     dun.items = {(i['x'], i['y']): i['key'] for i in d['items']}
     dun.stairs_pos = tuple(d['stairs_pos']) if d['stairs_pos'] else None
+    for tr in d.get('transitions', []) or []:
+        try:
+            pos = (int(tr['x']), int(tr['y']))
+            entry = tr.get('entry') or list(pos)
+            dun.transitions[pos] = {'to': tr['to'],
+                                    'entry': (int(entry[0]), int(entry[1]))}
+        except (KeyError, TypeError, ValueError, IndexError):
+            continue
+    from core.harvest import deserialize as harvest_deserialize
+    dun.harvestables = harvest_deserialize(d.get('harvestables', []))
     return dun
 
 

@@ -93,7 +93,7 @@ def test_descent_cached_floor_preserved():
 def test_attack_kills_monster_and_rewards():
     core = _core()
     p = core.players[0]
-    monster = Entity(p.x + 1, p.y, 3, 3, 0, 0, "Крыса", "r", (170, 150, 130),
+    monster = Entity(p.x + 1, p.y, 3, 3, 0, 0, "Гоблин", "g", (170, 150, 130),
                      5)
     core.dungeon.monsters = [monster]
     gold_before = p.gold

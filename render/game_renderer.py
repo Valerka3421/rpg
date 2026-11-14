@@ -82,8 +82,12 @@ class GameRenderer(BaseRenderer):
 
     def draw_field(self, game):
         px, py = self._rx(game.player), self._ry(game.player)
-        cam_x = max(0, min(int(px) - config.VIEW_W // 2, MAP_W - config.VIEW_W))
-        cam_y = max(0, min(int(py) - config.VIEW_H // 2, MAP_H - config.VIEW_H))
+        field_w = getattr(game.dungeon, 'w', MAP_W)
+        field_h = getattr(game.dungeon, 'h', MAP_H)
+        cam_x = max(0, min(int(px) - config.VIEW_W // 2,
+                           max(0, field_w - config.VIEW_W)))
+        cam_y = max(0, min(int(py) - config.VIEW_H // 2,
+                           max(0, field_h - config.VIEW_H)))
 
         size = (config.VIEW_W * TILE, config.VIEW_H * TILE)
         if self._field_surface is None or self._field_surface.get_size() != size:
@@ -99,6 +103,8 @@ class GameRenderer(BaseRenderer):
             self._field_surface.fill(T.BG)
             # 1) Пол, лестницы, выход — низкий слой
             self._draw_map_cached(game, cam_x, cam_y)
+            # 1б) Кусты ягод стоят на полу, поверх тайла земли.
+            self._draw_harvestables(game, cam_x, cam_y)
             # 2) Объекты на полу
             self._draw_loot(game, cam_x, cam_y)
             self._draw_monsters(game, cam_x, cam_y)
@@ -108,8 +114,8 @@ class GameRenderer(BaseRenderer):
             self._draw_player(game, cam_x, cam_y)
             for remote in self.visible_remotes(game):
                 self._draw_remote_player(remote, cam_x, cam_y)
-            # 3) Стены/деревья — поверх сущностей (объём, «нависают»)
-            self._draw_walls_layer(game, cam_x, cam_y)
+            # 3) Стены/деревья уже нарисованы в слое карты. Сущности
+            # (игрок, мобы, лут, NPC) всегда остаются ПОВЕРХ текстур мира.
             # 4) Всплывающие цифры — поверх всего
             self._draw_floats(game, cam_x, cam_y)
         finally:
@@ -125,7 +131,7 @@ class GameRenderer(BaseRenderer):
         """Карта (стены/пол/лестницы) меняется только при шаге, смене этажа
         или открытии новых клеток — кэшируем её в отдельную поверхность."""
         key = (id(game), cam_x, cam_y, config.VIEW_W, config.VIEW_H,
-               game.world_mode, game.depth,
+               game.world_mode, game.depth, getattr(game, 'location', 'village'),
                int(self._rx(game.player)), int(self._ry(game.player)),
                len(game.explored), len(game.visible),
                getattr(game, 'render_revision', 0))
@@ -146,7 +152,12 @@ class GameRenderer(BaseRenderer):
 
     def _draw_map(self, game, cam_x, cam_y):
         """Тайлы + запечённое освещение + ореолы факелов."""
-        self._is_overworld = (game.world_mode == 'overworld')
+        # Шахта — подземная локация: рисуем её как пещеру и оставляем
+        # туман войны, хотя формально это часть поверхности.
+        self._is_overworld = (game.world_mode == 'overworld'
+                              and getattr(game, 'location', 'village') != 'mine')
+        self.game = game
+        self._game_location = getattr(game, 'location', 'village')
         torches = []
         for sy in range(config.VIEW_H):
             for sx in range(config.VIEW_W):
@@ -158,6 +169,16 @@ class GameRenderer(BaseRenderer):
                 light = 1.0 if vis else 0.72
                 tile = game.dungeon.tiles[my][mx]
                 if tile == Tile.WALL:
+                    record = game.dungeon.harvestables.get((mx, my))
+                    if record and record.get('kind') == 'ore':
+                        key = ('ore_rock' if record.get('has', True)
+                               else 'ore_depleted')
+                        self.screen.blit(Tiles.get(key, 0, light), (px, py))
+                        continue
+                    if record and record.get('kind') == 'tree' \
+                            and not record.get('has', True):
+                        self.screen.blit(Tiles.get('stump', 0, light), (px, py))
+                        continue
                     if self._draw_wall(px, py, mx, my, light) and vis:
                         torches.append((px, py))
                     continue
@@ -168,8 +189,10 @@ class GameRenderer(BaseRenderer):
                     self._draw_exit(px, py, light)
                 elif tile == Tile.UPSTAIRS:
                     self._draw_upstairs(px, py, light)
-        self._draw_darkness(game, cam_x, cam_y)
+                elif tile == Tile.GATE:
+                    self._draw_gate(game, px, py, mx, my, light)
         if not self._is_overworld:
+            self._draw_darkness(game, cam_x, cam_y)
             self._draw_wall_shadows(game, cam_x, cam_y)
         if torches:
             glow = Tiles.torch_glow()
@@ -273,10 +296,12 @@ class GameRenderer(BaseRenderer):
     def _draw_wall(self, px, py, mx, my, light=1.0):
         """Возвращает True, если это стена с факелом."""
         if self._is_overworld:
-            if ov.is_well(mx, my):
+            if (getattr(self, '_game_location', 'village') == 'village'
+                    and ov.is_well(mx, my)):
                 self.screen.blit(Tiles.get('village_well', 0, light), (px, py))
                 return False
-            kind = ov.wall_kind(mx, my)
+            fn = getattr(self.game, 'wall_kind', None)
+            kind = fn(mx, my) if fn else ov.wall_kind(mx, my)
             variant, kind = Tiles.variant(kind, mx, my)
             self.screen.blit(Tiles.get(kind, variant, light), (px, py))
             return False
@@ -290,7 +315,8 @@ class GameRenderer(BaseRenderer):
 
     def _draw_floor(self, px, py, mx, my, light=1.0):
         if self._is_overworld:
-            kind = ov.ground_kind(mx, my)
+            fn = getattr(self.game, 'ground_kind', None)
+            kind = fn(mx, my) if fn else ov.ground_kind(mx, my)
             variant, kind = Tiles.variant(kind, mx, my)
             self.screen.blit(Tiles.get(kind, variant, light), (px, py))
             return
@@ -320,6 +346,28 @@ class GameRenderer(BaseRenderer):
             self.screen.blit(self._tile_exit, (px, py))
             return
         self.screen.blit(Tiles.get('exit', 0, light), (px, py))
+
+    def _draw_gate(self, game, px, py, mx, my, light=1.0):
+        """Врата локации. Вход в шахту выглядит как пещера."""
+        trans = game.dungeon.transitions.get((mx, my), {})
+        kind = 'cave' if trans.get('to') == 'mine' else 'gate'
+        self.screen.blit(Tiles.get(kind, 0, light), (px, py))
+
+    def _draw_harvestables(self, game, cam_x, cam_y):
+        """Кусты ягод: с ягодами или пустые, если ягоды уже собрали."""
+        for (mx, my), record in game.dungeon.harvestables.items():
+            if record.get('kind') != 'bush':
+                continue
+            if (mx, my) not in game.explored:
+                continue
+            if not (cam_x <= mx < cam_x + config.VIEW_W
+                    and cam_y <= my < cam_y + config.VIEW_H):
+                continue
+            light = 1.0 if (mx, my) in game.visible else 0.72
+            key = ('berry_bush' if record.get('has', True)
+                   else 'berry_bush_empty')
+            self.screen.blit(Tiles.get(key, 0, light),
+                             ((mx - cam_x) * TILE, (my - cam_y) * TILE))
 
     def _draw_loot(self, game, cam_x, cam_y):
         size = 48                     # чуть меньше тайла — не «кричит»
@@ -373,7 +421,8 @@ class GameRenderer(BaseRenderer):
             self._draw_statuses(m, px, py)
 
     def _draw_elder(self, game, cam_x, cam_y):
-        if game.world_mode != 'overworld':
+        if game.world_mode != 'overworld' \
+                or getattr(game, 'location', 'village') != 'village':
             return
         if not (game.elder and (game.elder.x, game.elder.y) in game.visible):
             return
@@ -473,7 +522,12 @@ class GameRenderer(BaseRenderer):
 
     def _draw_quest_board(self, game, cam_x, cam_y):
         board = getattr(game, 'quest_board', None)
-        if not board or (board.x, board.y) not in game.visible:
+        if not board:
+            return
+        if (game.world_mode == 'overworld'
+                and getattr(game, 'location', 'village') != 'village'):
+            return
+        if (board.x, board.y) not in game.visible:
             return
         px = (self._rx(board) - cam_x) * TILE
         py = (self._ry(board) - cam_y) * TILE
@@ -517,7 +571,9 @@ class GameRenderer(BaseRenderer):
         self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
         self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
         if game.world_mode == 'overworld':
-            loc = ov.location_title(game.player.x, game.player.y)
+            fn = getattr(game, 'location_title', None)
+            loc = fn() if fn else ov.location_title(game.player.x,
+                                                    game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
         self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
@@ -575,15 +631,18 @@ class GameRenderer(BaseRenderer):
     # ════════════════════════ МИНИ-КАРТА ════════════════════════
     def _minimap_scaled(self, game):
         """Основа миникарты (стены/пол/лестницы) — кэш по explored."""
-        key = (id(game), game.world_mode, game.depth, len(game.explored),
+        key = (id(game), game.world_mode, game.depth,
+               getattr(game, 'location', 'village'),
+               len(game.explored),
                getattr(game, 'render_revision', 0))
         if self._mini_key == key and self._mini_scaled is not None:
             return self._mini_scaled
-        mini = pygame.Surface((MAP_W, MAP_H), pygame.SRCALPHA)
+        d = game.dungeon
+        mini = pygame.Surface((d.w, d.h), pygame.SRCALPHA)
         mini.fill((12, 11, 9, 210))
-        for my in range(MAP_H):
+        for my in range(d.h):
             row = game.dungeon.tiles[my]
-            for mx in range(MAP_W):
+            for mx in range(d.w):
                 if (mx, my) not in game.explored:
                     continue
                 tile = row[mx]
@@ -595,19 +654,23 @@ class GameRenderer(BaseRenderer):
                     color = (150, 190, 130, 255)
                 elif tile == Tile.UPSTAIRS:
                     color = (110, 160, 110, 255)
+                elif tile == Tile.GATE:
+                    color = (206, 166, 82, 255)
                 else:
                     color = (56, 52, 45, 210)
                 mini.set_at((mx, my), color)
+        self._mini_size = (d.w, d.h)
         self._mini_scaled = pygame.transform.scale(
-            mini, (MAP_W * MINIMAP_SCALE, MAP_H * MINIMAP_SCALE))
+            mini, (d.w * MINIMAP_SCALE, d.h * MINIMAP_SCALE))
         self._mini_key = key
         return self._mini_scaled
 
     def _minimap_marker(self, pos_x, pos_y, entity, color, size=2):
         mx = int(self._rx(entity)) * MINIMAP_SCALE
         my = int(self._ry(entity)) * MINIMAP_SCALE
-        if not (0 <= mx < MAP_W * MINIMAP_SCALE
-                and 0 <= my < MAP_H * MINIMAP_SCALE):
+        width, height = getattr(self, '_mini_size', (MAP_W, MAP_H))
+        if not (0 <= mx < width * MINIMAP_SCALE
+                and 0 <= my < height * MINIMAP_SCALE):
             return
         x = pos_x + mx - size // 2
         y = pos_y + my - size // 2

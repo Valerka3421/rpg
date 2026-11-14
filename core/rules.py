@@ -22,7 +22,7 @@ from core.data import (
     ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
     roll_monster_drops, roll_rarity, make_loot_key, parse_item_key,
     item_display_name, item_display_color, item_sell_price, xp_to_next,
-    item_category, select_recipe, roll_mana_crystal,
+    item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
     SKILLS, default_skills, skill_xp_to_next,
 )
 from core.entities import Player, Entity
@@ -121,11 +121,16 @@ class KillReward:
 
 def roll_kill_reward(monster, depth, greedy=False):
     """Золото/опыт/дроп за убитого моба (не применяет к игроку)."""
-    gold = random.randint(2, 5 + max(1, depth))
-    if monster.boss:
-        gold += 30 + depth * 10
-    if greedy:
-        gold = int(gold * 1.5)
+    profile = MONSTERS_BY_CH.get(getattr(monster, 'ch', ''), {})
+    # Животные не носят монет — с них падают только трофеи/материалы.
+    # Боссы и разумные монстры дают золото.
+    gold = 0
+    if profile.get('gold', True) or monster.boss:
+        gold = random.randint(2, 5 + max(1, depth))
+        if monster.boss:
+            gold += 30 + depth * 10
+        if greedy:
+            gold = int(gold * 1.5)
     drops = list(roll_monster_drops(monster.ch))
     if monster.boss:
         drops.extend(BOSS_DROPS.get(monster.ch, []))

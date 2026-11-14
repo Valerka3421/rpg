@@ -728,6 +728,9 @@ class ScreensRenderer(BaseRenderer):
 
         frame_color = (206, 166, 82) if game.dialogue.npc_type == 'elder' \
             else T.MERCH
+        is_board = game.dialogue.npc_type == 'quest_board'
+        if is_board:
+            frame_color = (206, 170, 96)
 
         # ── Портрет ──
         portrait_size = 140
@@ -743,7 +746,15 @@ class ScreensRenderer(BaseRenderer):
 
         icon_size = 100
         icon_off = (portrait_size - icon_size) // 2
-        if game.dialogue.npc_type == 'elder':
+        if is_board:
+            # Доска поручений — не торговец: рисуем её собственный тайл,
+            # а не портрет и имя торговца.
+            from render.tiles import Tiles
+            board_img = pygame.transform.smoothscale(
+                Tiles.get('quest_board', 0), (icon_size, icon_size))
+            self.screen.blit(board_img, (portrait_x + icon_off,
+                                         portrait_y + icon_off))
+        elif game.dialogue.npc_type == 'elder':
             self.icons.draw_elder(portrait_x + icon_off, portrait_y + icon_off,
                                   size=icon_size)
         else:
@@ -751,7 +762,10 @@ class ScreensRenderer(BaseRenderer):
                                      size=icon_size)
 
         # ── Имя в золотом бейдже ──
-        npc_name = "Старейшина" if game.dialogue.npc_type == 'elder' else "Торговец"
+        if is_board:
+            npc_name = "Доска поручений"
+        else:
+            npc_name = "Старейшина" if game.dialogue.npc_type == 'elder' else "Торговец"
         info_x = portrait_x + portrait_size + 24
         name_surf = T.render(npc_name, (28, 28, 40), T.FONT_H2)
         badge_w = name_surf.get_width() + 24

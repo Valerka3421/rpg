@@ -110,7 +110,7 @@ def test_thorns_not_applied_when_defender_dies():
 
 # ── Награды и лут ──
 def test_kill_reward_gold_and_drops():
-    m = _monster(ch='r', xp=3)
+    m = _monster(ch='g', xp=3)
     random.seed(0)
     reward = rules.roll_kill_reward(m, depth=1)
     assert reward.gold >= 2 and reward.xp == 3

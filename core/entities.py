@@ -183,6 +183,10 @@ class Dungeon:
         self.monsters = []
         self.items = {}
         self.stairs_pos = None
+        # Переходы между локациями: (x, y) -> {'to': key, 'entry': (x, y)}
+        self.transitions = {}
+        # Добываемые ресурсы: (x, y) -> запись core.harvest
+        self.harvestables = {}
 
 
 @dataclass

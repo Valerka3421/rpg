@@ -201,6 +201,9 @@ class MenuController:
             new_res = RESOLUTIONS[i]
             if tuple(new_res) != current:
                 self.game.settings['resolution'] = list(new_res)
+                # Смена разрешения — это смена размера ОКНА. В полноэкранном
+                # режиме размер окна не виден, поэтому выходим из него.
+                self.game.settings['fullscreen'] = False
                 save_settings(self.game.settings)
                 self.game.pending_resolution = tuple(new_res)
         elif idx == 1:  # Полный экран

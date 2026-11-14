@@ -9,6 +9,8 @@ from core.data import (MONSTERS, SKILLS, CRAFT_TABS, generate_board_quests,
 from core.world import BIOME_MONSTERS, FOREST_MONSTERS
 from core.entities import Dungeon, Player
 from core import rules
+from core import harvest
+from core import locations
 from core import overworld as ov
 from core.save import (player_to_dict, player_from_dict,
                        dungeon_to_dict, dungeon_from_dict)
@@ -22,23 +24,23 @@ def test_map_is_expanded_but_legacy_regions_kept():
     assert ov.in_goblin_village(*ov.GOBLIN_VILLAGE_CENTER)
 
 
-def test_goblin_village_reachable_by_road(make_game):
+def test_goblin_village_reachable_by_gate(make_game):
+    from core import locations
     g = make_game()
-    from core.world import _flood_fill_reachable
-    reachable = _flood_fill_reachable(g.overworld, ov.VILLAGE_CENTER)
-    assert ov.GOBLIN_VILLAGE_CENTER in reachable
-    # Дорога идёт от старой восточной границы в деревню.
-    assert ov.is_road(110, 35)
+    village = g.dungeon
+    gate = locations.VILLAGE_GATES['goblin_village']
+    assert village.transitions[gate]['to'] == 'goblin_village'
+    goblin = g.get_location('goblin_village')
+    assert any(tr['to'] == 'village' for tr in goblin.transitions.values())
 
 
 def test_goblin_village_spawns_goblins_boars_wolves(make_game):
     g = make_game()
-    inside = [m for m in g.overworld.monsters
-              if ov.in_goblin_village(m.x, m.y)]
-    chars = {m.ch for m in inside}
+    goblin = g.get_location('goblin_village')
+    chars = {m.ch for m in goblin.monsters}
     assert {'g', 'a', 'S'} <= chars
     assert chars <= {'g', 'a', 'S', 'p', 'w'}
-    assert len(inside) >= 10
+    assert len(goblin.monsters) >= 10
 
 
 def test_forest_monsters_are_only_new_pool():
@@ -171,13 +173,16 @@ def test_old_dungeon_save_padded_with_walls():
 
 
 # ── Рендер ──
-def test_player_is_drawn_below_world_walls(renderer, make_game):
+def test_entities_are_drawn_above_world_tiles(renderer, make_game):
+    """Игрок и мобы всегда поверх текстур мира (стены больше не «нависают»)."""
     g = make_game()
     order = []
+    renderer.game._draw_map_cached = lambda *a, **k: order.append('map')
     renderer.game._draw_player = lambda *a, **k: order.append('player')
     renderer.game._draw_walls_layer = lambda *a, **k: order.append('walls')
     renderer.game.draw_field(g)
-    assert order == ['player', 'walls']
+    assert order.index('map') < order.index('player')
+    assert 'walls' not in order
 
 
 def test_entities_are_painted_into_field_surface(renderer, make_game):
@@ -246,6 +251,189 @@ def test_goblin_village_tiles_render(renderer):
     from render.tiles import Tiles
     for kind in ('goblin_grass', 'goblin_path', 'goblin_plaza',
                  'goblin_hut', 'goblin_totem', 'goblin_campfire',
-                 'dungeon_ruins', 'ruins_pillar'):
+                 'dungeon_ruins', 'ruins_pillar',
+                 'stump', 'berry_bush', 'berry_bush_empty',
+                 'ore_rock', 'ore_depleted', 'gate'):
         surf = Tiles.get(kind, 0)
         assert surf.get_size() == (64, 64)
+
+
+# ── Отдельные карты локаций ──
+def test_each_location_is_a_separate_map(make_game):
+    g = make_game()
+    village = g.dungeon
+    assert village.w == locations.VILLAGE_W
+    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'dark',
+                'meadow', 'dead', 'goblin_village'):
+        gate = locations.VILLAGE_GATES[key]
+        assert village.transitions[gate]['to'] == key
+        target = g.get_location(key)
+        assert target is not village
+        assert (target.w, target.h) == (locations.LOCATION_W,
+                                        locations.LOCATION_H)
+        assert any(tr['to'] == 'village' for tr in target.transitions.values())
+
+
+def test_travel_between_locations_keeps_state(make_game):
+    g = make_game()
+    copied = g.get_location('village')
+    g.travel_to('pine')
+    assert g.location == 'pine'
+    assert g.dungeon is g.get_location('pine')
+    assert g.dungeon is not copied
+    # Возврат через карту: прогресс карты остаётся в объекте локации.
+    tile = (10, 10)
+    g.dungeon.tiles[tile[1]][tile[0]] = Tile.FLOOR
+    g.explored.add(tile)
+    g.travel_to('village')
+    g.travel_to('pine')
+    assert tile in g.explored
+    assert g.dungeon.tiles[tile[1]][tile[0]] == Tile.FLOOR
+
+
+def test_location_maps_are_saved_and_not_regenerated(make_game, tmp_path):
+    g = make_game()
+    g.travel_to('birch')
+    g.dungeon.tiles[9][9] = Tile.FLOOR
+    monster = g.dungeon.monsters[0]
+    monster.hp = 1
+    path = str(tmp_path / 'save.json')
+    g.save(path=path)
+
+    g.dungeon.tiles[9][9] = Tile.WALL
+    monster.hp = 999
+    g.locations.clear()
+    assert g.load(path=path) is True
+    assert g.location == 'birch'
+    assert g.dungeon.tiles[9][9] == Tile.FLOOR
+    assert g.dungeon.monsters[0].hp == 1
+
+
+def test_mountain_has_mine_and_mine_has_ore(make_game):
+    g = make_game()
+    rock = g.get_location('rock')
+    mine_gates = [v for v in rock.transitions.values() if v['to'] == 'mine']
+    assert mine_gates
+    mine = g.get_location('mine')
+    ore = [rec for rec in mine.harvestables.values() if rec['kind'] == 'ore']
+    assert len(ore) >= 20
+
+
+def test_ore_is_harvested_by_attack(make_game):
+    g = make_game()
+    g.travel_to('mine')
+    dungeon = g.dungeon
+    spot = None
+    for (x, y), rec in dungeon.harvestables.items():
+        if rec['kind'] != 'ore':
+            continue
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if (0 <= nx < dungeon.w and 0 <= ny < dungeon.h
+                    and dungeon.tiles[ny][nx] != Tile.WALL):
+                spot = (nx, ny, x, y)
+                break
+        if spot:
+            break
+    assert spot
+    px, py, ox, oy = spot
+    g.player.x, g.player.y = px, py
+    g.player.atk = 10
+    g.player_attack()
+    assert g.player.inventory.get('ore', 0) >= 2
+    assert not dungeon.harvestables[(ox, oy)]['has']
+
+
+def test_tree_is_harvested_by_attack(make_game):
+    g = make_game()
+    g.travel_to('pine')
+    dungeon = g.dungeon
+    spot = None
+    for (x, y) in ((ix, iy) for iy in range(dungeon.h)
+                   for ix in range(dungeon.w)):
+        if dungeon.tiles[y][x] != Tile.WALL:
+            continue
+        if not locations.is_tree_wall('pine', x, y):
+            continue
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if (0 <= nx < dungeon.w and 0 <= ny < dungeon.h
+                    and dungeon.tiles[ny][nx] != Tile.WALL
+                    and (nx, ny) not in dungeon.harvestables):
+                spot = (nx, ny, x, y)
+                break
+        if spot:
+            break
+    assert spot
+    px, py, tx, ty = spot
+    g.player.x, g.player.y = px, py
+    g.player.atk = 10
+    g.player_attack()
+    assert g.player.inventory.get('wood', 0) >= 2
+    # Удар мог выбрать любое соседнее дерево — проверяем, что срублено
+    # именно дерево по соседству.
+    felled = [rec for pos, rec in dungeon.harvestables.items()
+              if rec['kind'] == 'tree' and rec['has'] is False
+              and max(abs(pos[0] - px), abs(pos[1] - py)) <= 1]
+    assert felled
+
+
+def test_bushes_have_berries_and_regrow(make_game):
+    g = make_game()
+    dungeon = g.dungeon
+    bush = next(((x, y), rec) for (x, y), rec in dungeon.harvestables.items()
+                if rec['kind'] == 'bush')
+    (bx, by), rec = bush
+    assert rec['has'] is True
+    # Встаём рядом и собираем ягоды.
+    spot = None
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = bx + dx, by + dy
+        if (0 <= nx < dungeon.w and 0 <= ny < dungeon.h
+                and dungeon.tiles[ny][nx] != Tile.WALL
+                and (nx, ny) not in dungeon.harvestables):
+            spot = (nx, ny)
+            break
+    assert spot
+    g.player.x, g.player.y = spot
+    g.harvest_at(bx, by)
+    assert g.player.inventory.get('berry', 0) >= 1
+    assert rec['has'] is False
+    # Время сбора прошло — ягоды снова на кусте.
+    rec['ready_at'] = 0
+    harvest.tick(dungeon)
+    assert rec['has'] is True
+
+
+def test_deer_is_passive_and_drops_no_gold(make_game):
+    from core.data import MONSTERS, MONSTER_DROPS
+    from types import SimpleNamespace
+    assert MONSTERS['deer'].get('passive') is True
+    deer = SimpleNamespace(ch='e', boss=False, max_hp=8, xp_value=8)
+    reward = rules.roll_kill_reward(deer, depth=1)
+    assert reward.gold == 0
+    # Сама таблица дропа оленя — мясо и кости, без золота.
+    assert MONSTER_DROPS['e']
+    assert not any(key.startswith('gold') for key, _ in MONSTER_DROPS['e'])
+    assert not any(k.startswith('gold') for k in reward.drops)
+    for drops in MONSTER_DROPS.values():
+        assert not any(key.startswith('gold') for key, _ in drops)
+
+
+def test_fog_only_underground(make_game):
+    g = make_game()
+    assert g.location != 'mine'
+    assert len(g.visible) == g.dungeon.w * g.dungeon.h
+    g.travel_to('mine')
+    assert len(g.visible) < g.dungeon.w * g.dungeon.h
+
+
+def test_resolution_change_exits_fullscreen(make_game, monkeypatch):
+    import core.settings as settings_mod
+    monkeypatch.setattr(settings_mod, 'save_settings', lambda *a, **k: None)
+    g = make_game()
+    g.settings = {'resolution': [1280, 720], 'fullscreen': True}
+    g.menu.selection_settings = 0
+    g.menu.adjust_setting(1)
+    assert g.settings['fullscreen'] is False
+    assert g.pending_resolution is not None

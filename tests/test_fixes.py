@@ -754,9 +754,10 @@ def test_unequip_head_and_legs(make_game):
     assert g.player.inventory.get('cloth_pants') == 1
 
 def test_exit_dungeon_spawns_near_entrance(make_game):
-    from core import overworld as ov
     g = make_game()
+    g.travel_to('rock')
+    ex, ey = g.dungeon.stairs_pos
     g.enter_dungeon()
     g.exit_to_overworld()
-    ex, ey = ov.DUNGEON_POS
+    assert g.location == 'rock'
     assert max(abs(g.player.x - ex), abs(g.player.y - ey)) <= 3

@@ -95,9 +95,10 @@ def test_start_in_overworld(make_game):
 
 def test_overworld_has_entrance(make_game):
     g = make_game()
-    assert g.overworld.stairs_pos is not None
-    ex, ey = g.overworld.stairs_pos
-    assert g.overworld.tiles[ey][ex] == Tile.STAIRS
+    rock = g.get_location('rock')
+    assert rock.stairs_pos is not None
+    ex, ey = rock.stairs_pos
+    assert rock.tiles[ey][ex] == Tile.STAIRS
 
 
 def test_enter_dungeon(make_game):

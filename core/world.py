@@ -8,7 +8,12 @@ from core.entities import Entity, Room, Dungeon
 from core import overworld as ov
 
 
-OVERWORLD_RESOURCES = ('mushroom', 'berry', 'wood', 'stone', 'ore')
+OVERWORLD_RESOURCES = ('mushroom', 'wood', 'stone', 'ore')
+
+# Ягоды больше не лежат предметом на земле: их собирают с кустов
+# (core.harvest). Константы для генерации.
+BUSH_COUNT_MIN = 36
+TREE_HARVEST_COUNT = 70
 
 # В лесу могут встретиться только эти обитатели. Гоблины и скелеты
 # убраны из лесного спавна: гоблины живут в своей деревне, скелеты —
@@ -41,6 +46,39 @@ BIOME_FORESTS = {
     'meadow': (20, 2),
     'dead':   (40, 2),
 }
+
+
+def _scatter_harvestables(d, reachable):
+    """Деревья для рубки и кусты ягод на поверхности."""
+    from core.harvest import make_harvestable
+    # Деревья: выбираем существующие лесные стены, чтобы текстура и
+    # проходимость остались прежними.
+    tree_spots = []
+    for (x, y) in reachable:
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if not (0 <= nx < d.w and 0 <= ny < d.h):
+                continue
+            if d.tiles[ny][nx] != Tile.WALL:
+                continue
+            kind = ov.wall_kind(nx, ny)
+            if kind.startswith('tree') or kind == 'rock':
+                tree_spots.append((nx, ny))
+    random.shuffle(tree_spots)
+    for pos in tree_spots[:TREE_HARVEST_COUNT]:
+        if pos not in d.harvestables:
+            d.harvestables[pos] = make_harvestable(
+                'tree' if not ov.in_dungeon_ruins(*pos) else 'ore')
+
+    # Кусты ягод — на открытой траве, подальше от деревень и дорог.
+    bush_spots = [p for p in reachable
+                  if d.tiles[p[1]][p[0]] == Tile.FLOOR
+                  and not ov.in_village(*p) and not ov.in_goblin_village(*p)
+                  and not ov.is_road(*p) and not ov.in_dungeon_ruins(*p)
+                  and p not in d.items and p != ov.DUNGEON_POS
+                  and p not in d.harvestables]
+    random.shuffle(bush_spots)
+    for pos in bush_spots[:BUSH_COUNT_MIN]:
+        d.harvestables[pos] = make_harvestable('bush')
 
 
 def _flood_fill_reachable(d, start):
@@ -199,6 +237,9 @@ def generate_overworld():
     for rx, ry in spots[:96]:
         if (rx, ry) not in d.items:
             d.items[(rx, ry)] = random.choice(OVERWORLD_RESOURCES)
+
+    # Кусты ягод и деревья для рубки.
+    _scatter_harvestables(d, reachable)
 
     def spawn_monster(x, y, key):
         m = MONSTERS[key]
