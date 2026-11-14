@@ -129,6 +129,22 @@ class ScreensRenderer(BaseRenderer):
                       cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
             y += 24
 
+        y = T.section(self.screen, cx0, y, cw, "Навыки крафта")
+        from core.data import (SKILL_ORDER, SKILLS, default_skills,
+                               skill_xp_to_next)
+        skills = getattr(p, 'skills', None) or default_skills()
+        sx = cx0
+        for skill_key in SKILL_ORDER:
+            entry = skills.get(skill_key, {'level': 1, 'xp': 0})
+            level = entry.get('level', 1)
+            xp = entry.get('xp', 0)
+            need = skill_xp_to_next(level)
+            label = (f"{SKILLS[skill_key]['name']}: ур.{level} "
+                     f"({xp}/{need})")
+            w = self.text(label, sx, y + 2, T.TEXT, font=T.FONT_SMALL)
+            sx += w + 34
+        y += 28
+
         y = T.section(self.screen, cx0, y, cw, "Экипировка")
         from core.data import ITEMS, parse_item_key, item_display_name, item_display_color
         slots = [
@@ -604,19 +620,39 @@ class ScreensRenderer(BaseRenderer):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core.config import HAMMER_SIZE
-        game._ui_hits['craft'] = {'hammer': []}
+        game._ui_hits['craft'] = {'hammer': [], 'tabs': []}
 
         self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"Уровень {game.player.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
-        y = cy0 + 56
+
+        # ── Вкладки: все крафты и три навыка ──
+        tab_y = cy0 + 50
+        tx = cx0
+        current_tab = getattr(game.craft, 'tab', 'all')
+        for tab_key, label in game.craft_tabs():
+            active = current_tab == tab_key
+            tw = T.render(label, T.TEXT, T.FONT_SMALL).get_width() + 22
+            rect = (tx, tab_y, tw, 28)
+            bg = (66, 54, 38) if active else (30, 27, 22)
+            border = (206, 166, 82) if active else (78, 66, 48)
+            T.rounded_rect(self.screen, bg, rect, radius=6,
+                           border_color=border)
+            self.text(label, tx + 11, tab_y + 5,
+                      T.GOLD if active else T.TEXT_DIM, font=T.FONT_SMALL)
+            game._ui_hits['craft']['tabs'].append((tab_key, rect))
+            tx += tw + 6
+
+        y = tab_y + 42
         y = T.section(self.screen, cx0, y, cw, "Рецепты")
 
-        recipes = game.craftable_list()
+        recipes = game.craft_page_items()
+        offset = game.craft.page_offset()
         if not recipes:
-            self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
-            return
-        for i, (key, it, recipe, can) in enumerate(recipes[:8]):
+            self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED,
+                      font=T.FONT_SMALL)
+        for i, entry in enumerate(recipes):
+            key, it, recipe, can, _category, _ri, out_count = entry
             lvl_req = it.get('level_req', 1)
             lvl_ok = game.player.level >= lvl_req
             can_full = can and lvl_ok
@@ -624,8 +660,11 @@ class ScreensRenderer(BaseRenderer):
             row_y = y
 
             self.icons.draw_item(key, cx0, row_y, size=28)
-            self.text(item_display_name(key), cx0 + 36, row_y + 4, color)
-            self.text(f"Ур.{lvl_req}", cx0 + 300, row_y + 4,
+            name = item_display_name(key)
+            if out_count > 1:
+                name += f" ×{out_count}"
+            self.text(name, cx0 + 36, row_y + 4, color)
+            self.text(f"Ур.{lvl_req}", cx0 + 340, row_y + 4,
                       T.GOLD if lvl_ok else T.HP_CRIT, font=T.FONT_SMALL)
             y += 22
 
@@ -652,8 +691,35 @@ class ScreensRenderer(BaseRenderer):
                                          size=HAMMER_SIZE - 4,
                                          hover=can_full and hover)
             game._ui_hits['craft']['hammer'].append(
-                (i, (hx, hy, HAMMER_SIZE, HAMMER_SIZE)))
+                (offset + i, (hx, hy, HAMMER_SIZE, HAMMER_SIZE)))
             y += 26
+
+        # ── Страницы ──
+        total = game.craft_pages_count()
+        if total > 1:
+            page = game.craft.page
+            py = cy0 + ch - 34
+            prev_rect = (cx0, py, 70, 26)
+            next_rect = (cx0 + 84, py, 70, 26)
+            # Треугольники вместо «◀/▶»: в шрифте нет этих глифов,
+            # и они рисовались пустыми квадратами.
+            for rect, enabled, direction in (
+                    (prev_rect, page > 0, -1),
+                    (next_rect, page < total - 1, 1)):
+                T.rounded_rect(self.screen, (30, 27, 22), rect,
+                               radius=5, border_color=(78, 66, 48))
+                cx = rect[0] + rect[2] // 2
+                cy = rect[1] + rect[3] // 2
+                col = T.GOLD if enabled else T.TEXT_MUTED
+                if direction < 0:
+                    pts = [(cx + 4, cy - 6), (cx + 4, cy + 6), (cx - 5, cy)]
+                else:
+                    pts = [(cx - 4, cy - 6), (cx - 4, cy + 6), (cx + 5, cy)]
+                pygame.draw.polygon(self.screen, col, pts)
+            self.text(f"Стр. {page + 1}/{total}", cx0 + 170, py + 4,
+                      T.TEXT_DIM, font=T.FONT_SMALL)
+            game._ui_hits['craft']['prev'] = prev_rect
+            game._ui_hits['craft']['next'] = next_rect
 
     # ════════════════════════ ДИАЛОГ ════════════════════════
     def draw_dialogue(self, game):

@@ -1,7 +1,8 @@
 """Сущности мира."""
 from dataclasses import dataclass
 from core.config import COL_PLAYER, COL_TEXT, Tile
-from core.data import ITEMS, CLASSES, parse_item_key, xp_to_next
+from core.data import (ITEMS, CLASSES, parse_item_key, xp_to_next,
+                       default_skills)
 
 
 class Entity:
@@ -127,6 +128,7 @@ class Player(Entity):
         self.thorns = False
         self.greedy = False
         self.step_counter = 0
+        self.skills = default_skills()   # {навык: {'level': 1, 'xp': 0}}
         self._w_crit_bonus = 0.0
         self._w_dodge_bonus = 0.0
         self._a_dodge_bonus = 0.0

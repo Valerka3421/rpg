@@ -53,14 +53,14 @@ class ClientView:
         self.menu = None
         self.dialogue = DialogueController(self)
         self.quests = _QuestStub()
-        self.craft = _CraftStub()
+        self.craft = _CraftStub(self)
         # UI
         self._modal_content_rect = (0, 0, 0, 0)
         self._modal_close_rect = None
         self._ui_hits = {
             'inventory': {'items': [], 'equip': [], 'pages': []},
             'stats': {'plus': []},
-            'craft': {'hammer': []},
+            'craft': {'hammer': [], 'tabs': []},
             'shop': {'rows': []},
         }
         self.mouse_pos = (-1, -1)
@@ -102,7 +102,17 @@ class ClientView:
     def craftable_list(self):
         """Список рецептов — та же логика, что у сервера."""
         from core import rules
-        return rules.craftable_list(self.player.inventory, self.player.level)
+        return rules.craftable_list(self.player.inventory, self.player.level,
+                                    tab=getattr(self.craft, 'tab', 'all'))
+
+    def craft_page_items(self):
+        return self.craft.page_items()
+
+    def craft_pages_count(self):
+        return self.craft.pages_count()
+
+    def craft_tabs(self):
+        return self.craft.tabs()
 
     def log(self, msg, color=None):
         """Лог боя в MP: сервер присылает события, клиент показывает их
@@ -347,9 +357,25 @@ class ClientView:
         return False
 
     def _click_craft(self, pos):
+        for tab, rect in self._ui_hits['craft'].get('tabs', []):
+            if self._hit(rect, pos):
+                self.craft.set_tab(tab)
+                return True
+        if self._hit(self._ui_hits['craft'].get('prev', (0, 0, 0, 0)), pos):
+            self.craft.prev_page()
+            return True
+        if self._hit(self._ui_hits['craft'].get('next', (0, 0, 0, 0)), pos):
+            self.craft.next_page()
+            return True
+        entries = self.craftable_list()
         for idx, rect in self._ui_hits['craft']['hammer']:
             if self._hit(rect, pos):
-                self.send_fn({'type': 'craft', 'idx': idx})
+                if 0 <= idx < len(entries):
+                    key, _item, _recipe, _can, _cat, recipe_index, _n = entries[idx]
+                    self.send_fn({'type': 'craft', 'key': key,
+                                  'recipe': recipe_index})
+                else:
+                    self.send_fn({'type': 'craft', 'idx': idx})
                 return True
         return False
 
@@ -393,6 +419,13 @@ class ClientView:
         p.armor = pd.get('armor')
         p.head = pd.get('head')
         p.legs = pd.get('legs')
+        if 'skills' in pd:
+            from core.data import default_skills
+            p.skills = default_skills()
+            for skill, val in (pd.get('skills') or {}).items():
+                if skill in p.skills and isinstance(val, dict):
+                    p.skills[skill]['level'] = max(1, int(val.get('level', 1)))
+                    p.skills[skill]['xp'] = max(0, int(val.get('xp', 0)))
         return p
 
     def update_from_snapshot(self, snap, tiles, my_pid):
@@ -579,8 +612,53 @@ class _QuestStub:
 
 
 class _CraftStub:
-    """Заглушка для craft.open() в рендерере."""
-    page = 0
+    """Состояние вкладок/страниц крафта для MP-клиента.
+
+    Сами рецепты считает ``rules`` на основе снапшота игрока — так клиент
+    показывает то же, что и авторитетный сервер.
+    """
+    def __init__(self, view=None):
+        self.view = view
+        self.tab = 'all'
+        self.page = 0
+
+    @staticmethod
+    def tabs():
+        from core.data import CRAFT_TABS
+        return CRAFT_TABS
+
+    def list(self):
+        from core import rules
+        if self.view is None:
+            return []
+        p = self.view.player
+        return rules.craftable_list(p.inventory, p.level, tab=self.tab)
+
+    def set_tab(self, tab):
+        if tab in [key for key, _ in self.tabs()]:
+            self.tab = tab
+            self.page = 0
+
+    def pages_count(self):
+        from core.config import CRAFT_PAGE_SIZE
+        total = len(self.list())
+        return max(1, (total + CRAFT_PAGE_SIZE - 1) // CRAFT_PAGE_SIZE)
+
+    def page_offset(self):
+        from core.config import CRAFT_PAGE_SIZE
+        return self.page * CRAFT_PAGE_SIZE
+
+    def page_items(self):
+        from core.config import CRAFT_PAGE_SIZE
+        start = self.page_offset()
+        return self.list()[start:start + CRAFT_PAGE_SIZE]
+
+    def prev_page(self):
+        self.page = max(0, self.page - 1)
+
+    def next_page(self):
+        self.page = min(self.pages_count() - 1, self.page + 1)
 
     def open(self):
-        pass
+        # Экран открывает ClientView через screen_mode.
+        return None

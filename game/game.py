@@ -444,7 +444,8 @@ class Game:
                 raise ValueError(f"сейв новее игры (v{version} > v{SAVE_VERSION})")
 
             self.player = player_from_dict(data['player'])
-            self.overworld = dungeon_from_dict(data['overworld'])
+            self.overworld = dungeon_from_dict(data['overworld'],
+                                              is_overworld=True)
             self.world_mode = data.get('world_mode', 'overworld')
             self.depth = int(data.get('depth', 0))
             self.dungeon_cache = dungeon_cache_from_dict(
@@ -1222,6 +1223,16 @@ class Game:
 
     def _handle_craft_click(self, pos):
         hits = self._ui_hits.get('craft', {})
+        for tab, rect in hits.get('tabs', []):
+            if self._hit(rect, pos):
+                self.craft.set_tab(tab)
+                return True
+        if self._hit(hits.get('prev', (0, 0, 0, 0)), pos):
+            self.craft.prev_page()
+            return True
+        if self._hit(hits.get('next', (0, 0, 0, 0)), pos):
+            self.craft.next_page()
+            return True
         for idx, rect in hits.get('hammer', []):
             if self._hit(rect, pos):
                 self.craft.craft(idx)
@@ -1353,6 +1364,15 @@ class Game:
 
     def craftable_list(self):
         return self.craft.list()
+
+    def craft_page_items(self):
+        return self.craft.page_items()
+
+    def craft_pages_count(self):
+        return self.craft.pages_count()
+
+    def craft_tabs(self):
+        return self.craft.tabs()
 
     def craft_item(self, idx):
         self.craft.craft(idx)

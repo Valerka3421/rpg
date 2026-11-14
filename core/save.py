@@ -50,6 +50,7 @@ def player_to_dict(p):
         'regen': p.regen, 'vampire': p.vampire,
         'thorns': p.thorns, 'greedy': p.greedy,
         'step_counter': p.step_counter,
+        'skills': {k: dict(v) for k, v in getattr(p, 'skills', {}).items()},
         'statuses': dict(p.statuses),
     }
 
@@ -73,6 +74,13 @@ def player_from_dict(d):
     p.regen = d.get('regen', False); p.vampire = d.get('vampire', False)
     p.thorns = d.get('thorns', False); p.greedy = d.get('greedy', False)
     p.step_counter = d.get('step_counter', 0)
+    # Навыки крафта появились в v7; старые сейвы получают базовые значения.
+    from core.data import default_skills
+    p.skills = default_skills()
+    for key, val in (d.get('skills') or {}).items():
+        if key in p.skills and isinstance(val, dict):
+            p.skills[key]['level'] = max(1, int(val.get('level', 1)))
+            p.skills[key]['xp'] = max(0, int(val.get('xp', 0)))
     p.statuses = dict(d.get('statuses', {}))
     p.recalc()
     p.hp = min(d['hp'], p.max_hp)
@@ -100,9 +108,39 @@ def _decode_tiles(rows):
     return tiles
 
 
-def dungeon_from_dict(d):
+def dungeon_from_dict(d, is_overworld=False):
+    rows = _decode_tiles(d['tiles'])
+    old_h = len(rows)
+    old_w = max((len(r) for r in rows), default=0)
+    needs_migration = old_w < MAP_W or old_h < MAP_H
+
+    if needs_migration and is_overworld:
+        # Старый открытый мир 100×70. Собираем новый и переносим на него
+        # старую часть: прогресс сохраняется, а восточная Деревня гоблинов
+        # становится доступной.
+        from core.world import generate_overworld
+        world = generate_overworld()
+        for y in range(min(old_h, MAP_H)):
+            for x in range(min(old_w, MAP_W)):
+                world.tiles[y][x] = rows[y][x]
+        world.monsters = ([entity_from_dict(m) for m in d['monsters']
+                           if m['x'] < old_w]
+                          + [m for m in world.monsters if m.x >= old_w])
+        world.items.update({(i['x'], i['y']): i['key']
+                            for i in d['items'] if i['x'] < old_w})
+        if d.get('stairs_pos'):
+            world.stairs_pos = tuple(d['stairs_pos'])
+        return world
+
+    if needs_migration:
+        padded = [[Tile.WALL] * MAP_W for _ in range(MAP_H)]
+        for y, row in enumerate(rows[:MAP_H]):
+            for x, tile in enumerate(row[:MAP_W]):
+                padded[y][x] = tile
+        rows = padded
+
     dun = Dungeon(MAP_W, MAP_H)
-    dun.tiles = _decode_tiles(d['tiles'])
+    dun.tiles = rows
     dun.rooms = [Room(r['x'], r['y'], r['w'], r['h']) for r in d['rooms']]
     dun.monsters = [entity_from_dict(m) for m in d['monsters']]
     dun.items = {(i['x'], i['y']): i['key'] for i in d['items']}

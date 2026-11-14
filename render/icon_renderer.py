@@ -97,6 +97,16 @@ class IconRenderer(BaseRenderer):
             self._demon_blade(s)
         elif key == 'golem_hammer':
             self._warhammer(s, (110, 110, 125), runes=True)
+        elif key in ('iron_sword', 'steel_sword'):
+            self._blade(s, 34, color, guard=18, gem=(key == 'steel_sword'))
+        elif key == 'tusk_axe':
+            self._axe(s, color)
+        elif key in ('wolf_armor', 'bear_cloak'):
+            self._armor(s, color, style='leather')
+        elif key == 'wolf_hood':
+            self._cap(s, color, 'leather')
+        elif key.startswith('rune_'):
+            self._rune(s, color)
         elif key == 'padded':
             self._armor(s, (200, 180, 140), style='quilted')
         elif key == 'leather':
@@ -228,15 +238,15 @@ class IconRenderer(BaseRenderer):
         pygame.draw.circle(s, (240, 200, 60), (CX, gy + 20), 4)
         pygame.draw.circle(s, (140, 100, 30), (CX, gy + 20), 4, 1)
 
-    def _axe(self, s):
+    def _axe(self, s, tint=(170, 170, 180)):
         # Рукоять
         pygame.draw.rect(s, (90, 60, 30), (CX - 3, 8, 6, 50))
         pygame.draw.rect(s, (50, 30, 15), (CX - 3, 8, 6, 50), 1)
         # Лезвие
-        pygame.draw.polygon(s, (170, 170, 180), [
+        pygame.draw.polygon(s, tint, [
             (CX + 3, 10), (CX + 22, 14), (CX + 26, 30), (CX + 3, 34),
         ])
-        pygame.draw.polygon(s, (80, 80, 90), [
+        pygame.draw.polygon(s, T.shade(tint, 0.5), [
             (CX + 3, 10), (CX + 22, 14), (CX + 26, 30), (CX + 3, 34),
         ], 2)
         # Блик
@@ -528,6 +538,72 @@ class IconRenderer(BaseRenderer):
                 pygame.draw.circle(s, (180, 180, 220), (CX + dx, CX + dy), r)
             pygame.draw.circle(s, (140, 140, 200), (CX, CX), 14, 2)
             pygame.draw.circle(s, (255, 255, 255), (CX - 4, CX - 4), 2)
+        elif key.startswith('mana_crystal'):
+            color = ITEMS.get(key, {}).get('color', (140, 160, 255))
+            size = {'mana_crystal_small': 10,
+                    'mana_crystal': 15,
+                    'mana_crystal_large': 20}.get(key, 14)
+            pts = [(CX, CX - size), (CX + size - 2, CX - size // 3),
+                   (CX + size // 2, CX + size), (CX - size // 2, CX + size),
+                   (CX - size + 2, CX - size // 3)]
+            pygame.draw.polygon(s, color, pts)
+            pygame.draw.polygon(s, textures.shade(color, 0.45), pts, 2)
+            pygame.draw.line(s, (245, 245, 255),
+                             (CX - size // 3, CX - size // 2),
+                             (CX - size // 4, CX + size // 3), 2)
+            pygame.draw.circle(s, (255, 255, 255), (CX + 2, CX - size // 2), 2)
+        elif key == 'magic_powder':
+            color = ITEMS.get(key, {}).get('color', (190, 150, 255))
+            pygame.draw.ellipse(s, (44, 36, 58), (CX - 20, CX + 4, 40, 12))
+            for dx, dy, r in ((-10, 0, 7), (4, -4, 8), (12, 4, 5),
+                              (-2, 8, 5)):
+                pygame.draw.circle(s, color, (CX + dx, CX + dy), r)
+                pygame.draw.circle(s, textures.shade(color, 1.35),
+                                   (CX + dx - 2, CX + dy - 2), max(1, r // 2))
+        elif key.endswith('_ingot'):
+            color = ITEMS.get(key, {}).get('color', (180, 185, 195))
+            pts = [(CX - 20, CX + 8), (CX - 12, CX - 4), (CX + 16, CX - 4),
+                   (CX + 22, CX + 8)]
+            pygame.draw.polygon(s, color, pts)
+            pygame.draw.polygon(s, textures.shade(color, 0.45), pts, 2)
+            pygame.draw.polygon(s, textures.shade(color, 1.2),
+                                [(CX - 12, CX - 4), (CX + 16, CX - 4),
+                                 (CX + 12, CX + 1), (CX - 8, CX + 1)])
+        elif key in ('wolf_pelt', 'bear_pelt', 'venison', 'slime_gel',
+                     'bear_claw', 'boar_tusk'):
+            color = ITEMS.get(key, {}).get('color', (160, 140, 120))
+            if key.endswith('_pelt'):
+                pygame.draw.ellipse(s, color, (CX - 22, CX - 15, 44, 32))
+                pygame.draw.ellipse(s, textures.shade(color, 0.5),
+                                    (CX - 22, CX - 15, 44, 32), 2)
+                for dx in (-12, -2, 8):
+                    pygame.draw.line(s, textures.shade(color, 0.7),
+                                     (CX + dx, CX - 10), (CX + dx, CX + 10), 1)
+            elif key in ('bear_claw', 'boar_tusk'):
+                pygame.draw.polygon(s, color, [
+                    (CX - 8, CX - 18), (CX + 8, CX - 16),
+                    (CX + 4, CX + 6), (CX, CX + 20), (CX - 4, CX + 6)])
+                pygame.draw.polygon(s, textures.shade(color, 0.5), [
+                    (CX - 8, CX - 18), (CX + 8, CX - 16),
+                    (CX + 4, CX + 6), (CX, CX + 20), (CX - 4, CX + 6)], 2)
+            elif key == 'slime_gel':
+                pygame.draw.ellipse(s, color, (CX - 16, CX - 10, 32, 24))
+                pygame.draw.ellipse(s, textures.shade(color, 0.5),
+                                    (CX - 16, CX - 10, 32, 24), 2)
+                pygame.draw.ellipse(s, (200, 255, 180),
+                                    (CX - 9, CX - 6, 10, 7))
+            else:
+                pygame.draw.ellipse(s, color, (CX - 18, CX - 10, 36, 22))
+                pygame.draw.ellipse(s, textures.shade(color, 0.5),
+                                    (CX - 18, CX - 10, 36, 22), 2)
+                pygame.draw.circle(s, (235, 225, 205), (CX + 12, CX + 8), 4)
+        else:
+            # Общий фолбэк для новых материалов — цветной кристалл.
+            color = ITEMS.get(key, {}).get('color', (180, 180, 190))
+            pts = [(CX, CX - 16), (CX + 14, CX - 3), (CX + 8, CX + 15),
+                   (CX - 8, CX + 15), (CX - 14, CX - 3)]
+            pygame.draw.polygon(s, color, pts)
+            pygame.draw.polygon(s, textures.shade(color, 0.5), pts, 2)
 
     # ════════════════════════ ЗОЛОТО, КНИГИ, СВИТКИ ════════════════════════
     def _gold(self, s, count):
@@ -775,6 +851,22 @@ class IconRenderer(BaseRenderer):
         # Магический символ
         pygame.draw.circle(s, tint, (CX, 34), 4)
         pygame.draw.circle(s, (255, 255, 200), (CX - 1, 33), 1)
+
+    def _rune(self, s, tint):
+        """Каменная руна с высеченным светящимся знаком."""
+        # Камень
+        pts = [(CX - 18, CX + 14), (CX - 20, CX - 8), (CX - 6, CX - 20),
+               (CX + 14, CX - 16), (CX + 21, CX + 4), (CX + 10, CX + 18)]
+        pygame.draw.polygon(s, (92, 90, 96), pts)
+        pygame.draw.polygon(s, (52, 50, 58), pts, 3)
+        pygame.draw.polygon(s, (126, 124, 132),
+                            [(CX - 16, CX + 10), (CX - 17, CX - 6),
+                             (CX - 6, CX - 16), (CX + 10, CX - 13)])
+        # Светящийся знак
+        pygame.draw.circle(s, tint, (CX, CX), 11, 2)
+        pygame.draw.line(s, tint, (CX, CX - 8), (CX, CX + 8), 2)
+        pygame.draw.line(s, tint, (CX - 8, CX - 2), (CX + 8, CX + 2), 2)
+        pygame.draw.circle(s, (255, 255, 255), (CX - 4, CX - 4), 2)
 
     # ════════════════════════ ИГРОК — 4 КЛАССА ════════════════════════
     def draw_player(self, class_key, px, py, size=TILE):
@@ -1197,12 +1289,127 @@ class IconRenderer(BaseRenderer):
             'lich': self._monster_lich,
             'vampire_lord': self._monster_vampire_lord,
             'dragon': self._monster_dragon,
+            'deer': self._monster_deer,
+            'wolf': self._monster_wolf,
+            'bear': self._monster_bear,
+            'slime': self._monster_slime,
+            'boar': self._monster_boar,
         }.get(key)
         if fn:
             fn(s)
         if size != CANVAS:
             s = pygame.transform.smoothscale(s, (size, size))
         return textures.finish(s, shadow=True)
+
+    def _monster_deer(self, s):
+        # Ноги
+        for x in (20, 28, 40, 48):
+            pygame.draw.line(s, (120, 86, 52), (x, 42), (x, 58), 3)
+        # Тело и шея
+        pygame.draw.ellipse(s, (158, 112, 68), (14, 28, 38, 22))
+        pygame.draw.ellipse(s, (96, 66, 40), (14, 28, 38, 22), 2)
+        pygame.draw.polygon(s, (158, 112, 68),
+                            [(44, 30), (54, 14), (58, 28), (50, 34)])
+        # Голова
+        pygame.draw.ellipse(s, (172, 126, 78), (48, 10, 14, 12))
+        pygame.draw.circle(s, (20, 16, 12), (58, 15), 2)
+        pygame.draw.circle(s, (20, 16, 12), (51, 13), 1)
+        # Рога
+        pygame.draw.lines(s, (214, 196, 158), False,
+                          [(52, 11), (48, 2), (42, 0)], 2)
+        pygame.draw.lines(s, (214, 196, 158), False,
+                          [(55, 10), (58, 2), (64, 0)], 2)
+        # Пятна
+        for x, y in ((24, 34), (32, 40), (40, 34)):
+            pygame.draw.circle(s, (208, 172, 124), (x, y), 2)
+        # Хвост
+        pygame.draw.line(s, (230, 225, 210), (15, 32), (10, 26), 2)
+
+    def _monster_wolf(self, s):
+        # Тело
+        pygame.draw.ellipse(s, (118, 124, 136), (12, 28, 40, 22))
+        pygame.draw.ellipse(s, (68, 74, 86), (12, 28, 40, 22), 2)
+        # Голова
+        pygame.draw.polygon(s, (128, 134, 146), [
+            (42, 22), (58, 18), (62, 28), (50, 36), (42, 32)])
+        pygame.draw.polygon(s, (68, 74, 86), [
+            (42, 22), (58, 18), (62, 28), (50, 36), (42, 32)], 2)
+        # Уши
+        pygame.draw.polygon(s, (108, 114, 126),
+                            [(44, 20), (46, 10), (52, 20)])
+        pygame.draw.polygon(s, (108, 114, 126),
+                            [(50, 19), (56, 9), (60, 20)])
+        # Глаз и нос
+        pygame.draw.circle(s, (240, 210, 90), (54, 24), 2)
+        pygame.draw.circle(s, (24, 22, 20), (62, 28), 2)
+        # Ноги
+        for x in (18, 28, 42, 50):
+            pygame.draw.line(s, (96, 102, 114), (x, 44), (x, 58), 3)
+        # Хвост
+        pygame.draw.lines(s, (118, 124, 136), False,
+                          [(12, 32), (2, 24), (4, 16)], 4)
+
+    def _monster_bear(self, s):
+        # Крупное тело
+        pygame.draw.ellipse(s, (96, 66, 42), (8, 24, 48, 28))
+        pygame.draw.ellipse(s, (56, 38, 24), (8, 24, 48, 28), 2)
+        # Голова
+        pygame.draw.circle(s, (108, 76, 48), (48, 22), 14)
+        pygame.draw.circle(s, (56, 38, 24), (48, 22), 14, 2)
+        # Уши
+        pygame.draw.circle(s, (96, 66, 42), (40, 10), 5)
+        pygame.draw.circle(s, (96, 66, 42), (56, 10), 5)
+        # Морда
+        pygame.draw.ellipse(s, (140, 104, 70), (50, 24, 14, 10))
+        pygame.draw.circle(s, (24, 18, 14), (61, 27), 2)
+        pygame.draw.circle(s, (20, 16, 12), (44, 18), 2)
+        # Лапы с когтями
+        for x in (16, 30, 44):
+            pygame.draw.rect(s, (80, 54, 34), (x, 48, 9, 10),
+                             border_radius=3)
+            pygame.draw.line(s, (225, 215, 190), (x + 2, 58), (x + 2, 61), 2)
+        # Светлая грудь
+        pygame.draw.ellipse(s, (120, 88, 58), (30, 36, 18, 12))
+
+    def _monster_slime(self, s):
+        # Полупрозрачное тело
+        pygame.draw.ellipse(s, (86, 176, 82, 210), (8, 20, 48, 38))
+        pygame.draw.ellipse(s, (44, 110, 44), (8, 20, 48, 38), 3)
+        pygame.draw.ellipse(s, (140, 220, 120, 160), (14, 26, 36, 27))
+        # Блик
+        pygame.draw.ellipse(s, (220, 255, 200, 150), (18, 26, 10, 7))
+        # Глаза
+        pygame.draw.circle(s, (24, 48, 20), (24, 38), 4)
+        pygame.draw.circle(s, (24, 48, 20), (42, 38), 4)
+        pygame.draw.circle(s, (255, 255, 255), (25, 37), 1)
+        pygame.draw.circle(s, (255, 255, 255), (43, 37), 1)
+        # Капли
+        pygame.draw.circle(s, (86, 176, 82), (14, 56), 4)
+        pygame.draw.circle(s, (86, 176, 82), (52, 54), 3)
+
+    def _monster_boar(self, s):
+        # Тело
+        pygame.draw.ellipse(s, (122, 100, 78), (8, 28, 44, 24))
+        pygame.draw.ellipse(s, (70, 55, 40), (8, 28, 44, 24), 2)
+        # Щетина
+        for x in range(14, 46, 7):
+            pygame.draw.line(s, (52, 40, 28), (x, 28), (x + 2, 22), 2)
+        # Голова
+        pygame.draw.ellipse(s, (134, 110, 86), (42, 28, 20, 18))
+        pygame.draw.ellipse(s, (70, 55, 40), (42, 28, 20, 18), 2)
+        # Пятачок и глаз
+        pygame.draw.ellipse(s, (178, 140, 118), (54, 34, 10, 8))
+        pygame.draw.circle(s, (30, 22, 18), (58, 38), 1)
+        pygame.draw.circle(s, (240, 210, 90), (50, 31), 2)
+        pygame.draw.polygon(s, (96, 76, 58), [(46, 28), (50, 18), (56, 28)])
+        # Клыки
+        pygame.draw.lines(s, (240, 235, 210), False,
+                          [(58, 42), (64, 48), (62, 54)], 3)
+        pygame.draw.lines(s, (240, 235, 210), False,
+                          [(50, 44), (46, 50), (49, 55)], 2)
+        # Ноги
+        for x in (14, 26, 40, 48):
+            pygame.draw.line(s, (90, 72, 54), (x, 48), (x, 59), 4)
 
     def _monster_rat(self, s):
         # Тело

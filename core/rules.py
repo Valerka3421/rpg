@@ -22,6 +22,8 @@ from core.data import (
     ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
     roll_monster_drops, roll_rarity, make_loot_key, parse_item_key,
     item_display_name, item_display_color, item_sell_price, xp_to_next,
+    item_category, select_recipe, roll_mana_crystal,
+    SKILLS, default_skills, skill_xp_to_next,
 )
 from core.entities import Player, Entity
 
@@ -128,6 +130,10 @@ def roll_kill_reward(monster, depth, greedy=False):
     if monster.boss:
         drops.extend(BOSS_DROPS.get(monster.ch, []))
         drops.append('potion_l')
+    # Кристалл маны может выпасть с любого моба. Размер зависит от моба.
+    crystal = roll_mana_crystal(monster)
+    if crystal:
+        drops.append(crystal)
     return KillReward(gold=gold, xp=monster.xp_value, drops=drops)
 
 
@@ -276,46 +282,78 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
 
 
 # ════════════════════ КРАФТ ════════════════════
-def recipe_info(item_key, inventory, level):
-    """(recipe, есть_материалы, хватает_уровня)."""
+def recipe_info(item_key, inventory, level, recipe_index=None):
+    """(материалы, есть_материалы, хватает_уровня).
+
+    Для предметов с несколькими вариантами рецепта без явного индекса
+    выбирается первый доступный вариант.
+    """
     item = ITEMS.get(item_key, {})
-    recipe = item.get('recipe', {})
+    recipe, _count, _idx = select_recipe(item_key, inventory, recipe_index)
     has_materials = bool(recipe) and all(
         inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
     level_ok = level >= item.get('level_req', 1)
     return recipe, has_materials, level_ok
 
 
-def can_craft(item_key, inventory, level):
-    recipe, has_materials, level_ok = recipe_info(item_key, inventory, level)
+def can_craft(item_key, inventory, level, recipe_index=None):
+    recipe, has_materials, level_ok = recipe_info(
+        item_key, inventory, level, recipe_index)
     return bool(recipe) and has_materials and level_ok
 
 
-def craft(item_key, inventory, level):
+def craft(item_key, inventory, level, recipe_index=None):
     """Создаёт предмет. Возвращает (успех, причина)."""
-    recipe, has_materials, level_ok = recipe_info(item_key, inventory, level)
+    item = ITEMS.get(item_key, {})
+    recipe, count, _idx = select_recipe(item_key, inventory, recipe_index)
     if not recipe:
         return False, 'no_recipe'
-    if not level_ok:
+    if level < item.get('level_req', 1):
         return False, 'level'
-    if not has_materials:
+    if not all(inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items()):
         return False, 'materials'
     for mat, cnt in recipe.items():
         inventory[mat] -= cnt
         if inventory[mat] <= 0:
             del inventory[mat]
-    inventory[item_key] = inventory.get(item_key, 0) + 1
+    inventory[item_key] = inventory.get(item_key, 0) + max(1, count)
     return True, 'ok'
 
 
-def craftable_list(inventory, level):
-    """[(key, data, recipe, can) ...] — как для окна крафта."""
+def craftable_list(inventory, level, tab='all'):
+    """[(key, data, recipe, can, category, recipe_index, count) ...].
+
+    `tab` — ключ вкладки окна крафта: 'all' или категория навыка.
+    """
     from core.data import get_craftable_items
     result = []
     for key, item in get_craftable_items():
-        recipe, has_materials, level_ok = recipe_info(key, inventory, level)
-        result.append((key, item, recipe, has_materials and level_ok))
+        category = item_category(key)
+        if tab not in (None, 'all') and category != tab:
+            continue
+        recipe, count, recipe_index = select_recipe(key, inventory)
+        has_materials = bool(recipe) and all(
+            inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
+        level_ok = level >= item.get('level_req', 1)
+        result.append((key, item, recipe, has_materials and level_ok,
+                       category, recipe_index, count))
     return result
+
+
+def give_skill_xp(player, skill, amount):
+    """Начисляет опыт навыка крафта. Возвращает число новых уровней."""
+    if amount <= 0 or skill not in SKILLS:
+        return 0
+    if not getattr(player, 'skills', None):
+        player.skills = default_skills()
+    entry = player.skills.setdefault(skill, {'level': 1, 'xp': 0})
+    entry['xp'] = entry.get('xp', 0) + amount
+    gained = 0
+    while entry['xp'] >= skill_xp_to_next(entry['level']):
+        entry['xp'] -= skill_xp_to_next(entry['level'])
+        entry['level'] += 1
+        gained += 1
+    return gained
 
 
 # ════════════════════ ПРЕДМЕТЫ ════════════════════
@@ -417,7 +455,7 @@ def use_item(player, key, monsters=None, on_hit=None):
                          f"Экипировано: {item_display_name(key)}", 0,
                          item.get('color', (225, 225, 235)))
 
-    if kind == 'scroll':
+    if kind in ('scroll', 'rune'):
         return _use_scroll(player, key, item, monsters or [], on_hit)
 
     if kind == 'book':

@@ -48,7 +48,9 @@ DATA_DIR = _writable_data_dir()
 # ── Базовые размеры ──
 TILE = 64
 HUD_HEIGHT = 170
-MAP_W, MAP_H = 100, 70
+# Старый мир 100×70 остаётся слева, справа добавлена Деревня гоблинов.
+# Координаты восьми исходных биомов намеренно не зависят от MAP_W.
+MAP_W, MAP_H = 140, 70
 
 # ── Пресеты разрешений (макс 1920×1080) ──
 RESOLUTIONS = [
@@ -90,15 +92,19 @@ def view_origin():
 FOV_RADIUS = 9
 MAX_DEPTH = 20
 MERCHANT_FLOORS = (3, 6, 9, 12, 15, 18)
-OVERWORLD_MONSTERS = ('rat', 'goblin', 'skeleton')
+# Запасной пул лесных мобов. Гоблины и скелеты в лесу больше не спавнятся:
+# они живут в Деревне гоблинов и подземелье соответственно.
+OVERWORLD_MONSTERS = ('rat', 'wolf', 'boar')
 INVENTORY_COLS = 5
 INVENTORY_ROWS = 5
 INVENTORY_PAGE_SIZE = INVENTORY_COLS * INVENTORY_ROWS
 SHOP_PAGE_SIZE = 9
+# Сколько рецептов показывать на одной странице окна крафта.
+CRAFT_PAGE_SIZE = 8
 MINIMAP_SCALE = 2
 MINIMAP_MARGIN = 8
 
-SAVE_VERSION = 6
+SAVE_VERSION = 7
 
 # ── Real-time таймеры ──
 PLAYER_MOVE_COOLDOWN   = 0.12

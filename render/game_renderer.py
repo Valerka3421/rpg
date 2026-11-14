@@ -89,7 +89,12 @@ class GameRenderer(BaseRenderer):
         if self._field_surface is None or self._field_surface.get_size() != size:
             self._field_surface = pygame.Surface(size)
         previous = self.screen
+        # Иконки (игрок, мобы, лут, NPC) — отдельный рендерер со своим
+        # self.screen. Без синхронизации они рисовались бы на дисплее
+        # и тут же затирались блитом готового поля.
+        previous_icons_screen = self.icons.screen
         self.screen = self._field_surface
+        self.icons.screen = self._field_surface
         try:
             self._field_surface.fill(T.BG)
             # 1) Пол, лестницы, выход — низкий слой
@@ -109,6 +114,7 @@ class GameRenderer(BaseRenderer):
             self._draw_floats(game, cam_x, cam_y)
         finally:
             self.screen = previous
+            self.icons.screen = previous_icons_screen
 
         ox, oy = config.view_origin()
         self.screen.blit(self._field_surface, (ox, oy))
@@ -473,10 +479,10 @@ class GameRenderer(BaseRenderer):
         py = (self._ry(board) - cam_y) * TILE
         self.screen.blit(self._shadow_sm, (px, py))
         img = Sprites.get('npc/quest_board', (TILE, TILE), finish=True)
-        if img:
-            self.screen.blit(img, (px, py))
-        else:
-            self.icons.draw_quest_board(px, py, size=TILE)
+        if not img:
+            from render.tiles import Tiles
+            img = Tiles.get('quest_board')
+        self.screen.blit(img, (px, py))
     # ════════════════════════ HUD ════════════════════════
     def draw_hud(self, game):
         y0 = config.SCREEN_H - config.HUD_HEIGHT

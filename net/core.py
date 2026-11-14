@@ -16,7 +16,8 @@ from core.config import (
 from core import rules
 from core import overworld as ov
 from core.data import (BOSSES, make_shop_stock, reroll_price, item_sell_price,
-                       item_display_name, xp_to_next)
+                       item_display_name, xp_to_next, ITEMS,
+                       craft_skill_reward, item_category, select_recipe)
 from core.entities import Player, Entity
 from core.world import (
     generate_overworld, generate_dungeon, place_entry_tile, has_los,
@@ -145,6 +146,7 @@ class GameCore:
             'double_strike': p.double_strike,
             'regen': p.regen, 'vampire': p.vampire,
             'thorns': p.thorns, 'greedy': p.greedy,
+            'skills': {k: dict(v) for k, v in getattr(p, 'skills', {}).items()},
             'statuses': dict(p.statuses),
         }
 
@@ -168,6 +170,12 @@ class GameCore:
         p.vampire = d.get('vampire', False)
         p.thorns = d.get('thorns', False)
         p.greedy = d.get('greedy', False)
+        from core.data import default_skills
+        p.skills = default_skills()
+        for skill, val in (d.get('skills') or {}).items():
+            if skill in p.skills and isinstance(val, dict):
+                p.skills[skill]['level'] = max(1, int(val.get('level', 1)))
+                p.skills[skill]['xp'] = max(0, int(val.get('xp', 0)))
         p.statuses = dict(d.get('statuses', {}))
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
@@ -221,7 +229,8 @@ class GameCore:
             if 'overworld' not in data:
                 # Сейв старого формата (v5): хранил только текущую карту
                 return self._load_world_legacy(data)
-            self.overworld = dungeon_from_dict(data['overworld'])
+            self.overworld = dungeon_from_dict(data['overworld'],
+                                              is_overworld=True)
             self.world_mode = data['world_mode']
             self.depth = int(data['depth'])
             if self.world_mode == 'dungeon' and data.get('dungeon'):
@@ -353,15 +362,32 @@ class GameCore:
         p.free_points -= 1
         p.recalc()
 
-    def craft_item(self, pid, idx):
+    def craft_item(self, pid, idx=-1, key=None, recipe_index=None):
         p = self.players.get(pid)
         if p is None:
             return False
-        recipes = rules.craftable_list(p.inventory, p.level)
-        if idx < 0 or idx >= len(recipes):
-            return False
-        key = recipes[idx][0]
-        ok, _reason = rules.craft(key, p.inventory, p.level)
+        count = 1
+        if key is not None:
+            item = ITEMS.get(key)
+            if not item or not ('recipe' in item or 'recipes' in item):
+                return False
+            category = item_category(key)
+            _mats, count, _ri = select_recipe(key, p.inventory, recipe_index)
+            ok, _reason = rules.craft(key, p.inventory, p.level, recipe_index)
+        else:
+            recipes = rules.craftable_list(p.inventory, p.level)
+            if idx < 0 or idx >= len(recipes):
+                return False
+            key = recipes[idx][0]
+            category = recipes[idx][4]
+            recipe_index = recipes[idx][5]
+            count = recipes[idx][6]
+            ok, _reason = rules.craft(key, p.inventory, p.level, recipe_index)
+        if ok:
+            xp = craft_skill_reward(key, count)
+            rules.give_skill_xp(p, category, xp)
+            self._event(f"{p.class_name} создал: {item_display_name(key)}",
+                        COL_GOLD)
         return ok
 
     def _merchant_in_reach(self, player):
@@ -440,7 +466,8 @@ class GameCore:
         elif t == 'allocate_stat':
             self.allocate_stat(pid, msg.get('stat'))
         elif t == 'craft':
-            self.craft_item(pid, msg.get('idx', -1))
+            self.craft_item(pid, msg.get('idx', -1), key=msg.get('key'),
+                            recipe_index=msg.get('recipe'))
         elif t == 'buy':
             self.buy_item(pid, msg.get('idx', -1))
         elif t == 'sell':
@@ -848,6 +875,7 @@ class GameCore:
                 'luk': p.luk, 'df_stat': p.df_stat,
                 'weapon': p.weapon, 'armor': p.armor,
                 'head': p.head, 'legs': p.legs,
+                'skills': {k: dict(v) for k, v in p.skills.items()},
             }
             # Инвентарь меняется редко — шлём только при изменении.
             # Первый снапшот для игрока всегда содержит его.

@@ -928,6 +928,135 @@ def _rock(variant):
     return s
 
 
+def _goblin_grass(variant):
+    """Тёмная, вытоптанная трава Диких земель."""
+    palette = {
+        'grass': (50, 62, 40), 'grass_dark': (30, 40, 28),
+        'grass_dry': (78, 76, 46),
+        'tree': (44, 56, 36), 'tree_dark': (22, 32, 22),
+        'trunk': (62, 48, 34),
+    }
+    s = _grass(variant, palette)
+    rng = textures.rng_for(variant, 61, seed=173)
+    # кости и редкие грибы вокруг логова
+    if variant % 3 == 0:
+        pygame.draw.line(s, (210, 205, 185), (14, 46), (26, 40), 3)
+        pygame.draw.circle(s, (210, 205, 185), (13, 46), 3)
+        pygame.draw.circle(s, (210, 205, 185), (27, 39), 3)
+    if variant % 4 == 1:
+        pygame.draw.circle(s, (150, 70, 70), (46, 20), 4)
+        pygame.draw.circle(s, (110, 50, 50), (46, 20), 4, 1)
+    _grime(s, rng, 90, 7)
+    return s
+
+
+def _goblin_path(variant):
+    return _cobbles(variant, (94, 78, 52), (42, 35, 24), cells=4, seed=181)
+
+
+def _goblin_plaza(variant):
+    s = _cobbles(variant, (104, 86, 58), (46, 38, 26), cells=3, seed=183)
+    rng = textures.rng_for(variant, 63, seed=187)
+    if variant == 0:
+        pygame.draw.circle(s, (54, 40, 26), (32, 34), 17, 2)
+        pygame.draw.line(s, (150, 130, 90), (32, 22), (32, 46), 1)
+    _grime(s, rng, 70, 8)
+    return s
+
+
+def _goblin_hut(variant):
+    """Крыша гоблинской хижины: тёмное дерево, солома и шипы."""
+    s = _goblin_grass(variant + 1)
+    rng = textures.rng_for(variant, 65, seed=191)
+    roof_base = (74, 62, 38)
+    roof = textures.shade(roof_base, 0.86 + textures.hash01(
+        variant, 5, seed=59) * 0.2)
+    pygame.draw.rect(s, (22, 18, 12), (2, 8, 60, 54))
+    pygame.draw.rect(s, roof, (3, 6, 58, 54))
+    # соломенные ряды
+    for y in range(10, 60, 7):
+        pygame.draw.line(s, textures.shade(roof, 0.55), (3, y), (61, y), 1)
+        for x in range(4 + (y // 7 % 2) * 6, 62, 12):
+            pygame.draw.line(s, textures.shade(roof, 0.68),
+                             (x, y), (x - 3, y + 6), 1)
+    # шипы на коньке
+    for x in (12, 30, 48):
+        pygame.draw.polygon(s, (58, 46, 30),
+                            [(x, 8), (x + 4, 1), (x + 8, 8)])
+    pygame.draw.rect(s, (34, 27, 17), (3, 58, 58, 2))
+    _grime(s, rng, 120, 7)
+    return s
+
+
+def _goblin_totem(variant):
+    s = _goblin_plaza(variant + 1)
+    rng = textures.rng_for(variant, 67, seed=193)
+    # столб
+    pygame.draw.rect(s, (66, 48, 30), (26, 8, 12, 50))
+    pygame.draw.rect(s, (44, 31, 19), (26, 8, 12, 50), 2)
+    # череп и рога
+    pygame.draw.circle(s, (220, 212, 190), (32, 22), 9)
+    pygame.draw.circle(s, (40, 35, 30), (28, 21), 2)
+    pygame.draw.circle(s, (40, 35, 30), (36, 21), 2)
+    pygame.draw.polygon(s, (220, 212, 190),
+                        [(23, 24), (14, 14), (22, 17)])
+    pygame.draw.polygon(s, (220, 212, 190),
+                        [(41, 24), (50, 14), (42, 17)])
+    # краска
+    pygame.draw.line(s, (150, 50, 40), (28, 38), (36, 42), 2)
+    pygame.draw.line(s, (150, 50, 40), (36, 38), (28, 42), 2)
+    _grime(s, rng, 40, 6)
+    return s
+
+
+def _goblin_campfire(variant):
+    s = _goblin_plaza(variant + 2)
+    # камни
+    for angle in range(0, 360, 60):
+        x = 32 + int(15 * math.cos(math.radians(angle)))
+        y = 36 + int(9 * math.sin(math.radians(angle)))
+        pygame.draw.circle(s, (92, 88, 80), (x, y), 5)
+        pygame.draw.circle(s, (60, 58, 52), (x, y), 5, 1)
+    # угли и пламя
+    pygame.draw.ellipse(s, (40, 24, 16), (20, 32, 24, 12))
+    pygame.draw.polygon(s, (240, 110, 40),
+                        [(32, 12), (40, 30), (32, 36), (24, 30)])
+    pygame.draw.polygon(s, (255, 205, 90),
+                        [(32, 20), (36, 31), (32, 34), (28, 31)])
+    glow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (255, 160, 60, 46), (32, 30), 22)
+    s.blit(glow, (0, 0))
+    return s
+
+
+def _quest_board(variant=0):
+    """Отдельная текстура доски поручений (не спрайт NPC)."""
+    s = _village_grass(0)
+    rng = textures.rng_for(variant, 71, seed=197)
+    # столбы
+    pygame.draw.rect(s, (78, 54, 32), (12, 24, 5, 36))
+    pygame.draw.rect(s, (78, 54, 32), (47, 24, 5, 36))
+    pygame.draw.rect(s, (52, 36, 22), (12, 24, 5, 36), 1)
+    pygame.draw.rect(s, (52, 36, 22), (47, 24, 5, 36), 1)
+    # сама доска
+    pygame.draw.rect(s, (34, 24, 14), (8, 8, 48, 26))
+    pygame.draw.rect(s, (120, 84, 48), (9, 9, 46, 24))
+    for y in (15, 21, 27):
+        pygame.draw.line(s, (94, 64, 36), (12, y), (52, y), 1)
+    # записки
+    for i, (x, y, w, h) in enumerate(((14, 12, 10, 8), (28, 10, 9, 11),
+                                      (40, 15, 9, 7))):
+        pygame.draw.rect(s, (225, 215, 190), (x, y, w, h))
+        pygame.draw.rect(s, (150, 140, 120), (x, y, w, h), 1)
+        pygame.draw.line(s, (120, 110, 100), (x + 2, y + 3),
+                         (x + w - 2, y + 3), 1)
+    # гвозди
+    for x, y in ((16, 11), (50, 11), (16, 30), (50, 30)):
+        pygame.draw.circle(s, (190, 190, 200), (x, y), 2)
+    _grime(s, rng, 30, 5)
+    return s
+
+
 # ════════════════════════ КЭШ ════════════════════════
 _BUILDERS = {
     'wall': _wall,
@@ -949,7 +1078,12 @@ _VARIANTS = {
     'stairs': 1, 'upstairs': 1, 'exit': 1, 'cave': 1,
     'road': 4, 'village_grass': 8, 'village_path': 4,
     'village_plaza': 4, 'village_wall': 3, 'village_well': 1,
-    'dungeon_ground': 6, 'rock': 3,
+    'village_stall': 2, 'village_statue': 1, 'village_torch_post': 1,
+    'dungeon_ground': 6, 'dungeon_ruins': 4, 'rock': 3,
+    'ruins_pillar': 2,
+    'goblin_grass': 8, 'goblin_path': 4, 'goblin_plaza': 4,
+    'goblin_hut': 3, 'goblin_totem': 1, 'goblin_campfire': 1,
+    'quest_board': 1,
 }
 
 
@@ -971,8 +1105,20 @@ _BUILDERS.update({
     'village_plaza': _village_plaza,
     'village_wall': _village_wall,
     'village_well': _village_well,
+    'village_stall': _village_stall,
+    'village_statue': _village_statue,
+    'village_torch_post': _village_torch_post,
     'dungeon_ground': _dungeon_ground,
+    'dungeon_ruins': _dungeon_ruins_floor,
+    'ruins_pillar': _ruins_pillar,
     'rock': _rock,
+    'goblin_grass': _goblin_grass,
+    'goblin_path': _goblin_path,
+    'goblin_plaza': _goblin_plaza,
+    'goblin_hut': _goblin_hut,
+    'goblin_totem': _goblin_totem,
+    'goblin_campfire': _goblin_campfire,
+    'quest_board': _quest_board,
 })
 _register_biome_tiles()
 

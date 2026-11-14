@@ -2,7 +2,7 @@
 import random
 from collections import deque
 
-from core.config import MAP_W, MAP_H, FOV_RADIUS, Tile, OVERWORLD_MONSTERS
+from core.config import MAP_W, MAP_H, FOV_RADIUS, Tile
 from core.data import MONSTERS, BOSSES, ITEMS, scale_stats, scale_boss_stats
 from core.entities import Entity, Room, Dungeon
 from core import overworld as ov
@@ -10,17 +10,25 @@ from core import overworld as ov
 
 OVERWORLD_RESOURCES = ('mushroom', 'berry', 'wood', 'stone', 'ore')
 
+# В лесу могут встретиться только эти обитатели. Гоблины и скелеты
+# убраны из лесного спавна: гоблины живут в своей деревне, скелеты —
+# в подземелье.
+FOREST_MONSTERS = ('deer', 'wolf', 'bear', 'slime', 'boar', 'rat')
+
 # Кто водится в каждом лесном крае. Ключи должны быть в MONSTERS.
 BIOME_MONSTERS = {
-    'pine':   ('rat', 'goblin'),
-    'birch':  ('rat',),
-    'rock':   ('skeleton', 'goblin'),
-    'autumn': ('goblin', 'skeleton'),
-    'swamp':  ('rat', 'goblin'),
-    'dark':   ('skeleton', 'goblin', 'rat'),
-    'meadow': ('rat',),
-    'dead':   ('skeleton',),
+    'pine':   ('deer', 'wolf', 'rat'),
+    'birch':  ('deer', 'slime', 'rat'),
+    'rock':   ('wolf', 'bear'),
+    'autumn': ('deer', 'boar', 'wolf'),
+    'swamp':  ('slime', 'rat', 'boar'),
+    'dark':   ('wolf', 'bear', 'slime'),
+    'meadow': ('deer', 'boar', 'rat'),
+    'dead':   ('wolf', 'bear', 'rat'),
 }
+
+# Спавн в Деревне гоблинов: все виды гоблинов, кабаны и волки.
+GOBLIN_VILLAGE_MONSTERS = ('goblin', 'archer', 'shaman', 'boar', 'wolf')
 
 # Сколько рощ и какого размера сеять в каждом крае.
 BIOME_FORESTS = {
@@ -104,6 +112,24 @@ def _plant_forests(d):
                             d.tiles[yy][xx] = Tile.WALL
 
 
+def _plant_goblin_wilds(d):
+    """Лес вокруг Деревни гоблинов — только восточная часть карты."""
+    for _ in range(85):
+        cx = random.randint(ov.LEGACY_MAP_W + 1, MAP_W - 2)
+        cy = random.randint(1, MAP_H - 2)
+        r = random.randint(1, 3)
+        for yy in range(cy - r, cy + r + 1):
+            for xx in range(cx - r, cx + r + 1):
+                if not (0 <= yy < MAP_H and 0 <= xx < MAP_W):
+                    continue
+                if (xx - cx) ** 2 + (yy - cy) ** 2 > r * r:
+                    continue
+                if ov.in_goblin_village(xx, yy) or ov.is_road(xx, yy):
+                    continue
+                if random.random() < 0.52:
+                    d.tiles[yy][xx] = Tile.WALL
+
+
 def _build_village(d):
     for hx, hy, hw, hh in ov.VILLAGE_HOUSES:
         for yy in range(hy, hy + hh):
@@ -116,6 +142,19 @@ def _build_village(d):
     for tx, ty in ov.VILLAGE_TORCHES:     d.tiles[ty][tx] = Tile.WALL
 
 
+def _build_goblin_village(d):
+    """Хижины, тотемы и костёр гоблинов. Дороги прорубаются после."""
+    for hx, hy, hw, hh in ov.GOBLIN_HOUSES:
+        for yy in range(hy, hy + hh):
+            for xx in range(hx, hx + hw):
+                if 0 <= yy < d.h and 0 <= xx < d.w:
+                    d.tiles[yy][xx] = Tile.WALL
+    cx, cy = ov.GOBLIN_CAMPFIRE
+    d.tiles[cy][cx] = Tile.WALL
+    for tx, ty in ov.GOBLIN_TOTEMS:
+        d.tiles[ty][tx] = Tile.WALL
+
+
 def generate_overworld():
     """Поверхность: деревня в центре, 8 биомов и вход в подземелье."""
     d = Dungeon(MAP_W, MAP_H)
@@ -123,11 +162,13 @@ def generate_overworld():
         for x in range(MAP_W):
             d.tiles[y][x] = Tile.FLOOR
 
-    # 1. Леса по краям карты
+    # 1. Леса по краям карты и в новых восточных землях
     _plant_forests(d)
+    _plant_goblin_wilds(d)
 
-    # 2. Деревня в центре
+    # 2. Деревни: люди в центре, гоблины на востоке
     _build_village(d)
+    _build_goblin_village(d)
 
     # 3. Дороги — после леса, поэтому они всегда проходимы
     for x0, y0, x1, y1 in ov.ROAD_SEGMENTS:
@@ -152,13 +193,21 @@ def generate_overworld():
 
     # 6. Ресурсы по всем краям, кроме деревни
     spots = [p for p in reachable
-             if not ov.in_village(*p) and p != (ex, ey)]
+             if not ov.in_village(*p) and not ov.in_goblin_village(*p)
+             and p != (ex, ey)]
     random.shuffle(spots)
-    for rx, ry in spots[:80]:
+    for rx, ry in spots[:96]:
         if (rx, ry) not in d.items:
             d.items[(rx, ry)] = random.choice(OVERWORLD_RESOURCES)
 
-    # 7. Мобы: у каждого биома свой набор, деревня остаётся безопасной
+    def spawn_monster(x, y, key):
+        m = MONSTERS[key]
+        d.monsters.append(Entity(
+            x, y, m['hp'], m['hp'], m['atk'], m['df'],
+            m['name'], m['ch'], m['color'], m['xp'],
+            ability=m.get('ability')))
+
+    # 7. Лесные мобы. Деревни остаются безопасными зонами.
     monster_spots = []
     for p in spots:
         if any(o.x == p[0] and o.y == p[1] for o in d.monsters):
@@ -170,18 +219,36 @@ def generate_overworld():
         monster_spots.append(p)
     random.shuffle(monster_spots)
     for mx, my in monster_spots:
-        if len(d.monsters) >= 26:
+        if len(d.monsters) >= 40:
             break
         biome = ov.biome_at(mx, my)
-        pool = [k for k in BIOME_MONSTERS.get(biome, OVERWORLD_MONSTERS)
-                if k in MONSTERS]
+        pool = [k for k in BIOME_MONSTERS.get(biome, FOREST_MONSTERS)
+                if k in MONSTERS and k in FOREST_MONSTERS]
         if not pool:
-            pool = [k for k in OVERWORLD_MONSTERS if k in MONSTERS]
-        m = MONSTERS[random.choice(pool)]
-        d.monsters.append(Entity(
-            mx, my, m['hp'], m['hp'], m['atk'], m['df'],
-            m['name'], m['ch'], m['color'], m['xp'],
-            ability=m.get('ability')))
+            pool = [k for k in FOREST_MONSTERS if k in MONSTERS]
+        spawn_monster(mx, my, random.choice(pool))
+
+    # 8. Деревня гоблинов: все виды гоблинов, кабаны и волки.
+    gx, gy = ov.GOBLIN_VILLAGE_CENTER
+    goblin_spots = [p for p in reachable
+                    if ov.in_goblin_village(*p)
+                    and p != (ex, ey)
+                    and not any(o.x == p[0] and o.y == p[1]
+                                for o in d.monsters)
+                    and (p[0] - gx) ** 2 + (p[1] - gy) ** 2 > 4
+                    and not ov.is_goblin_totem(*p)
+                    and not ov.is_goblin_campfire(*p)]
+    random.shuffle(goblin_spots)
+    # Сначала гарантируем по одному гоблину каждого вида.
+    guaranteed = [k for k in ('goblin', 'archer', 'shaman')
+                  if k in MONSTERS]
+    for i, (mx, my) in enumerate(goblin_spots[:14]):
+        if i < len(guaranteed):
+            key = guaranteed[i]
+        else:
+            pool = [k for k in GOBLIN_VILLAGE_MONSTERS if k in MONSTERS]
+            key = random.choice(pool)
+        spawn_monster(mx, my, key)
 
     # Комната появления = центр деревни (её использует и мультиплеер)
     d.rooms = [Room(spawn[0] - 1, spawn[1] - 1, 3, 3)]
@@ -221,10 +288,12 @@ def generate_dungeon(depth, _attempt=0):
     d = Dungeon(MAP_W, MAP_H)
     rooms = []
 
-    margin_x = max(1, (MAP_W - 60) // 2)
-    margin_y = max(1, (MAP_H - 40) // 2)
-    cx_min, cx_max = margin_x, MAP_W - margin_x
-    cy_min, cy_max = margin_y, MAP_H - margin_y
+    margin_x = max(1, (ov.LEGACY_MAP_W - 60) // 2)
+    margin_y = max(1, (ov.LEGACY_MAP_H - 40) // 2)
+    # Подземелья остаются в исторической части карты 100×70: расширение
+    # мира предназначено для поверхности, а не для этажей.
+    cx_min, cx_max = margin_x, ov.LEGACY_MAP_W - margin_x
+    cy_min, cy_max = margin_y, ov.LEGACY_MAP_H - margin_y
 
     for _ in range(400):
         if len(rooms) >= 14:
@@ -288,7 +357,8 @@ def generate_dungeon(depth, _attempt=0):
             continue
         n = max(1, (room.w * room.h) // 22)
         for _ in range(n):
-            pool = [k for k, v in MONSTERS.items() if v['min_depth'] <= depth]
+            pool = [k for k, v in MONSTERS.items()
+                    if v['min_depth'] <= depth and not v.get('overworld_only')]
             m = MONSTERS[random.choice(pool)]
             hp, atk, df = scale_stats(m['hp'], m['atk'], m['df'], depth)
             mx = random.randint(room.x, room.x + room.w - 1)
