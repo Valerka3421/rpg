@@ -36,13 +36,18 @@ def entity_from_dict(d):
 
 def player_to_dict(p):
     return {
-        'x': p.x, 'y': p.y, 'hp': p.hp,
+        'x': p.x, 'y': p.y, 'hp': p.hp, 'mana': getattr(p, 'mana', 0),
         'class_key': getattr(p, 'class_key', 'default'),
+        'class_tier': getattr(p, 'class_tier', 1),
+        'class_base': getattr(p, 'class_base', getattr(p, 'class_key', 'default')),
+        'class_changes': getattr(p, 'class_changes', 0),
         'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
         'free_points': p.free_points,
         'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
         'df_stat': p.df_stat,
         'weapon': p.weapon, 'armor': p.armor,
+        'helmet': getattr(p, 'helmet', None),
+        'leggings': getattr(p, 'leggings', None),
         'inventory': dict(p.inventory),
         'gold': p.gold,
         'double_strike': p.double_strike,
@@ -50,10 +55,15 @@ def player_to_dict(p):
         'thorns': p.thorns, 'greedy': p.greedy,
         'step_counter': p.step_counter,
         'statuses': dict(p.statuses),
+        'skill_points': getattr(p, 'skill_points', 0),
+        'skills': dict(getattr(p, 'skills', {})),
+        'skill_xp': dict(getattr(p, 'skill_xp', {})),
+        'skill_nodes': sorted(getattr(p, 'skill_nodes', set())),
     }
 
 
 def player_from_dict(d):
+    from core import skills
     p = Player(class_key=d.get('class_key', 'default'))
     p.x, p.y = d['x'], d['y']
     p.level = d['level']; p.xp = d['xp']
@@ -64,6 +74,8 @@ def player_from_dict(d):
     p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
     p.df_stat = d.get('df_stat', 5)
     p.weapon, p.armor = d['weapon'], d['armor']
+    p.helmet = d.get('helmet')
+    p.leggings = d.get('leggings')
     p.inventory = dict(d['inventory'])
     p.gold = d.get('gold', 0)
     p.double_strike = d.get('double_strike', False)
@@ -71,8 +83,21 @@ def player_from_dict(d):
     p.thorns = d.get('thorns', False); p.greedy = d.get('greedy', False)
     p.step_counter = d.get('step_counter', 0)
     p.statuses = dict(d.get('statuses', {}))
+    p.class_tier = int(d.get('class_tier', p.class_tier))
+    p.class_base = d.get('class_base', p.class_base)
+    p.class_changes = int(d.get('class_changes', p.class_changes))
+    p.skill_points = int(d.get('skill_points', 1))
+    p.skills = dict(p.skills, **(d.get('skills') or {}))
+    p.skill_xp = dict(p.skill_xp, **(d.get('skill_xp') or {}))
+    p.skill_nodes = set(d.get('skill_nodes') or ())
     p.recalc()
     p.hp = min(d['hp'], p.max_hp)
+    p.mana = min(d.get('mana', p.max_mana), p.max_mana)
+    # Смена правил могла сделать экипировку недоступной — снимаем в сумку.
+    for slot, key, _reason in skills.disallowed_equipment(p):
+        setattr(p, slot, None)
+        p.inventory[key] = p.inventory.get(key, 0) + 1
+    p.recalc()
     return p
 
 

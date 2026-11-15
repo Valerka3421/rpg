@@ -28,77 +28,254 @@ ITEMS = {
     # Зелья
     'potion_s': {'ch': '!', 'name': 'Малое зелье', 'type': 'heal', 'value': 10,
                  'color': (230, 130, 130), 'tier': 1, 'sell': 2,
+                 'recipe': {'mushroom': 2, 'berry': 1},
+                 'skill': 'alchemy', 'skill_req': 1,
                  'desc': 'Восстанавливает 10 HP.'},
     'potion_m': {'ch': '!', 'name': 'Зелье', 'type': 'heal', 'value': 20,
                  'color': (230, 90, 100), 'tier': 2, 'sell': 4,
+                 'recipe': {'mushroom': 3, 'berry': 2},
+                 'skill': 'alchemy', 'skill_req': 5,
                  'desc': 'Восстанавливает 20 HP.'},
     'potion_l': {'ch': '!', 'name': 'Большое зелье', 'type': 'heal', 'value': 40,
                  'color': (255, 60, 80), 'tier': 3, 'sell': 6,
+                 'recipe': {'mushroom': 4, 'berry': 3, 'bone': 1},
+                 'skill': 'alchemy', 'skill_req': 12,
                  'desc': 'Восстанавливает 40 HP.'},
+    # Алхимия: мана и баффы
+    'mana_s': {'ch': '!', 'name': 'Малое зелье маны', 'type': 'mana', 'value': 12,
+               'color': (120, 160, 255), 'tier': 1, 'sell': 3,
+               'recipe': {'berry': 2, 'mushroom': 1},
+               'skill': 'alchemy', 'skill_req': 1, 'desc': 'Восстанавливает 12 маны.'},
+    'mana_m': {'ch': '!', 'name': 'Зелье маны', 'type': 'mana', 'value': 24,
+               'color': (90, 130, 250), 'tier': 2, 'sell': 5,
+               'recipe': {'berry': 3, 'mushroom': 2},
+               'skill': 'alchemy', 'skill_req': 4, 'desc': 'Восстанавливает 24 маны.'},
+    'potion_strength': {'ch': '!', 'name': 'Зелье силы', 'type': 'buff',
+                        'status': 'strength', 'color': (240, 120, 90),
+                        'tier': 3, 'sell': 14,
+                        'recipe': {'orc_tusk': 1, 'mushroom': 2},
+                        'skill': 'alchemy', 'skill_req': 12,
+                        'desc': '+3 ATK на 20 ходов.'},
+    'potion_agility': {'ch': '!', 'name': 'Зелье ловкости', 'type': 'buff',
+                       'status': 'agility', 'color': (140, 230, 120),
+                       'tier': 3, 'sell': 14,
+                       'recipe': {'goblin_ear': 2, 'berry': 2},
+                       'skill': 'alchemy', 'skill_req': 14,
+                       'desc': '+8% уклонения на 20 ходов.'},
+    'potion_stone_skin': {'ch': '!', 'name': 'Зелье каменной кожи',
+                          'type': 'buff', 'status': 'stone_skin',
+                          'color': (170, 170, 160), 'tier': 3, 'sell': 16,
+                          'recipe': {'stone': 3, 'bone': 1},
+                          'skill': 'alchemy', 'skill_req': 16,
+                          'desc': '+3 DEF на 20 ходов.'},
+    'potion_speed': {'ch': '!', 'name': 'Зелье скорости', 'type': 'buff',
+                     'status': 'speed', 'color': (150, 220, 250),
+                     'tier': 3, 'sell': 16,
+                     'recipe': {'rat_tail': 2, 'berry': 2},
+                     'skill': 'alchemy', 'skill_req': 18,
+                     'desc': '+25% скорости хода на 20 ходов.'},
+    'potion_dexterity': {'ch': '!', 'name': 'Зелье проворности',
+                         'type': 'buff', 'status': 'dexterity',
+                         'color': (250, 210, 120), 'tier': 3, 'sell': 18,
+                         'recipe': {'wraith_essence': 1, 'berry': 3},
+                         'skill': 'alchemy', 'skill_req': 20,
+                         'desc': '+20% скорости атаки на 20 ходов.'},
+    'poison_vial': {'ch': '!', 'name': 'Флакон яда', 'type': 'poison',
+                    'value': 8, 'color': (120, 200, 90), 'tier': 2, 'sell': 12,
+                    'recipe': {'rat_tail': 2, 'mushroom': 2},
+                    'skill': 'alchemy', 'skill_req': 10,
+                    'desc': 'Отравляет ближайшего врага (8 урона + яд).'},
+    'elixir_life': {'ch': '!', 'name': 'Эликсир жизни', 'type': 'heal',
+                    'value': 80, 'color': (255, 80, 120), 'tier': 3, 'sell': 26,
+                    'recipe': {'dragon_scale': 1, 'mushroom': 4, 'berry': 4},
+                    'skill': 'alchemy', 'skill_req': 25,
+                    'desc': 'Восстанавливает 80 HP.'},
     # Оружие
     'dagger':     {'ch': '/', 'name': 'Кинжал', 'type': 'weapon', 'value': 1,
                    'level_req': 1, 'color': (180, 200, 230), 'tier': 1, 'sell': 7,
-                   'crit_bonus': 0.02,
+                   'wtype': 'dagger', 'crit_bonus': 0.02,
                    'desc': '+1 ATK, +2% крит.'},
     'shortsword': {'ch': '/', 'name': 'Короткий меч', 'type': 'weapon', 'value': 1,
                    'level_req': 2, 'color': (190, 210, 240), 'tier': 1, 'sell': 9,
-                   'desc': '+1 ATK.'},
+                   'wtype': 'sword', 'desc': '+1 ATK.'},
     'sword':      {'ch': '/', 'name': 'Меч', 'type': 'weapon', 'value': 2,
                    'level_req': 4, 'color': (170, 200, 240), 'tier': 2, 'sell': 14,
-                   'desc': '+2 ATK.'},
+                   'wtype': 'sword', 'desc': '+2 ATK.'},
     'axe':        {'ch': '/', 'name': 'Топор', 'type': 'weapon', 'value': 3,
                    'level_req': 5, 'color': (200, 180, 150), 'tier': 2, 'sell': 18,
-                   'dodge_bonus': -0.02, 'desc': '+3 ATK, −2% укл.'},
+                   'wtype': 'axe', 'dodge_bonus': -0.02,
+                   'desc': '+3 ATK, −2% укл.'},
     'greatsword': {'ch': '/', 'name': 'Двуручник', 'type': 'weapon', 'value': 4,
                    'level_req': 7, 'color': (210, 230, 255), 'tier': 3, 'sell': 21,
-                   'desc': '+4 ATK.'},
+                   'wtype': 'greatsword', 'desc': '+4 ATK.'},
     'warhammer':  {'ch': '/', 'name': 'Молот', 'type': 'weapon', 'value': 5,
                    'level_req': 8, 'color': (180, 170, 160), 'tier': 3, 'sell': 26,
-                   'dodge_bonus': -0.03, 'desc': '+5 ATK, −3% укл.'},
+                   'wtype': 'hammer', 'dodge_bonus': -0.03,
+                   'desc': '+5 ATK, −3% укл.'},
     # Крафт-оружие
     'bone_sword': {'ch': '/', 'name': 'Костяной меч', 'type': 'weapon', 'value': 2,
                    'level_req': 3, 'color': (230, 220, 200), 'tier': 2, 'sell': 12,
-                   'recipe': {'bone': 2, 'wood': 1}, 'desc': '+2 ATK.'},
+                   'wtype': 'sword', 'recipe': {'bone': 2, 'wood': 1},
+                   'skill': 'smithing', 'skill_req': 3, 'desc': '+2 ATK.'},
     'demon_blade': {'ch': '/', 'name': 'Клинок демона', 'type': 'weapon', 'value': 5,
                     'level_req': 8, 'color': (200, 70, 70), 'tier': 3, 'sell': 35,
+                    'wtype': 'sword',
                     'recipe': {'demon_scale': 3, 'orc_tusk': 1, 'sword': 1},
-                    'desc': '+5 ATK.'},
+                    'skill': 'smithing', 'skill_req': 18, 'desc': '+5 ATK.'},
     'golem_hammer': {'ch': '/', 'name': 'Молот голема', 'type': 'weapon', 'value': 6,
                      'level_req': 10, 'color': (130, 130, 140), 'tier': 3, 'sell': 40,
+                     'wtype': 'hammer',
                      'recipe': {'golem_core': 1, 'stone': 5, 'greatsword': 1},
-                     'desc': '+6 ATK.'},
+                     'skill': 'smithing', 'skill_req': 22, 'desc': '+6 ATK.'},
+    # ── Новое оружие под классы ──
+    'wooden_club': {'ch': '/', 'name': 'Дубина', 'type': 'weapon', 'value': 1,
+                    'level_req': 1, 'color': (160, 120, 70), 'tier': 1, 'sell': 3,
+                    'wtype': 'mace', 'recipe': {'wood': 2},
+                    'skill': 'smithing', 'skill_req': 1, 'desc': '+1 ATK.'},
+    'stone_hatchet': {'ch': '/', 'name': 'Каменный топор', 'type': 'weapon',
+                      'value': 1, 'level_req': 1, 'color': (170, 170, 175),
+                      'tier': 1, 'sell': 4, 'wtype': 'axe',
+                      'recipe': {'wood': 1, 'stone': 2},
+                      'skill': 'smithing', 'skill_req': 1, 'desc': '+1 ATK.'},
+    'wooden_shield': {'ch': ']', 'name': 'Деревянный щит', 'type': 'weapon',
+                      'value': 0, 'level_req': 2, 'color': (150, 110, 60),
+                      'tier': 1, 'sell': 5, 'wtype': 'shield', 'df_bonus': 1,
+                      'recipe': {'wood': 3},
+                      'skill': 'smithing', 'skill_req': 3,
+                      'desc': '+1 DEF, +1 ATK.'},
+    'iron_sword': {'ch': '/', 'name': 'Железный меч', 'type': 'weapon', 'value': 3,
+                   'level_req': 5, 'color': (200, 215, 235), 'tier': 2, 'sell': 20,
+                   'wtype': 'sword', 'recipe': {'ore': 2, 'wood': 1},
+                   'skill': 'smithing', 'skill_req': 6, 'desc': '+3 ATK.'},
+    'steel_sword': {'ch': '/', 'name': 'Стальной меч', 'type': 'weapon', 'value': 5,
+                    'level_req': 9, 'color': (220, 232, 250), 'tier': 3, 'sell': 34,
+                    'wtype': 'sword', 'recipe': {'ore': 4, 'bone': 2},
+                    'skill': 'smithing', 'skill_req': 12, 'desc': '+5 ATK.'},
+    'battle_hammer': {'ch': '/', 'name': 'Боевой молот', 'type': 'weapon',
+                      'value': 5, 'level_req': 9, 'color': (190, 180, 170),
+                      'tier': 3, 'sell': 32, 'wtype': 'hammer',
+                      'recipe': {'ore': 4, 'wood': 2},
+                      'skill': 'smithing', 'skill_req': 12, 'desc': '+5 ATK.'},
+    'hunting_bow': {'ch': ')', 'name': 'Охотничий лук', 'type': 'weapon',
+                    'value': 2, 'level_req': 4, 'color': (180, 140, 90),
+                    'tier': 2, 'sell': 16, 'wtype': 'bow',
+                    'recipe': {'wood': 3, 'rat_tail': 1},
+                    'skill': 'smithing', 'skill_req': 6, 'desc': '+2 ATK.'},
+    'long_staff': {'ch': '|', 'name': 'Длинный посох', 'type': 'weapon',
+                   'value': 2, 'level_req': 3, 'color': (140, 180, 210),
+                   'tier': 2, 'sell': 15, 'wtype': 'staff', 'crit_bonus': 0.02,
+                   'recipe': {'wood': 3, 'stone': 1},
+                   'skill': 'smithing', 'skill_req': 4,
+                   'desc': '+2 ATK, +2% крит.'},
+    'runed_blade': {'ch': '/', 'name': 'Рунный клинок', 'type': 'weapon',
+                    'value': 6, 'level_req': 12, 'color': (150, 200, 240),
+                    'tier': 3, 'sell': 46, 'wtype': 'sword', 'crit_bonus': 0.04,
+                    'recipe': {'ore': 3, 'golem_core': 1, 'bone': 2},
+                    'skill': 'smithing', 'skill_req': 20,
+                    'desc': '+6 ATK, +4% крит.'},
+    'dragon_blade': {'ch': '/', 'name': 'Клинок дракона', 'type': 'weapon',
+                     'value': 8, 'level_req': 16, 'color': (245, 150, 70),
+                     'tier': 3, 'sell': 60, 'wtype': 'greatsword',
+                     'recipe': {'dragon_scale': 3, 'ore': 4, 'demon_scale': 2},
+                     'skill': 'smithing', 'skill_req': 25, 'desc': '+8 ATK.'},
     # Броня
     'padded':     {'ch': '[', 'name': 'Стёганая куртка', 'type': 'armor', 'value': 1,
                    'level_req': 1, 'color': (200, 180, 140), 'tier': 1, 'sell': 7,
-                   'desc': '+1 DEF.'},
+                   'armor_type': 'light', 'desc': '+1 DEF.'},
     'leather':    {'ch': '[', 'name': 'Кожаная броня', 'type': 'armor', 'value': 1,
                    'level_req': 1, 'color': (200, 170, 100), 'tier': 1, 'sell': 6,
-                   'desc': '+1 DEF.'},
+                   'armor_type': 'light', 'desc': '+1 DEF.'},
     'chain':      {'ch': '[', 'name': 'Кольчуга', 'type': 'armor', 'value': 2,
                    'level_req': 4, 'color': (170, 170, 180), 'tier': 2, 'sell': 12,
-                   'desc': '+2 DEF.'},
+                   'armor_type': 'medium', 'desc': '+2 DEF.'},
     'scale':      {'ch': '[', 'name': 'Чешуйчатая', 'type': 'armor', 'value': 2,
                    'level_req': 4, 'color': (160, 150, 130), 'tier': 2, 'sell': 14,
-                   'hp_bonus': 3, 'desc': '+2 DEF, +3 HP.'},
+                   'armor_type': 'medium', 'hp_bonus': 3, 'desc': '+2 DEF, +3 HP.'},
     'plate':      {'ch': '[', 'name': 'Латы', 'type': 'armor', 'value': 3,
                    'level_req': 7, 'color': (220, 220, 240), 'tier': 3, 'sell': 18,
-                   'desc': '+3 DEF.'},
+                   'armor_type': 'heavy', 'desc': '+3 DEF.'},
     'mithril':    {'ch': '[', 'name': 'Мифрил', 'type': 'armor', 'value': 3,
                    'level_req': 7, 'color': (180, 210, 230), 'tier': 3, 'sell': 28,
-                   'dodge_bonus': 0.05, 'desc': '+3 DEF, +5% укл.'},
+                   'armor_type': 'medium', 'dodge_bonus': 0.05,
+                   'desc': '+3 DEF, +5% укл.'},
     # Крафт-броня
     'leather_armor': {'ch': '[', 'name': 'Броня из огра', 'type': 'armor', 'value': 3,
                       'level_req': 5, 'color': (150, 110, 60), 'tier': 2, 'sell': 22,
+                      'armor_type': 'light',
                       'recipe': {'ogre_leather': 3, 'goblin_ear': 1},
+                      'skill': 'smithing', 'skill_req': 8,
                       'desc': '+3 DEF.'},
     'dragon_armor': {'ch': '[', 'name': 'Броня дракона', 'type': 'armor', 'value': 4,
                      'level_req': 10, 'color': (240, 130, 40), 'tier': 3, 'sell': 45,
+                     'armor_type': 'heavy',
                      'recipe': {'dragon_scale': 5, 'plate': 1},
+                     'skill': 'smithing', 'skill_req': 20,
                      'desc': '+4 DEF.'},
     'lich_robe': {'ch': '[', 'name': 'Мантия лича', 'type': 'armor', 'value': 4,
                   'level_req': 9, 'color': (200, 100, 255), 'tier': 3, 'sell': 40,
+                  'armor_type': 'robe',
                   'recipe': {'bone': 3, 'wraith_essence': 2, 'plate': 1},
+                  'skill': 'smithing', 'skill_req': 22,
                   'desc': '+4 DEF.'},
+    'mage_robe': {'ch': '[', 'name': 'Мантия мага', 'type': 'armor', 'value': 1,
+                  'level_req': 1, 'color': (130, 150, 220), 'tier': 1, 'sell': 8,
+                  'armor_type': 'robe',
+                  'recipe': {'hide': 2, 'wood': 1},
+                  'skill': 'smithing', 'skill_req': 1,
+                  'desc': '+1 DEF.'},
+    'arcane_robe': {'ch': '[', 'name': 'Магическая мантия', 'type': 'armor',
+                    'value': 3, 'level_req': 9, 'color': (160, 180, 240),
+                    'tier': 3, 'sell': 30, 'armor_type': 'robe',
+                    'recipe': {'hide': 4, 'golem_core': 1, 'ore': 2},
+                    'skill': 'smithing', 'skill_req': 16,
+                    'desc': '+3 DEF, +5 маны.', 'mana_bonus': 5},
+    # ── Шлемы ──
+    'leather_cap': {'ch': '^', 'name': 'Кожаный шлем', 'type': 'helmet',
+                    'value': 1, 'level_req': 1, 'color': (200, 170, 110),
+                    'tier': 1, 'sell': 4, 'armor_type': 'light',
+                    'recipe': {'hide': 2}, 'skill': 'smithing', 'skill_req': 1,
+                    'desc': '+1 DEF.'},
+    'iron_helm': {'ch': '^', 'name': 'Железный шлем', 'type': 'helmet',
+                  'value': 2, 'level_req': 4, 'color': (190, 195, 205),
+                  'tier': 2, 'sell': 12, 'armor_type': 'medium',
+                  'recipe': {'ore': 2, 'hide': 1}, 'skill': 'smithing',
+                  'skill_req': 8, 'desc': '+2 DEF.'},
+    'steel_helm': {'ch': '^', 'name': 'Стальной шлем', 'type': 'helmet',
+                   'value': 3, 'level_req': 8, 'color': (215, 225, 245),
+                   'tier': 3, 'sell': 22, 'armor_type': 'heavy',
+                   'recipe': {'ore': 3, 'bone': 1}, 'skill': 'smithing',
+                   'skill_req': 14, 'desc': '+3 DEF, +2 HP.', 'hp_bonus': 2},
+    'mage_hood': {'ch': '^', 'name': 'Капюшон мага', 'type': 'helmet',
+                  'value': 1, 'level_req': 2, 'color': (140, 160, 230),
+                  'tier': 2, 'sell': 10, 'armor_type': 'robe',
+                  'recipe': {'hide': 3, 'mushroom': 1}, 'skill': 'smithing',
+                  'skill_req': 6, 'desc': '+1 DEF, +3 маны.', 'mana_bonus': 3},
+    'dragon_helm': {'ch': '^', 'name': 'Шлем дракона', 'type': 'helmet',
+                    'value': 4, 'level_req': 14, 'color': (245, 150, 70),
+                    'tier': 3, 'sell': 34, 'armor_type': 'heavy',
+                    'recipe': {'dragon_scale': 2, 'ore': 3}, 'skill': 'smithing',
+                    'skill_req': 20, 'desc': '+4 DEF, +4 HP.', 'hp_bonus': 4},
+    # ── Поножи ──
+    'leather_legs': {'ch': 'n', 'name': 'Кожаные поножи', 'type': 'leggings',
+                     'value': 1, 'level_req': 1, 'color': (190, 160, 100),
+                     'tier': 1, 'sell': 4, 'armor_type': 'light',
+                     'recipe': {'hide': 3, 'wood': 1}, 'skill': 'smithing',
+                     'skill_req': 1, 'desc': '+1 DEF.'},
+    'chain_legs': {'ch': 'n', 'name': 'Кольчужные поножи', 'type': 'leggings',
+                   'value': 2, 'level_req': 5, 'color': (170, 170, 180),
+                   'tier': 2, 'sell': 14, 'armor_type': 'medium',
+                   'recipe': {'ore': 2, 'hide': 2}, 'skill': 'smithing',
+                   'skill_req': 10, 'desc': '+2 DEF.'},
+    'plate_legs': {'ch': 'n', 'name': 'Латные поножи', 'type': 'leggings',
+                   'value': 3, 'level_req': 9, 'color': (215, 220, 240),
+                   'tier': 3, 'sell': 24, 'armor_type': 'heavy',
+                   'recipe': {'ore': 4, 'bone': 1}, 'skill': 'smithing',
+                   'skill_req': 16, 'desc': '+3 DEF, +2 HP.', 'hp_bonus': 2},
+    'cloth_legs': {'ch': 'n', 'name': 'Тканевые поножи', 'type': 'leggings',
+                   'value': 1, 'level_req': 2, 'color': (140, 160, 220),
+                   'tier': 2, 'sell': 9, 'armor_type': 'robe',
+                   'recipe': {'hide': 3, 'berry': 2}, 'skill': 'smithing',
+                   'skill_req': 6, 'desc': '+1 DEF, +2 маны.', 'mana_bonus': 2},
     # Золото
     'gold_small':  {'ch': '$', 'name': 'Монеты', 'type': 'gold', 'value': 5,
                     'color': (240, 210, 90), 'tier': 1, 'desc': 'Немного золота.'},
@@ -158,6 +335,9 @@ ITEMS = {
     'ore':      {'ch': '#', 'name': 'Руда', 'type': 'resource',
                  'value': 0, 'sell': 5, 'color': (200, 170, 80), 'tier': 2,
                  'desc': 'Ценный материал.'},
+    'hide':     {'ch': '~', 'name': 'Шкура', 'type': 'resource',
+                 'value': 0, 'sell': 2, 'color': (180, 140, 95), 'tier': 1,
+                 'desc': 'Материал для кожи и мантий.'},
     # Материалы
     'bone':          {'ch': '%', 'name': 'Кость',            'type': 'material', 'sell': 3,  'color': (230, 220, 200), 'tier': 2, 'desc': 'Кость скелета.'},
     'ogre_leather':  {'ch': '~', 'name': 'Кожа огра',        'type': 'material', 'sell': 5,  'color': (150, 110, 60),  'tier': 2, 'desc': 'Прочная кожа.'},
@@ -169,21 +349,62 @@ ITEMS = {
     'dragon_scale':  {'ch': '*', 'name': 'Чешуя дракона',    'type': 'material', 'sell': 15, 'color': (240, 130, 40),  'tier': 3, 'desc': 'Прочная чешуя.'},
     'golem_core':    {'ch': 'o', 'name': 'Ядро голема',      'type': 'material', 'sell': 12, 'color': (200, 220, 255), 'tier': 3, 'desc': 'Магическое ядро.'},
     'wraith_essence':{'ch': '~', 'name': 'Эссенция призрака','type': 'material', 'sell': 8,  'color': (180, 180, 220), 'tier': 3, 'desc': 'Призрачная субстанция.'},
-    # ── Свитки ──
+    # ── Свитки и руны ──
     'scroll_heal': {'ch': '&', 'name': 'Свиток лечения', 'type': 'scroll',
                     'effect': 'heal', 'value': 30, 'color': (120, 240, 120),
-                    'tier': 2, 'sell': 12, 'shop_price': 60,
-                    'desc': 'Восстанавливает 30 HP.'},
+                    'tier': 2, 'sell': 12, 'shop_price': 60, 'mana_cost': 5,
+                    'recipe': {'wood': 1, 'berry': 1},
+                    'skill': 'engineering', 'skill_req': 1,
+                    'desc': 'Восстанавливает 30 HP. Мана: 5.'},
     'scroll_fireball': {'ch': '&', 'name': 'Свиток огня', 'type': 'scroll',
                         'effect': 'fireball', 'value': 20, 'color': (255, 120, 50),
-                        'tier': 2, 'sell': 15, 'shop_price': 80,
-                        'desc': 'Огонь 20 урона по области 3×3 вокруг ближайшего врага.'},
+                        'tier': 2, 'sell': 15, 'shop_price': 80, 'mana_cost': 7,
+                        'recipe': {'ore': 1, 'wood': 1},
+                        'skill': 'engineering', 'skill_req': 6,
+                        'desc': 'Огонь 20 урона по области 3×3. Мана: 7.'},
     'scroll_freeze': {'ch': '&', 'name': 'Свиток заморозки', 'type': 'scroll',
                       'effect': 'freeze', 'value': 3, 'color': (120, 180, 255),
-                      'tier': 3, 'sell': 18, 'shop_price': 100,
-                      'desc': 'Замедляет всех врагов в радиусе 5 на 3 хода.'},
+                      'tier': 3, 'sell': 18, 'shop_price': 100, 'mana_cost': 8,
+                      'recipe': {'ore': 2, 'berry': 2},
+                      'skill': 'engineering', 'skill_req': 8,
+                      'desc': 'Замедляет врагов в радиусе 5 на 3 хода. Мана: 8.'},
+    'rune_flame': {'ch': '&', 'name': 'Руна пламени', 'type': 'scroll',
+                   'effect': 'fireball', 'value': 14, 'color': (255, 160, 80),
+                   'tier': 1, 'sell': 8, 'mana_cost': 5,
+                   'recipe': {'stone': 1, 'berry': 1},
+                   'skill': 'engineering', 'skill_req': 2,
+                   'desc': 'Огонь 14 урона по области 3×3. Мана: 5.'},
+    'rune_ward': {'ch': '&', 'name': 'Руна защиты', 'type': 'scroll',
+                  'effect': 'ward', 'value': 3, 'color': (200, 200, 160),
+                  'tier': 2, 'sell': 14, 'mana_cost': 6,
+                  'recipe': {'stone': 2, 'bone': 1},
+                  'skill': 'engineering', 'skill_req': 10,
+                  'desc': 'Каменная кожа на 20 ходов. Мана: 6.'},
+    'scroll_lightning': {'ch': '&', 'name': 'Свиток молнии', 'type': 'scroll',
+                         'effect': 'lightning', 'value': 30, 'color': (240, 230, 110),
+                         'tier': 3, 'sell': 22, 'mana_cost': 9,
+                         'recipe': {'ore': 3, 'golem_core': 1},
+                         'skill': 'engineering', 'skill_req': 14,
+                         'desc': '30 урона и замедление. Мана: 9.'},
+    'scroll_inferno': {'ch': '&', 'name': 'Свиток инферно', 'type': 'scroll',
+                       'effect': 'fireball', 'value': 45, 'color': (255, 90, 40),
+                       'tier': 3, 'sell': 40, 'mana_cost': 12,
+                       'recipe': {'demon_scale': 2, 'ore': 3, 'stone': 2},
+                       'skill': 'engineering', 'skill_req': 20,
+                       'desc': 'Огонь 45 урона по области 3×3. Мана: 12.'},
+    'rune_guardian': {'ch': '&', 'name': 'Руна стража', 'type': 'scroll',
+                      'effect': 'heal', 'value': 60, 'color': (150, 240, 180),
+                      'tier': 3, 'sell': 34, 'mana_cost': 10,
+                      'recipe': {'golem_core': 1, 'wraith_essence': 2},
+                      'skill': 'engineering', 'skill_req': 22,
+                      'desc': 'Восстанавливает 60 HP. Мана: 10.'},
+    'orb_arcane': {'ch': 'o', 'name': 'Тайная сфера', 'type': 'weapon',
+                   'value': 4, 'level_req': 12, 'color': (170, 140, 240),
+                   'tier': 3, 'sell': 50, 'wtype': 'book', 'crit_bonus': 0.05,
+                   'recipe': {'golem_core': 2, 'wraith_essence': 2},
+                   'skill': 'engineering', 'skill_req': 25,
+                   'desc': '+4 ATK, +5% крит.'},
 }
-
 MATERIAL_KEYS = ('bone', 'ogre_leather', 'goblin_ear', 'rat_tail', 'orc_tusk',
                  'demon_scale', 'vampire_fang', 'dragon_scale',
                  'golem_core', 'wraith_essence')
@@ -220,6 +441,46 @@ STATUSES = {
         'damage': 0, 'heal': 2,
         'duration': 4,
     },
+    # Зелья баффов (алхимия)
+    'strength': {
+        'name': 'Сила', 'short': 'STR',
+        'color': (240, 120, 90),
+        'damage': 0, 'heal': 0,
+        'duration': 20,
+    },
+    'agility': {
+        'name': 'Ловкость', 'short': 'AGI',
+        'color': (140, 230, 120),
+        'damage': 0, 'heal': 0,
+        'duration': 20,
+    },
+    'stone_skin': {
+        'name': 'Каменная кожа', 'short': 'STN',
+        'color': (170, 170, 160),
+        'damage': 0, 'heal': 0,
+        'duration': 20,
+    },
+    'speed': {
+        'name': 'Скорость', 'short': 'SPD',
+        'color': (150, 220, 250),
+        'damage': 0, 'heal': 0,
+        'duration': 20,
+    },
+    'dexterity': {
+        'name': 'Проворность', 'short': 'DEX',
+        'color': (250, 210, 120),
+        'damage': 0, 'heal': 0,
+        'duration': 20,
+    },
+}
+
+# Модификаторы характеристик от статусов (временные баффы).
+STATUS_MODS = {
+    'strength':   {'atk': 3},
+    'agility':    {'dodge': 0.08},
+    'stone_skin': {'df': 3},
+    'speed':      {'move_speed': 0.25},
+    'dexterity':  {'attack_speed': 0.20},
 }
 
 # Способность монстра → накладываемый статус (если есть)
@@ -231,44 +492,510 @@ ABILITY_TO_STATUS = {
 }
 
 # ════════════════════ КЛАССЫ ════════════════════
-CLASSES = {
-    'warrior': {
-        'name': 'Воин',
-        'desc': 'Крепкий боец. Больше всего STR — сильнейший удар.',
-        'str': 8, 'agi': 3, 'vit': 7, 'luk': 3, 'df_stat': 7,
-        'start_weapon': None, 'start_armor': 'padded', 'start_items': {},
-        'color': (220, 130, 100),
-    },
-    'assassin': {
-        'name': 'Ассасин',
-        'desc': 'Мастер критических ударов. Хрупкий, но смертоносный.',
-        'str': 3, 'agi': 7, 'vit': 4, 'luk': 9, 'df_stat': 4,
-        'start_weapon': 'dagger', 'start_armor': None, 'start_items': {},
-        'color': (160, 130, 240),
-    },
-    'rogue': {
-        'name': 'Разбойник',
-        'desc': 'Быстрый и ловкий. Максимальное уклонение.',
-        'str': 5, 'agi': 9, 'vit': 4, 'luk': 7, 'df_stat': 3,
-        'start_weapon': 'dagger', 'start_armor': None, 'start_items': {},
-        'color': (140, 200, 130),
-    },
-    'paladin': {
-        'name': 'Паладин',
-        'desc': 'Священный танк. Много HP и защита.',
-        'str': 6, 'agi': 4, 'vit': 8, 'luk': 3, 'df_stat': 7,
-        'start_weapon': None, 'start_armor': 'leather', 'start_items': {},
-        'color': (240, 220, 120),
-    },
-    'default': {
-        'name': 'Приключенец',
-        'desc': 'Универсальный. 5/5/5/5/5.',
-        'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5,
-        'start_weapon': None, 'start_armor': None, 'start_items': {},
-        'color': (200, 200, 200),
-    },
+# Дерево классов: базовый класс (1 уровень) → специализация (5 уровень)
+# → вершина ветки (15 уровень). «Ассасин» и «Паладин» больше не стартовые
+# классы — это вершины ветвей разбойника и воина.
+#
+#   stats  — абсолютные характеристики (базовые классы и совместимость);
+#   bonus  — прибавка к характеристикам при повышении класса;
+#   effects — пассивные бонусы класса (складываются с навыками);
+#   weapons/armor_types — что класс умеет носить.
+
+WCLASS_NAMES = {
+    'sword': 'мечи', 'greatsword': 'двуручники', 'axe': 'топоры',
+    'mace': 'булавы', 'hammer': 'молоты', 'shield': 'щиты',
+    'spear': 'копья', 'halberd': 'алебарды', 'dagger': 'кинжалы',
+    'knife': 'ножи', 'rapier': 'шпаги', 'katana': 'катаны',
+    'staff': 'посохи', 'book': 'книги', 'bow': 'луки',
+    'crossbow': 'арбалеты', 'fist': 'перчатки',
 }
-CLASS_ORDER = ('warrior', 'assassin', 'rogue', 'paladin')
+ARMOR_TYPE_NAMES = {
+    'light': 'лёгкая', 'medium': 'средняя', 'heavy': 'тяжёлая', 'robe': 'мантия',
+}
+
+
+def _cls(name, tier, base, desc, color, *, next=(), bonus=None, stats=None,
+         weapons=(), armor=(), effects=None, start_weapon=None,
+         start_armor=None, start_items=None, perk=''):
+    return {
+        'name': name, 'desc': desc, 'tier': tier, 'base': base,
+        'next': tuple(next), 'bonus': dict(bonus or {}),
+        'stats': dict(stats) if stats else None,
+        'weapons': tuple(weapons), 'armor_types': tuple(armor),
+        'effects': dict(effects or {}), 'color': color,
+        'start_weapon': start_weapon, 'start_armor': start_armor,
+        'start_items': dict(start_items or {}), 'perk': perk,
+    }
+
+
+CLASSES = {
+    # ── База ──
+    'warrior': _cls(
+        'Воин', 1, 'warrior',
+        'Крепкий боец. Больше всего STR — сильнейший удар.',
+        (220, 130, 100),
+        next=('squire', 'mercenary', 'fighter'),
+        stats={'str': 8, 'agi': 3, 'vit': 7, 'luk': 3, 'df_stat': 7},
+        weapons=('sword', 'axe', 'mace', 'hammer', 'shield', 'spear',
+                 'halberd', 'greatsword', 'dagger'),
+        armor=('heavy', 'medium', 'light'),
+        start_armor='padded',
+        perk='Универсал ближнего боя: любое тяжёлое оружие и броня.',
+    ),
+    'mage': _cls(
+        'Маг', 1, 'mage',
+        'Повелитель стихий. Много маны и критический удар посохом.',
+        (120, 160, 240),
+        next=('elements', 'nature', 'light', 'dark'),
+        stats={'str': 2, 'agi': 5, 'vit': 4, 'luk': 6, 'df_stat': 4},
+        weapons=('staff', 'book', 'dagger'),
+        armor=('robe',),
+        effects={'mana': 10},
+        start_items={'potion_s': 2},
+        perk='Носит только мантии, но водит посохом и книгой.',
+    ),
+    'rogue': _cls(
+        'Разбойник', 1, 'rogue',
+        'Быстрый и ловкий. Максимальное уклонение.',
+        (140, 200, 130),
+        next=('killer', 'archer', 'pickpocket', 'tracker'),
+        stats={'str': 5, 'agi': 9, 'vit': 4, 'luk': 7, 'df_stat': 3},
+        weapons=('dagger', 'knife', 'sword', 'rapier', 'bow',
+                 'crossbow', 'katana'),
+        armor=('light', 'medium'),
+        start_weapon='dagger',
+        perk='Лёгкая и средняя броня, оружие на любой вкус.',
+    ),
+    'artisan': _cls(
+        'Ремесленник', 1, 'artisan',
+        'Мастер на все руки. Быстрее всех прокачивает навыки создания.',
+        (214, 184, 120),
+        next=('apprentice', 'potionmaker'),
+        stats={'str': 4, 'agi': 5, 'vit': 6, 'luk': 5, 'df_stat': 5},
+        weapons=('hammer', 'mace', 'knife', 'dagger', 'staff'),
+        armor=('light', 'medium'),
+        effects={'craft_xp': 0.1},
+        start_items={'wood': 3, 'stone': 3},
+        perk='Перк «Ремесленник»: +10% опыта создания любых навыков.',
+    ),
+    'default': _cls(
+        'Приключенец', 1, 'default',
+        'Универсальный. 5/5/5/5/5.',
+        (200, 200, 200),
+        stats={'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5},
+        weapons=('sword', 'axe', 'dagger', 'staff', 'bow'),
+        armor=('light', 'medium', 'heavy', 'robe'),
+        perk='Не имеет ограничений по снаряжению.',
+    ),
+
+    # ── Воин: 2-я ступень ──
+    'squire': _cls(
+        'Оруженосец', 2, 'warrior',
+        'Щит и тяжёлая броня. Готовится стать рыцарем или паладином.',
+        (214, 178, 120),
+        next=('knight', 'paladin'),
+        bonus={'vit': 2, 'df_stat': 2},
+        weapons=('sword', 'axe', 'mace', 'shield', 'spear', 'hammer'),
+        armor=('heavy', 'medium'),
+        effects={'hp': 6},
+        perk='Тяжёлая броня и щит.',
+    ),
+    'mercenary': _cls(
+        'Наёмник', 2, 'warrior',
+        'Практик: любое оружие в руках — оружие.',
+        (200, 150, 110),
+        next=('swordmaster', 'merc_captain'),
+        bonus={'str': 2, 'agi': 1},
+        weapons=('sword', 'axe', 'mace', 'hammer', 'spear', 'halberd',
+                 'greatsword', 'shield', 'dagger'),
+        armor=('medium',),
+        effects={'atk': 1},
+        perk='Средняя броня, широкий выбор оружия.',
+    ),
+    'fighter': _cls(
+        'Боец', 2, 'warrior',
+        'Агрессивный боец. Урон важнее защиты.',
+        (230, 140, 90),
+        next=('barbarian', 'berserker'),
+        bonus={'str': 2, 'vit': 1},
+        weapons=('axe', 'greatsword', 'sword', 'fist', 'hammer'),
+        armor=('light',),
+        effects={'atk': 1},
+        perk='Лёгкая броня, максимум урона.',
+    ),
+
+    # ── Воин: 3-я ступень ──
+    'knight': _cls(
+        'Рыцарь', 3, 'warrior',
+        'Танк: много брони и HP, основное оружие — щит.',
+        (235, 205, 120),
+        bonus={'vit': 3, 'df_stat': 3},
+        weapons=('shield', 'sword', 'mace', 'hammer'),
+        armor=('heavy',),
+        effects={'hp': 12, 'df': 2},
+        perk='+12 HP, +2 DEF, щит и тяжёлая броня.',
+    ),
+    'paladin': _cls(
+        'Паладин', 3, 'warrior',
+        'Полу-танк: самоисцеление и бафы. Основное оружие — молот.',
+        (240, 220, 120),
+        bonus={'str': 2, 'vit': 3, 'df_stat': 2},
+        weapons=('hammer', 'mace', 'shield'),
+        armor=('heavy',),
+        effects={'hp': 8, 'lifesteal': 0.05},
+        perk='5% нанесённого урона возвращается в HP.',
+        stats={'str': 6, 'agi': 4, 'vit': 8, 'luk': 3, 'df_stat': 7},
+        start_armor='leather',
+    ),
+    'swordmaster': _cls(
+        'Мастер меча', 3, 'warrior',
+        'Виртуоз клинка. Средняя броня, мечи и двуручники.',
+        (200, 225, 250),
+        bonus={'str': 3, 'agi': 2},
+        weapons=('sword', 'greatsword', 'katana'),
+        armor=('medium',),
+        effects={'atk': 2, 'crit': 0.03},
+        perk='+2 ATK, +3% крит. Только мечи и двуручники.',
+    ),
+    'merc_captain': _cls(
+        'Глава наёмников', 3, 'warrior',
+        'Мульти-оружие: копья, мечи, топоры, алебарды. Любое обычное оружие.',
+        (205, 160, 100),
+        bonus={'str': 2, 'agi': 2, 'vit': 2},
+        weapons=('sword', 'axe', 'mace', 'hammer', 'spear', 'halberd',
+                 'greatsword', 'shield', 'dagger', 'knife', 'rapier'),
+        armor=('medium',),
+        effects={'atk': 1, 'gold_pct': 0.15, 'plain_weapons': 1},
+        perk='+15% золота; может носить любое оружие без «+».',
+    ),
+    'barbarian': _cls(
+        'Варвар', 3, 'warrior',
+        'ДПС-дилер: звериная ярость, топоры и лёгкая броня.',
+        (220, 110, 80),
+        bonus={'str': 4, 'vit': 1},
+        weapons=('axe', 'greatsword'),
+        armor=('light',),
+        effects={'atk': 2, 'rage': 0.3},
+        perk='Ярость: +30% урона, когда HP ниже 50%.',
+    ),
+    'berserker': _cls(
+        'Берсерк', 3, 'warrior',
+        'Скорость атаки растёт по мере потери здоровья.',
+        (240, 90, 80),
+        bonus={'str': 3, 'agi': 3},
+        weapons=('fist', 'axe', 'sword'),
+        armor=('light',),
+        effects={'atk': 1, 'frenzy': 0.5},
+        perk='Чем меньше HP, тем быстрее атака (до +50%).',
+    ),
+
+    # ── Маг: 2-я ступень ──
+    'elements': _cls(
+        'Школа Стихий', 2, 'mage',
+        'Огонь, вода, молния, земля и воздух. Выбери стихию.',
+        (140, 170, 250),
+        next=('fire_mage', 'water_mage', 'lightning_mage',
+              'earth_mage', 'air_mage'),
+        bonus={'str': 1, 'luk': 2},
+        weapons=('staff',),
+        armor=('robe',),
+        effects={'mana': 15},
+        start_items={'scroll_fireball': 1},
+        perk='Посох и мантия. +15 маны.',
+    ),
+    'nature': _cls(
+        'Школа Природы', 2, 'mage',
+        'Духи леса и их призыв.',
+        (140, 200, 130),
+        next=('druid',),
+        bonus={'vit': 2, 'luk': 1},
+        weapons=('staff',),
+        armor=('robe',),
+        effects={'hp': 6, 'summon': 1},
+        perk='Дух-спутник помогает в бою.',
+    ),
+    'light': _cls(
+        'Школа Света', 2, 'mage',
+        'Исцеление и бафы союзников.',
+        (245, 235, 170),
+        next=('cleric',),
+        bonus={'vit': 2, 'df_stat': 1},
+        weapons=('book',),
+        armor=('robe',),
+        effects={'hp': 8},
+        perk='Книга и мантия. Больше HP.',
+    ),
+    'dark': _cls(
+        'Школа Тьмы', 2, 'mage',
+        'Проклятия и поднятие павших.',
+        (170, 120, 220),
+        next=('necromancer',),
+        bonus={'luk': 2, 'vit': 1},
+        weapons=('book',),
+        armor=('robe',),
+        effects={'atk': 1, 'mana': 10},
+        perk='Книга и мантия. Тёмная сила.',
+    ),
+
+    # ── Маг: 3-я ступень ──
+    'fire_mage': _cls(
+        'Маг Огня', 3, 'mage', 'Заклинания огня и испепеляющий посох.',
+        (255, 130, 60), bonus={'luk': 3, 'str': 2},
+        weapons=('staff',), armor=('robe',),
+        effects={'atk': 3, 'mana': 20},
+        perk='+3 ATK посохом, +20 маны.',
+    ),
+    'water_mage': _cls(
+        'Маг Воды', 3, 'mage', 'Вода и лёд: замедление врагов.',
+        (110, 170, 255), bonus={'luk': 3, 'str': 2},
+        weapons=('staff',), armor=('robe',),
+        effects={'atk': 2, 'mana': 25, 'slow_hit': 0.15},
+        perk='Атаки иногда замедляют врага.',
+    ),
+    'lightning_mage': _cls(
+        'Маг Молнии', 3, 'mage', 'Молнии бьют быстро и больно.',
+        (230, 230, 120), bonus={'luk': 3, 'agi': 2},
+        weapons=('staff',), armor=('robe',),
+        effects={'atk': 2, 'crit': 0.05, 'mana': 20},
+        perk='+5% крит, +20 маны.',
+    ),
+    'earth_mage': _cls(
+        'Маг Земли', 3, 'mage', 'Каменная кожа и тяжёлые удары.',
+        (180, 150, 100), bonus={'luk': 2, 'vit': 3},
+        weapons=('staff',), armor=('robe',),
+        effects={'atk': 2, 'df': 3, 'mana': 20},
+        perk='+3 DEF, +20 маны.',
+    ),
+    'air_mage': _cls(
+        'Маг Воздуха', 3, 'mage', 'Ветер: скорость и уклонение.',
+        (200, 230, 240), bonus={'luk': 2, 'agi': 3},
+        weapons=('staff',), armor=('robe',),
+        effects={'dodge': 0.06, 'move_speed': 0.15, 'mana': 20},
+        perk='+6% уклонения, быстрее ход.',
+    ),
+    'druid': _cls(
+        'Друид', 3, 'mage', 'Духи атакуют врагов и бафают союзников.',
+        (150, 210, 140), bonus={'vit': 3, 'luk': 2},
+        weapons=('staff',), armor=('robe',),
+        effects={'hp': 10, 'summon': 1, 'mana': 20},
+        perk='Дух-спутник и +10 HP.',
+    ),
+    'cleric': _cls(
+        'Клирик', 3, 'mage', 'Лечение себя и союзников, бафы.',
+        (250, 240, 190), bonus={'vit': 3, 'df_stat': 2},
+        weapons=('book',), armor=('robe',),
+        effects={'hp': 12, 'lifesteal': 0.04, 'mana': 20},
+        perk='4% вампиризма, +12 HP.',
+    ),
+    'necromancer': _cls(
+        'Некромант', 3, 'mage', 'Проклятья и поднятые союзники.',
+        (170, 110, 210), bonus={'luk': 3, 'vit': 1},
+        weapons=('book',), armor=('robe',),
+        effects={'atk': 2, 'summon': 1, 'mana': 25},
+        perk='Слуга-нежить, +25 маны.',
+    ),
+
+    # ── Разбойник: 2-я ступень ──
+    'killer': _cls(
+        'Убийца', 2, 'rogue', 'Кинжалы, лёгкие мечи и лёгкая броня.',
+        (170, 140, 240), next=('assassin', 'ninja'),
+        bonus={'agi': 2, 'str': 1},
+        weapons=('dagger', 'knife', 'sword'), armor=('light',),
+        effects={'crit': 0.03},
+        start_weapon='dagger',
+        perk='+3% крит.',
+    ),
+    'archer': _cls(
+        'Лучник', 2, 'rogue', 'Луки и арбалеты.',
+        (170, 210, 140), next=('ranger', 'hunter'),
+        bonus={'agi': 2, 'luk': 1},
+        weapons=('bow', 'crossbow', 'dagger'), armor=('light',),
+        effects={'atk': 1},
+        start_weapon='bow',
+        perk='Стрелковое оружие.',
+    ),
+    'pickpocket': _cls(
+        'Карманник', 2, 'rogue', 'Больше золота с мобов.',
+        (200, 190, 120), next=('thief',),
+        bonus={'agi': 2, 'luk': 2},
+        weapons=('knife', 'dagger'), armor=('light',),
+        effects={'gold_pct': 0.15},
+        perk='+15% золота с побеждённых.',
+        start_weapon='knife',
+    ),
+    'tracker': _cls(
+        'Ищейка', 2, 'rogue', 'Больше золота и опыта за задания, дальний обзор.',
+        (180, 170, 140), next=('bounty_hunter',),
+        bonus={'agi': 1, 'luk': 2},
+        weapons=('rapier', 'sword'), armor=('light',),
+        effects={'quest_gold': 0.2, 'quest_xp': 0.2, 'fov': 1},
+        perk='+20% награды за задания, +1 обзор.',
+        start_weapon='rapier',
+    ),
+
+    # ── Разбойник: 3-я ступень ──
+    'assassin': _cls(
+        'Ассасин', 3, 'rogue', 'ДПС: кинжалы и лёгкие мечи, лёгкая броня.',
+        (160, 130, 240),
+        bonus={'agi': 2, 'luk': 2},
+        weapons=('dagger', 'sword', 'knife'), armor=('light',),
+        effects={'crit': 0.05},
+        perk='+5% крит. Смертоносный и хрупкий.',
+        stats={'str': 3, 'agi': 7, 'vit': 4, 'luk': 9, 'df_stat': 4},
+        start_weapon='dagger',
+    ),
+    'ninja': _cls(
+        'Ниндзя', 3, 'rogue', 'Катаны и скорость.',
+        (120, 120, 140),
+        bonus={'agi': 4, 'luk': 3},
+        weapons=('katana', 'sword'), armor=('light',),
+        effects={'dodge': 0.05, 'atk': 1, 'move_speed': 0.1},
+        perk='+5% уклонения, быстрее ход.',
+    ),
+    'ranger': _cls(
+        'Рейнджер', 3, 'rogue', 'ДПС из луков и арбалетов.',
+        (150, 220, 140),
+        bonus={'agi': 3, 'luk': 2},
+        weapons=('bow', 'crossbow'), armor=('light',),
+        effects={'atk': 2, 'crit': 0.03},
+        perk='+2 ATK, +3% крит.',
+    ),
+    'hunter': _cls(
+        'Охотник', 3, 'rogue', 'Орёл или волк сражается рядом.',
+        (190, 200, 130),
+        bonus={'agi': 2, 'luk': 2, 'vit': 1},
+        weapons=('bow', 'crossbow'), armor=('light',),
+        effects={'atk': 1, 'summon': 1, 'hp': 4},
+        perk='Спутник-зверь и +4 HP.',
+    ),
+    'thief': _cls(
+        'Вор', 3, 'rogue', 'Золото и лут с мобов.',
+        (230, 200, 110),
+        bonus={'agi': 3, 'luk': 3},
+        weapons=('dagger', 'knife'), armor=('light',),
+        effects={'gold_pct': 0.25},
+        perk='+25% золота с побеждённых.',
+    ),
+    'bounty_hunter': _cls(
+        'Охотник за головами', 3, 'rogue', 'Награды за доски поручений и убийства.',
+        (210, 180, 130),
+        bonus={'agi': 3, 'luk': 3},
+        weapons=('rapier', 'sword'), armor=('light',),
+        effects={'quest_gold': 0.4, 'quest_xp': 0.4, 'fov': 1},
+        perk='+40% награды за задания, +1 обзор.',
+    ),
+
+    # ── Ремесленник: 2-я ступень ──
+    'apprentice': _cls(
+        'Подмастерье', 2, 'artisan',
+        'Мини-игра при создании вещей. x1,25 опыта кузнечного дела и инженерии.',
+        (214, 190, 130),
+        next=('blacksmith', 'magic_engineer'),
+        bonus={'vit': 2},
+        weapons=('hammer', 'knife', 'staff'),
+        armor=('light', 'medium'),
+        effects={'smithing_xp': 0.25, 'engineering_xp': 0.25,
+                 'craft_quality': 1},
+        perk='Мини-игра качества, x1,25 опыта создания.',
+    ),
+    'potionmaker': _cls(
+        'Зельевар', 2, 'artisan',
+        'Мини-игра при варке зелий. x1,5 опыта алхимии.',
+        (170, 210, 150),
+        next=('alchemist', 'herbalist'),
+        bonus={'luk': 2},
+        weapons=('knife', 'dagger'),
+        armor=('light',),
+        effects={'alchemy_xp': 0.5, 'craft_quality': 1},
+        perk='Мини-игра качества, x1,5 опыта алхимии.',
+    ),
+
+    # ── Ремесленник: 3-я ступень ──
+    'blacksmith': _cls(
+        'Кузнец', 3, 'artisan',
+        'Оружие и броня. До 3 дополнительных характеристик на предмет.',
+        (220, 160, 110),
+        bonus={'str': 2, 'vit': 3},
+        weapons=('hammer', 'knife'), armor=('medium',),
+        effects={'smithing_xp': 1.5, 'craft_quality': 1, 'extra_stats': 3},
+        perk='x2,5 опыта ковки; +характеристики на крафт.',
+    ),
+    'magic_engineer': _cls(
+        'Магический инженер', 3, 'artisan',
+        'Руны и свитки. x2,5 опыта магической инженерии.',
+        (150, 190, 230),
+        bonus={'luk': 3, 'vit': 1},
+        weapons=('staff', 'knife'), armor=('light',),
+        effects={'engineering_xp': 1.5, 'craft_quality': 1},
+        perk='x2,5 опыта инженерии.',
+    ),
+    'alchemist': _cls(
+        'Алхимик', 3, 'artisan',
+        'Зелья баффов: сила, ловкость, каменная кожа, скорость, проворность.',
+        (190, 150, 220),
+        bonus={'luk': 3, 'agi': 1},
+        weapons=('knife', 'dagger'), armor=('light',),
+        effects={'alchemy_xp': 1.5, 'craft_quality': 1},
+        perk='x2,5 опыта алхимии, зелья баффов.',
+    ),
+    'herbalist': _cls(
+        'Знахарь', 3, 'artisan',
+        'Лучшие зелья восстановления и яды. x2,5 опыта алхимии.',
+        (140, 200, 150),
+        bonus={'luk': 2, 'vit': 2},
+        weapons=('knife', 'dagger'), armor=('light',),
+        effects={'alchemy_xp': 1.5, 'craft_quality': 1},
+        perk='x2,5 опыта алхимии, яды.',
+    ),
+}
+
+# Стартовые классы (порядок выбора в меню).
+CLASS_ORDER = ('warrior', 'mage', 'rogue', 'artisan')
+# Совместимость со старыми сейвами и тестами.
+CLASS_ALIASES = {'assassin': 'assassin', 'paladin': 'paladin'}
+
+
+def class_data(class_key):
+    """Данные класса с подстановкой базового при неизвестном ключе."""
+    return CLASSES.get(class_key) or CLASSES.get('default', {})
+
+
+def class_stats(class_key):
+    """Полные характеристики класса (для превью в меню)."""
+    cls = class_data(class_key)
+    if cls.get('stats'):
+        return dict(cls['stats'])
+    base = CLASSES.get(cls.get('base', 'default')) or CLASSES['default']
+    stats = dict(base.get('stats') or {'str': 5, 'agi': 5, 'vit': 5,
+                                       'luk': 5, 'df_stat': 5})
+    for name, value in (cls.get('bonus') or {}).items():
+        stats[name] = stats.get(name, 0) + value
+    return stats
+
+
+def class_can_use(class_key, full_key):
+    """Может ли класс носить предмет. Возвращает (можно, причина)."""
+    cls = class_data(class_key)
+    base, rarity = parse_item_key(full_key)
+    item = ITEMS.get(base)
+    if not item:
+        return True, ''
+    req = item.get('class_req')
+    if req:
+        if class_key in req:
+            return True, ''
+        names = ', '.join(CLASSES[k]['name'] for k in req if k in CLASSES)
+        return False, f"класс: {names}"
+    wtype = item.get('wtype')
+    if wtype and wtype not in cls.get('weapons', ()):
+        # Глава наёмников носит любое обычное оружие без «+».
+        if cls.get('effects', {}).get('plain_weapons') and rarity == 0:
+            return True, ''
+        return False, f"оружие: {WCLASS_NAMES.get(wtype, wtype)}"
+    atype = item.get('armor_type')
+    if atype and atype not in cls.get('armor_types', ()):
+        return False, f"броня: {ARMOR_TYPE_NAMES.get(atype, atype)}"
+    return True, ''
 
 
 # ════════════════════ РЕДКОСТЬ ════════════════════
@@ -400,23 +1127,34 @@ def make_shop_stock(depth):
                    3: ['greatsword', 'warhammer']}[tier]
     armor_pool = {1: ['padded', 'leather'], 2: ['chain', 'scale'],
                   3: ['plate', 'mithril']}[tier]
+    helm_pool = {1: ['leather_cap'], 2: ['iron_helm'],
+                 3: ['steel_helm']}[tier]
+    legs_pool = {1: ['leather_legs'], 2: ['chain_legs'],
+                 3: ['plate_legs']}[tier]
 
     add(potion_key, 5 * tier)
     add(potion_key, 5 * tier)
+    if tier >= 2:
+        add('mana_m' if tier >= 3 else 'mana_s', 4 * tier)
     wk = random.choice(weapon_pool)
     ak = random.choice(armor_pool)
     wr = roll_rarity()
     ar = roll_rarity()
     add(make_loot_key(wk, wr), 15 * tier + wr * 10)
     add(make_loot_key(ak, ar), 12 * tier + ar * 10)
+    add(helm_pool[0], 8 * tier)
+    add(legs_pool[0], 8 * tier)
     return stock
 
 
 # ════════════════════ ДРОП ════════════════════
 MONSTER_DROPS = {
-    'r': [('gold_small', 0.60), ('mushroom', 0.25), ('rat_tail', 0.30)],
-    'g': [('gold_small', 0.70), ('wood', 0.25), ('goblin_ear', 0.25)],
-    'a': [('gold_small', 0.55), ('wood', 0.25), ('goblin_ear', 0.30)],
+    'r': [('gold_small', 0.60), ('mushroom', 0.25), ('rat_tail', 0.30),
+          ('hide', 0.35)],
+    'g': [('gold_small', 0.70), ('wood', 0.25), ('goblin_ear', 0.25),
+          ('hide', 0.30)],
+    'a': [('gold_small', 0.55), ('wood', 0.25), ('goblin_ear', 0.30),
+          ('hide', 0.25)],
     's': [('gold_medium', 0.45), ('stone', 0.30), ('bone', 0.45)],
     'S': [('gold_medium', 0.40), ('mushroom', 0.30), ('goblin_ear', 0.35)],
     'O': [('gold_medium', 0.55), ('ore', 0.20), ('orc_tusk', 0.25)],

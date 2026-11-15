@@ -132,7 +132,9 @@ class ScreensRenderer(BaseRenderer):
         y = T.section(self.screen, cx0, y, cw, "Экипировка")
         from core.data import ITEMS, parse_item_key, item_display_name, item_display_color
         for label, key, stat in (("Оружие", p.weapon, "ATK"),
-                                 ("Броня", p.armor, "DEF")):
+                                 ("Броня", p.armor, "DEF"),
+                                 ("Шлем", getattr(p, 'helmet', None), "DEF"),
+                                 ("Поножи", getattr(p, 'leggings', None), "DEF")):
             if key:
                 base, lvl = parse_item_key(key)
                 it = ITEMS.get(base, {})
@@ -210,31 +212,28 @@ class ScreensRenderer(BaseRenderer):
         y = T.section(self.screen, cx0, y, cw, "Снаряжение")
 
         row_w = cw
-        if p.weapon:
-            rect = (cx0, y, row_w, 32)
-            if self._in_rect(rect, (mx, my)):
-                T.rounded_rect(self.screen, T.ROW_HOVER,
-                               (cx0 - 6, y - 2, row_w + 12, 36),
-                               radius=6, border_color=T.ROW_BORDER)
-                hovered = ('equip', p.weapon)
-            self._draw_equip(cx0 + 4, y, "Оружие", p.weapon, "U", "ATK")
-            game._ui_hits['inventory']['equip'].append(('weapon', rect))
-        else:
-            self.text("  Оружие: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
-        y += 36
-
-        if p.armor:
-            rect = (cx0, y, row_w, 32)
-            if self._in_rect(rect, (mx, my)):
-                T.rounded_rect(self.screen, T.ROW_HOVER,
-                               (cx0 - 6, y - 2, row_w + 12, 36),
-                               radius=6, border_color=T.ROW_BORDER)
-                hovered = ('equip', p.armor)
-            self._draw_equip(cx0 + 4, y, "Броня", p.armor, "V", "DEF")
-            game._ui_hits['inventory']['equip'].append(('armor', rect))
-        else:
-            self.text("  Броня: —", cx0, y + 6, T.TEXT_MUTED, font=T.FONT_SMALL)
-        y += 44
+        equip_rows = (
+            ('weapon', "Оружие", "U", "ATK"),
+            ('armor', "Броня", "V", "DEF"),
+            ('helmet', "Шлем", "B", "DEF"),
+            ('leggings', "Поножи", "N", "DEF"),
+        )
+        for slot, label, hotkey, stat in equip_rows:
+            key = getattr(p, slot, None)
+            if key:
+                rect = (cx0, y, row_w, 28)
+                if self._in_rect(rect, (mx, my)):
+                    T.rounded_rect(self.screen, T.ROW_HOVER,
+                                   (cx0 - 6, y - 2, row_w + 12, 32),
+                                   radius=6, border_color=T.ROW_BORDER)
+                    hovered = ('equip', key)
+                self._draw_equip(cx0 + 4, y, label, key, hotkey, stat)
+                game._ui_hits['inventory']['equip'].append((slot, rect))
+            else:
+                self.text(f"  {label}: —", cx0, y + 4, T.TEXT_MUTED,
+                          font=T.FONT_SMALL)
+            y += 32
+        y += 12
 
         y = T.section(self.screen, cx0, y, cw, "Рюкзак")
         items = sorted(p.inventory.items())
@@ -311,6 +310,9 @@ class ScreensRenderer(BaseRenderer):
         color = item_display_color(key)
         if lvl_req > 1 and player_level < lvl_req:
             color = T.HP_CRIT
+        from core.data import class_can_use
+        if not class_can_use(game.player.class_key, key)[0]:
+            color = T.HP_CRIT
         label = self.fit_text(item_display_name(key), w - 14, T.FONT_SMALL)
         self.text(label, x + w // 2, y + h - 22, color,
                   font=T.FONT_SMALL, center=True)
@@ -351,12 +353,16 @@ class ScreensRenderer(BaseRenderer):
             ok = game.player.level >= lvl_req
             lines.append((f"Требуется уровень {lvl_req}",
                           T.TEXT_DIM if ok else T.HP_CRIT, T.FONT_SMALL))
+        from core.data import class_can_use
+        can_use, why = class_can_use(game.player.class_key, key)
+        if not can_use:
+            lines.append((f"Класс не может: {why}", T.HP_CRIT, T.FONT_SMALL))
         if kind == 'equip':
             stat = "ATK" if it.get('type') == 'weapon' else "DEF"
             bonus = it.get('value', 0) + parse_item_key(key)[1]
             if bonus:
                 lines.append((f"+{bonus} {stat}", T.HEAL, T.FONT_SMALL))
-        elif it.get('type') in ('weapon', 'armor'):
+        elif it.get('type') in ('weapon', 'armor', 'helmet', 'leggings'):
             deltas = self.compare_item(game, key, it['type'])
             dt, dc = self.format_delta(deltas)
             if dt:
@@ -455,7 +461,7 @@ class ScreensRenderer(BaseRenderer):
             self.text(f"{price} з.", self._modal_right(game), y + 4,
                       T.GOLD if can_afford else T.TEXT_MUTED, align_right=True)
             self.text(it.get('desc', ''), x0 + 36, y + 24, T.TEXT_MUTED, font=T.FONT_TINY)
-            if it.get('type') in ('weapon', 'armor'):
+            if it.get('type') in ('weapon', 'armor', 'helmet', 'leggings'):
                 deltas = self.compare_item(game, key, it['type'])
                 dt, dc = self.format_delta(deltas)
                 if dt:
@@ -497,34 +503,232 @@ class ScreensRenderer(BaseRenderer):
                       self._modal_right(game), y + 6, T.TEXT_DIM,
                       font=T.FONT_SMALL, align_right=True)
 
+    # ════════════════════════ ДРЕВО НАВЫКОВ ════════════════════════
+    def draw_skills(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core import skills as sk
+        from core.data import class_data
+        p = game.player
+        ctrl = game.skills_ui
+        game._ui_hits['skills'] = {'tabs': [], 'rows': [], 'promotion': []}
+
+        cls = class_data(p.class_key)
+        self.text("ДРЕВО НАВЫКОВ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
+        self.text(f"{p.class_name} · Уровень {p.level}",
+                  self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
+        if p.skill_points:
+            T.badge(self.screen, cx0, cy0 + 34, f"● {p.skill_points} очков навыков",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+
+        y = cy0 + 66
+        y, tabs = self._draw_tabs(game, sk.TABS, ctrl.tab, cx0, y, cw,
+                                  'skills')
+        game._ui_hits['skills']['tabs'] = tabs
+
+        if ctrl.tab == sk.TAB_CLASS:
+            self._draw_class_tab(game, cx0, y, cw, ch, cls, ctrl,
+                                 sk, class_data)
+        else:
+            self._draw_craft_tab(game, cx0, y, cw, ch, ctrl, sk)
+
+        hints = "↑/↓ — выбор · Enter — изучить · Q/E — вкладки · N/Esc — закрыть"
+        self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+
+    def _draw_class_tab(self, game, x, y, cw, ch, cls, ctrl, sk, class_data):
+        p = game.player
+        perk = cls.get('perk', '')
+        if perk:
+            self.text(self.fit_text(perk, cw, T.FONT_SMALL), x, y,
+                      (200, 180, 130), font=T.FONT_SMALL)
+            y += 26
+
+        # ── Смена класса ──
+        options = ctrl.promotion_options()
+        req = ctrl.change_class_requirement()
+        if options:
+            ready = req is not None and p.level >= req
+            title = "Смена класса"
+            if req is not None and not ready:
+                title += f" (с {req} уровня)"
+            self.text(title, x, y, T.TITLE if ready else T.TEXT_MUTED,
+                      font=T.FONT_H2)
+            y += 26
+            bx = x
+            for i, key in enumerate(options):
+                name = class_data(key).get('name', key)
+                w = max(120, T.FONT_SMALL.size(name)[0] + 26)
+                rect = (bx, y, w, 28)
+                hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
+                T.rounded_rect(self.screen, T.ROW_HOVER if hover else
+                               (32, 28, 22), rect, radius=6,
+                               border_color=T.TITLE if ready else
+                               T.PANEL_BORDER_DARK)
+                self.text(f"{i + 1}. {name}", bx + 10, y + 5,
+                          T.TITLE_LIGHT if ready else T.TEXT_MUTED,
+                          font=T.FONT_SMALL)
+                game._ui_hits['skills']['promotion'].append((i, rect))
+                bx += w + 8
+            y += 38
+
+        # ── Узлы ──
+        nodes = ctrl.rows()
+        row_h = 46
+        for i, node in enumerate(nodes):
+            if y + row_h > ch + 20:
+                break
+            rect = (x, y, cw, row_h - 6)
+            selected = i == ctrl.selection
+            if selected:
+                T.rounded_rect(self.screen, T.ROW_HOVER, rect, radius=6,
+                               border_color=T.ROW_BORDER)
+            state = node.get('state')
+            color = {
+                'learned': (120, 220, 120),
+                'available': (240, 210, 90),
+                'level': T.TEXT_MUTED,
+                'points': (200, 160, 120),
+            }.get(state, T.TEXT)
+            mark = {'learned': '✓', 'available': '+', 'level': '×',
+                    'points': '●'}.get(state, '·')
+            self.text(f"{mark}  {node['name']}", x + 10, y + 4, color,
+                      font=T.FONT_BODY)
+            self.text(f"ур. {node['level']}", x + 300, y + 6,
+                      T.GOLD if p.level >= node['level'] else T.HP_CRIT,
+                      font=T.FONT_SMALL)
+            effects = sk.describe_effects(node.get('effects', {}))
+            self.text(effects or "—", x + 390, y + 6, T.TEXT_DIM,
+                      font=T.FONT_SMALL)
+            game._ui_hits['skills']['rows'].append((i, rect))
+            y += row_h
+
+    def _draw_craft_tab(self, game, x, y, cw, ch, ctrl, sk):
+        p = game.player
+        tab = ctrl.tab
+        level, need, ratio = sk.tab_progress(p, tab)
+        T.section(self.screen, x, y, cw, sk.TAB_NAMES.get(tab, tab))
+        y += 28
+        T.bar(self.screen, (x, y, 280, 12), ratio, (120, 180, 110))
+        label = f"Уровень {level} / {sk.SKILL_CAP}"
+        if need:
+            label += f" · {sk.craft_xp(p, tab)}/{need}"
+        self.text(label, x + 294, y - 2, T.TEXT_DIM, font=T.FONT_SMALL)
+        y += 26
+        desc = sk.CRAFT_TREES.get(tab, {}).get('desc', '')
+        if desc:
+            self.text(desc, x, y, T.TEXT_MUTED, font=T.FONT_TINY)
+            y += 22
+
+        nodes = sk.craft_tree(tab)
+        row_h = 40
+        for i, node in enumerate(nodes):
+            if y + row_h > ch + 30:
+                break
+            rect = (x, y, cw, row_h - 6)
+            selected = i == ctrl.selection
+            if selected:
+                T.rounded_rect(self.screen, T.ROW_HOVER, rect, radius=6,
+                               border_color=T.ROW_BORDER)
+            unlocked = level >= node['level']
+            mark = '✓' if unlocked else '×'
+            color = (120, 220, 120) if unlocked else T.TEXT_MUTED
+            self.text(f"{mark}  {node['name']}", x + 10, y + 4, color,
+                      font=T.FONT_BODY)
+            self.text(f"ур. {node['level']}", x + 300, y + 6,
+                      T.GOLD if unlocked else T.HP_CRIT, font=T.FONT_SMALL)
+            effects = sk.describe_effects(node.get('effects', {}))
+            if effects:
+                self.text(effects, x + 390, y + 6, T.TEXT_DIM,
+                          font=T.FONT_SMALL)
+            recipes = sk.recipes_for_level(tab, node['level'])
+            if recipes:
+                names = ', '.join(r[1].get('name', r[0]) for r in recipes)
+                self.text(self.fit_text("Рецепты: " + names, cw - 520,
+                                        T.FONT_TINY),
+                          x + 390, y + 20, T.TEXT_MUTED, font=T.FONT_TINY)
+            game._ui_hits['skills']['rows'].append((i, rect))
+            y += row_h
+
     # ════════════════════════ КРАФТ ════════════════════════
+    def _draw_tabs(self, game, tabs, active, x, y, cw, prefix):
+        """Общий ряд вкладок. Возвращает (новый_y, hits)."""
+        from core import skills as sk
+        hits = []
+        tab_w = min(200, (cw - 8 * (len(tabs) - 1)) // max(1, len(tabs)))
+        tx = x
+        for tab in tabs:
+            rect = (tx, y, tab_w, 30)
+            is_active = tab == active
+            hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
+            bg = T.ROW_HOVER if is_active or hover else (30, 27, 21)
+            border = T.TITLE if is_active else T.PANEL_BORDER
+            T.rounded_rect(self.screen, bg, rect, radius=6,
+                           border_color=border)
+            self.text(sk.TAB_SHORT.get(tab, tab), tx + tab_w // 2,
+                      y + 6, T.TITLE_LIGHT if is_active else T.TEXT_DIM,
+                      font=T.FONT_SMALL, center=True)
+            hits.append((tab, rect))
+            tx += tab_w + 8
+        return y + 40, hits
+
     def draw_craft(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core.config import HAMMER_SIZE
-        game._ui_hits['craft'] = {'hammer': []}
+        from core import skills as sk
+        game._ui_hits['craft'] = {'hammer': [], 'tabs': []}
 
         self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"Уровень {game.player.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
-        y = cy0 + 56
-        y = T.section(self.screen, cx0, y, cw, "Рецепты")
+        y = cy0 + 52
+        y, tabs = self._draw_tabs(game, sk.CRAFT_TABS, game.craft.tab,
+                                  cx0, y, cw, 'craft')
+        game._ui_hits['craft']['tabs'] = tabs
+
+        level, need, ratio = sk.tab_progress(game.player, game.craft.tab)
+        quality_bonus = sk.craft_quality_bonus(game.player)
+        T.section(self.screen, cx0, y, cw, sk.TAB_NAMES.get(
+            game.craft.tab, game.craft.tab))
+        y += 28
+        T.bar(self.screen, (cx0, y, 260, 12), ratio, (120, 180, 110))
+        progress = f"Ур. {level}"
+        if need:
+            progress += f" · {sk.craft_xp(game.player, game.craft.tab)}/{need}"
+        self.text(progress, cx0 + 272, y - 2, T.TEXT_DIM, font=T.FONT_SMALL)
+        if quality_bonus:
+            self.text(f"качество +{quality_bonus}", self._modal_right(game),
+                      y - 2, (240, 210, 90), font=T.FONT_SMALL,
+                      align_right=True)
+        y += 28
+
+        if game.craft.minigame_active:
+            self._draw_minigame(game, cx0, y, cw)
+            return
 
         recipes = game.craftable_list()
         if not recipes:
-            self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
+            self.text("  (нет рецептов этой ветки)", cx0, y, T.TEXT_MUTED,
+                      font=T.FONT_SMALL)
             return
         for i, (key, it, recipe, can) in enumerate(recipes[:8]):
             lvl_req = it.get('level_req', 1)
             lvl_ok = game.player.level >= lvl_req
-            can_full = can and lvl_ok
+            skill_req = int(it.get('skill_req', 1))
+            skill_ok = level >= skill_req
+            can_full = can and lvl_ok and skill_ok
             color = T.HEAL if can_full else T.TEXT_MUTED
             row_y = y
 
             self.icons.draw_item(key, cx0, row_y, size=28)
             self.text(item_display_name(key), cx0 + 36, row_y + 4, color)
-            self.text(f"Ур.{lvl_req}", cx0 + 300, row_y + 4,
-                      T.GOLD if lvl_ok else T.HP_CRIT, font=T.FONT_SMALL)
+            req_text = f"Ур.{lvl_req}"
+            if skill_req > 1:
+                req_text += f" · навык {skill_req}"
+            self.text(req_text, cx0 + 280, row_y + 4,
+                      (T.GOLD if lvl_ok else T.HP_CRIT) if skill_ok
+                      else T.HP_CRIT, font=T.FONT_SMALL)
             y += 22
 
             ix = cx0 + 36
@@ -540,7 +744,8 @@ class ScreensRenderer(BaseRenderer):
             hx = self._modal_right(game) - HAMMER_SIZE + 4
             hy = row_y
             mx, my = game.mouse_pos
-            hover = (hx <= mx <= hx + HAMMER_SIZE and hy <= my <= hy + HAMMER_SIZE)
+            hover = (hx <= mx <= hx + HAMMER_SIZE
+                     and hy <= my <= hy + HAMMER_SIZE)
             bg_h = (60, 90, 60) if (can_full and hover) else \
                 (40, 70, 40) if can_full else (40, 40, 50)
             border_h = (120, 170, 104) if can_full else (78, 66, 48)
@@ -552,6 +757,35 @@ class ScreensRenderer(BaseRenderer):
             game._ui_hits['craft']['hammer'].append(
                 (i, (hx, hy, HAMMER_SIZE, HAMMER_SIZE)))
             y += 26
+
+        hints = "Q/E — вкладки · 1–8 — создать · K/Esc — закрыть"
+        if sk.has_craft_minigame(game.player, game.craft.tab):
+            hints = "Создание запускает мини-игру качества. " + hints
+        self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+
+    def _draw_minigame(self, game, x, y, cw):
+        mg = game.craft.minigame
+        item_key = mg['key'] if mg else ''
+        self.text("МИНИ-ИГРА КАЧЕСТВА", x, y, T.TITLE, font=T.FONT_H2)
+        y += 30
+        self.text(f"Создаётся: {item_display_name(item_key)}", x, y,
+                  T.TEXT, font=T.FONT_BODY)
+        y += 30
+        bar = (x, y, cw - 20, 26)
+        T.rounded_rect(self.screen, (28, 26, 20), bar, radius=6,
+                       border_color=T.PANEL_BORDER)
+        # Зелёная зона точности по центру
+        zx = x + int((cw - 20) * 0.35)
+        zw = int((cw - 20) * 0.30)
+        T.rounded_rect(self.screen, (52, 96, 52), (zx, y + 2, zw, 22),
+                       radius=4, border_color=(120, 200, 120))
+        pos = x + int((cw - 20) * mg['pos']) if mg else x
+        pygame.draw.line(self.screen, (250, 240, 180),
+                         (pos, y - 6), (pos, y + 32), 3)
+        y += 40
+        self.text("Пробел / клик — остановить в зелёной зоне. Esc — отмена.",
+                  x + cw // 2, y, T.TEXT_DIM, font=T.FONT_SMALL, center=True)
 
     # ════════════════════════ ДИАЛОГ ════════════════════════
     def draw_dialogue(self, game):

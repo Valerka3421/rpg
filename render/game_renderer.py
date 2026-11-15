@@ -440,18 +440,37 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
                                 bar_rect[1] + 4))
         self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
-        self.text(f"Ур.{p.level}", x, y + 32, T.TEXT, font=T.FONT_BODY)
-        xp_rect = (x + 70, y + 36, 160, 10)
+
+        # Мана
+        max_mana = max(1, getattr(p, 'max_mana', 0))
+        mana = getattr(p, 'mana', 0)
+        self.text("MP", x, y + 30, (120, 160, 255), font=T.FONT_SMALL)
+        mana_rect = (x + 30, y + 27, 180, 12)
+        T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
+              bg_color=(20, 24, 48))
+        self.text(f"{mana}/{max_mana}", x + 214, y + 28, (140, 170, 255),
+                  font=T.FONT_TINY)
+        self.text(getattr(p, 'class_name', 'Приключенец'), x + 250, y + 26,
+                  T.TEXT_DIM, font=T.FONT_SMALL)
+
+        self.text(f"Ур.{p.level}", x, y + 48, T.TEXT, font=T.FONT_BODY)
+        xp_rect = (x + 70, y + 52, 160, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
-        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 32, T.XP, font=T.FONT_SMALL)
-        self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
-        self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
+        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 48, T.XP, font=T.FONT_SMALL)
+        self.text(f"ATK {p.atk}", x, y + 74, T.TEXT, font=T.FONT_BODY)
+        self.text(f"DEF {p.df}", x + 100, y + 74, T.TEXT, font=T.FONT_BODY)
         loc = "Открытый мир" if game.world_mode == 'overworld' \
               else f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
+        self.text(loc, x + 200, y + 74, T.TEXT_DIM, font=T.FONT_SMALL)
+        badge_y = y + 98
         if p.free_points > 0:
-            T.badge(self.screen, x, y + 94, f"● {p.free_points} очков (C)",
+            T.badge(self.screen, x, badge_y, f"● {p.free_points} очков (C)",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+            badge_y += 24
+        if getattr(p, 'skill_points', 0) > 0:
+            T.badge(self.screen, x, badge_y,
+                    f"● {p.skill_points} навыков (N)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
                   x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
@@ -477,6 +496,7 @@ class GameRenderer(BaseRenderer):
             'inventory': 'Инв',
             'craft': 'Крафт',
             'stats': 'Статы',
+            'skills': 'Навыки',
             'quests': 'Квесты',
         }
         mx, my = game.mouse_pos

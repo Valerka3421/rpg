@@ -24,6 +24,7 @@ from core.data import (
     item_display_name, item_display_color, item_sell_price, xp_to_next,
 )
 from core.entities import Player, Entity
+from core import skills
 
 
 # ════════════════════ ОПЫТ И УРОВНИ ════════════════════
@@ -33,13 +34,20 @@ def level_up_once(player):
     player.level += 1
     player.xp_next = xp_to_next(player.level)
     player.free_points += 5
+    # Очко навыка — на покупку узлов классовой ветки.
+    player.skill_points = getattr(player, 'skill_points', 0) + 1
+    player.recalc()
     player.hp = player.max_hp
+    player.mana = player.max_mana
     return player.level
 
 
-def give_xp(player, amount):
+def give_xp(player, amount, apply_bonus=True):
     """Начисляет опыт. Возвращает список полученных уровней."""
-    player.xp += amount
+    if apply_bonus:
+        pct = float(getattr(player, 'xp_pct', 0.0) or 0.0)
+        amount = int(round(amount * (1.0 + pct)))
+    player.xp += max(0, amount)
     gained = []
     guard = 0
     while player.xp >= player.xp_next and guard < 200:
@@ -74,7 +82,10 @@ def resolve_attack(attacker, defender):
         return AttackResult(dodged=True)
 
     crit = isinstance(attacker, Player) and random.random() < attacker.crit
-    damage = max(1, attacker.atk - defender.df + random.randint(-1, 1))
+    atk = attacker.atk
+    if isinstance(attacker, Player):
+        atk = int(atk * attacker.rage_bonus)
+    damage = max(1, atk - defender.df + random.randint(-1, 1))
     if crit:
         damage = int(damage * 1.5)
     defender.hp -= damage
@@ -91,12 +102,23 @@ def resolve_attack(attacker, defender):
         defender.add_status(status)
         result.status = status
 
-    # Вампиризм работает только у игрока и только по живому врагу
-    if isinstance(attacker, Player) and attacker.vampire and defender.hp > 0:
-        heal = max(1, damage // 20)
-        before = attacker.hp
-        attacker.hp = min(attacker.max_hp, attacker.hp + heal)
-        result.vampire_heal = attacker.hp - before
+    # Вампиризм/похищение жизни работает только у игрока и только по живому врагу
+    if isinstance(attacker, Player) and defender.hp > 0:
+        pct = attacker.lifesteal
+        if attacker.vampire:
+            pct = max(pct, 0.05)
+        if pct > 0:
+            heal = max(1, int(damage * pct))
+            before = attacker.hp
+            attacker.hp = min(attacker.max_hp, attacker.hp + heal)
+            result.vampire_heal = attacker.hp - before
+
+    # «Замедление удара» (маг воды): шанс повесить slow на цель.
+    if isinstance(attacker, Player) and defender.hp > 0:
+        slow_chance = float(attacker.effect('slow_hit') or 0.0)
+        if slow_chance and random.random() < slow_chance:
+            defender.add_status('slow')
+            result.status = 'slow'
 
     result.defender_dead = defender.hp <= 0
     if result.defender_dead:
@@ -134,6 +156,8 @@ def roll_kill_reward(monster, depth, greedy=False):
 def award_kill(player, monster, depth):
     """Начисляет золото и опыт за моба. Возвращает (награда, новые уровни)."""
     reward = roll_kill_reward(monster, depth, greedy=player.greedy)
+    pct = float(getattr(player, 'gold_pct', 0.0) or 0.0)
+    reward.gold = int(round(reward.gold * (1.0 + pct)))
     player.gold += reward.gold
     levels = give_xp(player, reward.xp)
     return reward, levels
@@ -206,6 +230,9 @@ def tick_statuses(entity, heal=True):
         events.append(StatusEvent(key=key, name=info['name'],
                                   color=info['color'], damage=damage,
                                   heal=healed, expired=expired))
+    # Временные баффы меняют характеристики — пересчитываем.
+    if isinstance(entity, Player) and hasattr(entity, 'recalc'):
+        entity.recalc()
     return events
 
 
@@ -220,10 +247,10 @@ class PickupResult:
 
 
 def roll_pickup_rarity(key):
-    """При подборе оружие/броня может оказаться редким."""
+    """При подборе снаряжение может оказаться редким."""
     base, rarity = parse_item_key(key)
     data = ITEMS.get(base, {})
-    if rarity or data.get('type') not in ('weapon', 'armor'):
+    if rarity or data.get('type') not in EQUIP_TYPES:
         return key
     rarity = roll_rarity()
     return make_loot_key(key, rarity) if rarity > 0 else key
@@ -276,23 +303,116 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
 
 
 # ════════════════════ КРАФТ ════════════════════
-def recipe_info(item_key, inventory, level):
-    """(recipe, есть_материалы, хватает_уровня)."""
+# Качество (+N) имеет смысл только для снаряжения.
+EQUIP_TYPES = ('weapon', 'armor', 'helmet', 'leggings')
+
+
+@dataclass
+class CraftResult:
+    ok: bool
+    reason: str = 'ok'
+    key: str = ''            # итоговый ключ (может быть с «+N»)
+    quality: int = 0
+    skill: str = ''
+    skill_levels: list = field(default_factory=list)
+    item: dict = field(default_factory=dict)
+
+
+def recipe_info(item_key, inventory, level, player=None):
+    """(recipe, есть_материалы, всё_ли_выполнено)."""
     item = ITEMS.get(item_key, {})
     recipe = item.get('recipe', {})
     has_materials = bool(recipe) and all(
         inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
     level_ok = level >= item.get('level_req', 1)
-    return recipe, has_materials, level_ok
+    skill_ok = True
+    if player is not None:
+        skill_ok = skills.recipe_unlocked(player, item)
+    return recipe, has_materials, level_ok and skill_ok
 
 
-def can_craft(item_key, inventory, level):
-    recipe, has_materials, level_ok = recipe_info(item_key, inventory, level)
-    return bool(recipe) and has_materials and level_ok
+def can_craft(item_key, inventory, level, player=None):
+    recipe, has_materials, allowed = recipe_info(item_key, inventory, level,
+                                                 player)
+    return bool(recipe) and has_materials and allowed
 
 
-def craft(item_key, inventory, level):
-    """Создаёт предмет. Возвращает (успех, причина)."""
+def quality_from_accuracy(accuracy, bonus=0):
+    """Точность мини-игры (0..1) → качество 0..3 с бонусом навыков."""
+    if accuracy >= 0.93:
+        quality = 3
+    elif accuracy >= 0.72:
+        quality = 2
+    elif accuracy >= 0.42:
+        quality = 1
+    else:
+        quality = 0
+    return max(0, min(3, quality + int(bonus)))
+
+
+def roll_craft_quality(player):
+    """Качество без мини-игры: редкий шанс бонуса от узлов ветки."""
+    bonus = skills.craft_quality_bonus(player)
+    roll = random.random()
+    quality = 0
+    if roll < 0.05 + 0.05 * bonus:
+        quality = 1
+    if roll < 0.015 + 0.01 * bonus:
+        quality = 2
+    if roll < 0.004:
+        quality = 3
+    return max(0, min(3, quality + bonus))
+
+
+def _consume_recipe(inventory, recipe):
+    for mat, cnt in recipe.items():
+        inventory[mat] -= cnt
+        if inventory[mat] <= 0:
+            del inventory[mat]
+
+
+def craft_item(player, item_key, quality=None):
+    """Создаёт предмет с опытом навыка и качеством. Возвращает CraftResult."""
+    inventory = player.inventory
+    item = ITEMS.get(item_key, {})
+    recipe, has_materials, allowed = recipe_info(
+        item_key, inventory, player.level, player)
+    if not item.get('recipe'):
+        return CraftResult(False, 'no_recipe', item=item)
+    if not allowed:
+        need_level = player.level < item.get('level_req', 1)
+        return CraftResult(False, 'level' if need_level else 'skill', item=item)
+    if not has_materials:
+        return CraftResult(False, 'materials', item=item)
+
+    _consume_recipe(inventory, recipe)
+
+    if quality is None:
+        quality = roll_craft_quality(player)
+    quality = max(0, min(3, int(quality)))
+    if item.get('type') not in EQUIP_TYPES:
+        quality = 0
+    full_key = make_loot_key(item_key, quality)
+    inventory[full_key] = inventory.get(full_key, 0) + 1
+
+    tab = item.get('skill')
+    levels = []
+    if tab in skills.CRAFT_TABS:
+        base = 6 + int(item.get('tier', 1)) * 4 \
+            + int(item.get('level_req', 1)) * 2
+        levels = skills.gain_craft_xp(player, tab, base)
+    return CraftResult(True, 'ok', full_key, quality, tab or '', levels, item)
+
+
+def craft(item_key, inventory, level, player=None, quality=None):
+    """Создаёт предмет. Возвращает (успех, причина).
+
+    Без ``player`` работает «сырой» режим (тесты/консоль): требования
+    навыков не проверяются. С игроком — полный цикл через craft_item.
+    """
+    if player is not None:
+        res = craft_item(player, item_key, quality)
+        return res.ok, res.reason
     recipe, has_materials, level_ok = recipe_info(item_key, inventory, level)
     if not recipe:
         return False, 'no_recipe'
@@ -300,21 +420,21 @@ def craft(item_key, inventory, level):
         return False, 'level'
     if not has_materials:
         return False, 'materials'
-    for mat, cnt in recipe.items():
-        inventory[mat] -= cnt
-        if inventory[mat] <= 0:
-            del inventory[mat]
+    _consume_recipe(inventory, recipe)
     inventory[item_key] = inventory.get(item_key, 0) + 1
     return True, 'ok'
 
 
-def craftable_list(inventory, level):
+def craftable_list(inventory, level, player=None, tab=None):
     """[(key, data, recipe, can) ...] — как для окна крафта."""
     from core.data import get_craftable_items
     result = []
     for key, item in get_craftable_items():
-        recipe, has_materials, level_ok = recipe_info(key, inventory, level)
-        result.append((key, item, recipe, has_materials and level_ok))
+        if tab is not None and item.get('skill') != tab:
+            continue
+        recipe, has_materials, allowed = recipe_info(key, inventory, level,
+                                                     player)
+        result.append((key, item, recipe, has_materials and allowed))
     return result
 
 
@@ -336,6 +456,15 @@ class UseResult:
     amount: int = 0
     color: tuple = (225, 225, 235)
     victims: list = field(default_factory=list)   # [(monster, damage)]
+
+
+# Тип предмета → слот экипировки.
+SLOT_FOR_TYPE = {
+    'weapon': 'weapon',
+    'armor': 'armor',
+    'helmet': 'helmet',
+    'leggings': 'leggings',
+}
 
 
 def best_heal_key(inventory):
@@ -399,14 +528,54 @@ def use_item(player, key, monsters=None, on_hit=None):
         consume(inventory, key)
         return UseResult(True, 'heal', f"{item['name']}: +{healed} HP", healed)
 
-    if kind in ('weapon', 'armor'):
-        slot = 'weapon' if kind == 'weapon' else 'armor'
+    if kind == 'mana':
+        if player.mana >= player.max_mana:
+            return UseResult(False, 'full', 'Мана уже полная.')
+        restored = min(item.get('value', 0), player.max_mana - player.mana)
+        player.mana += restored
+        consume(inventory, key)
+        return UseResult(True, 'mana', f"{item['name']}: +{restored} маны",
+                         restored, item.get('color', (120, 160, 255)))
+
+    if kind == 'buff':
+        status = item.get('status')
+        if not status:
+            return UseResult(False, 'no_use', 'Зелье без эффекта.')
+        player.add_status(status)
+        player.recalc()
+        consume(inventory, key)
+        from core.data import STATUSES
+        label = STATUSES.get(status, {}).get('name', status)
+        return UseResult(True, 'buff', f"{item['name']}: {label}",
+                         0, item.get('color', (225, 225, 235)))
+
+    if kind == 'poison':
+        target = _nearest_monster(monsters or [], player.x, player.y, 8)
+        if target is None:
+            return UseResult(False, 'no_target', 'Нет цели для яда.')
+        damage = item.get('value', 0)
+        target.hp -= damage
+        target.add_status('poison', 4)
+        consume(inventory, key)
+        if on_hit:
+            on_hit(target, damage)
+        return UseResult(True, 'poison',
+                         f"{item['name']}: {target.name} отравлен.", damage,
+                         item.get('color', (120, 200, 90)), [(target, damage)])
+
+    slot = SLOT_FOR_TYPE.get(kind)
+    if slot:
         if getattr(player, slot) == key:
             return UseResult(False, 'equipped', 'Уже экипировано.')
         need = item.get('level_req', 1)
         if player.level < need:
             return UseResult(False, 'level',
                              f"Нужен уровень {need}! (сейчас {player.level})")
+        from core.data import class_can_use
+        can_use, reason = class_can_use(player.class_key, key)
+        if not can_use:
+            return UseResult(False, 'class',
+                             f"Класс не может носить ({reason}).")
         consume(inventory, key)
         old = getattr(player, slot)
         if old:
@@ -429,19 +598,51 @@ def use_item(player, key, monsters=None, on_hit=None):
 def _use_scroll(player, key, item, monsters, on_hit):
     inventory = player.inventory
     effect = item.get('effect')
+    cost = int(item.get('mana_cost', 0) or 0)
+    if cost and player.mana < cost:
+        return UseResult(False, 'mana',
+                         f"Не хватает маны ({player.mana}/{cost}).")
+
+    def finish(result):
+        if result.ok:
+            consume(inventory, key)
+            if cost:
+                player.mana = max(0, player.mana - cost)
+        return result
+
     if effect == 'heal':
         if player.hp >= player.max_hp:
             return UseResult(False, 'full', 'HP уже полное.')
         healed = min(item.get('value', 0), player.max_hp - player.hp)
         player.hp += healed
-        consume(inventory, key)
-        return UseResult(True, 'heal', f"{item['name']}: +{healed} HP", healed)
+        return finish(UseResult(True, 'heal',
+                                f"{item['name']}: +{healed} HP", healed))
+
+    if effect == 'ward':
+        player.add_status('stone_skin', 20)
+        player.recalc()
+        return finish(UseResult(True, 'ward',
+                                f"{item['name']}: каменная кожа.", 0,
+                                item.get('color', (200, 200, 160))))
+
+    if effect == 'lightning':
+        target = _nearest_monster(monsters, player.x, player.y, 8)
+        if target is None:
+            return UseResult(False, 'no_target', 'Нет целей для молнии.')
+        damage = item.get('value', 0)
+        target.hp -= damage
+        target.add_status('slow', 2)
+        if on_hit:
+            on_hit(target, damage)
+        return finish(UseResult(True, 'lightning',
+                                f"Молния: {target.name} −{damage}.", damage,
+                                item.get('color', (240, 230, 110)),
+                                [(target, damage)]))
 
     if effect == 'fireball':
         target = _nearest_monster(monsters, player.x, player.y, 8)
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для огня.')
-        consume(inventory, key)
         victims = []
         for monster in list(monsters):
             if monster.hp <= 0:
@@ -452,9 +653,9 @@ def _use_scroll(player, key, item, monsters, on_hit):
                 victims.append((monster, item.get('value', 0)))
                 if on_hit:
                     on_hit(monster, item.get('value', 0))
-        return UseResult(True, 'fireball',
-                         f"Огненный шар: {len(victims)} целей.", len(victims),
-                         (255, 120, 50), victims)
+        return finish(UseResult(True, 'fireball',
+                                f"Огненный шар: {len(victims)} целей.",
+                                len(victims), (255, 120, 50), victims))
 
     if effect == 'freeze':
         count = 0
@@ -466,10 +667,9 @@ def _use_scroll(player, key, item, monsters, on_hit):
                 count += 1
         if count == 0:
             return UseResult(False, 'no_target', 'Рядом нет врагов.')
-        consume(inventory, key)
-        return UseResult(True, 'freeze',
-                         f"Заморозка: {count} врагов замедлены.", count,
-                         (120, 180, 255))
+        return finish(UseResult(True, 'freeze',
+                                f"Заморозка: {count} врагов замедлены.", count,
+                                (120, 180, 255)))
     return UseResult(False, 'no_use', 'Свиток не сработал.')
 
 

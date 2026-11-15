@@ -183,6 +183,7 @@ def test_craft_requires_level_and_materials():
     p.inventory = {'bone': 2, 'wood': 1}
     assert core.craft_item(0, idx) is False        # уровень 1 < 3
     p.level = 5
+    p.skills['smithing'] = 3
     assert core.craft_item(0, idx) is True
     assert p.inventory.get('bone_sword') == 1
 

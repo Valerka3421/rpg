@@ -56,6 +56,8 @@ class Renderer:
             self.screens.draw_shop(game)
         elif game.screen_mode == 'craft':
             self.screens.draw_craft(game)
+        elif game.screen_mode == 'skills':
+            self.screens.draw_skills(game)
         elif game.screen_mode == 'dialogue':
             self.screens.draw_dialogue(game)
         elif game.screen_mode == 'quests':

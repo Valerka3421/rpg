@@ -300,6 +300,7 @@ def test_stats_digit_allocates(make_game):
 def test_craft_digit_creates(make_game):
     g = make_game()
     g.player.level = 5
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     g.screen_mode = 'craft'
     idx = next(i for i, c in enumerate(g.craftable_list()) if c[0] == 'bone_sword')

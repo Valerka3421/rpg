@@ -13,7 +13,7 @@ from game.stats_controller import StatsController
 from core.config import (
     TILE, MAP_W, MAP_H, MAX_DEPTH, MERCHANT_FLOORS, Tile, INVENTORY_PAGE_SIZE,
     PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN, SAVE_VERSION,
-    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL,
+    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL, FOV_RADIUS,
     COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
     COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
 )
@@ -31,6 +31,7 @@ from core.settings import load_settings, save_settings
 from game.menu_controller import MenuController
 from game.shop_controller import ShopController
 from game.craft_controller import CraftController
+from game.skills_controller import SkillsController
 
 
 # Порядок характеристик для цифровых клавиш в окне статов
@@ -49,6 +50,7 @@ class Game:
         self.menu = MenuController(self)
         self.shop = ShopController(self)
         self.craft = CraftController(self)
+        self.skills_ui = SkillsController(self)
 
         self.dialogue = DialogueController(self)
         self.quests = QuestController(self)
@@ -74,6 +76,8 @@ class Game:
             self.shop = ShopController(self)
         if not hasattr(self, 'craft'):
             self.craft = CraftController(self)
+        if not hasattr(self, 'skills_ui'):
+            self.skills_ui = SkillsController(self)
         if not hasattr(self, 'dialogue'):
             self.dialogue = DialogueController(self)
         if not hasattr(self, 'quests'):
@@ -342,7 +346,9 @@ class Game:
             self.save(silent=True)
 
     def update_fov(self):
-        self.visible = compute_fov(self.dungeon, self.player.x, self.player.y)
+        radius = FOV_RADIUS + max(0, int(getattr(self.player, 'vision_bonus', 0)))
+        self.visible = compute_fov(self.dungeon, self.player.x,
+                                   self.player.y, radius)
         self.explored |= self.visible
 
     # ════════════════════════ SAVE / LOAD ════════════════════════
@@ -606,6 +612,24 @@ class Game:
             if result.amount:
                 self.add_float(self.player.x, self.player.y,
                                f"+{result.amount}", COL_GOLD)
+        elif result.kind == 'mana':
+            Audio.play('heal')
+            self.log(result.message, result.color)
+            self.add_float(self.player.x, self.player.y,
+                           f"+{result.amount}", result.color)
+        elif result.kind == 'buff':
+            Audio.play('heal')
+            self.log(result.message, result.color)
+        elif result.kind in ('poison', 'lightning'):
+            Audio.play('fireball' if result.kind == 'lightning' else 'hit')
+            for monster, damage in result.victims:
+                self.log(f"{result.message}", result.color)
+                self.add_float(monster.x, monster.y, str(damage), result.color)
+                if monster.hp <= 0:
+                    self._kill_monster(monster)
+        elif result.kind == 'ward':
+            Audio.play('heal')
+            self.log(result.message, result.color)
         elif result.kind == 'fireball':
             Audio.play('fireball')
             for monster, damage in result.victims:
@@ -655,25 +679,30 @@ class Game:
                  'luk': 'Удача', 'df_stat': 'Защита'}
         self.log(f"{names[name]} +1 ({p.free_points} очков)", COL_GOLD)
 
-    def unequip_weapon(self):
+    def unequip_slot(self, slot):
         p = self.player
-        if not p.weapon:
-            self.log("Оружие не надето.", COL_DIM); return
-        key = p.weapon
-        p.weapon = None
+        key = getattr(p, slot, None)
+        if not key:
+            names = {'weapon': 'Оружие', 'armor': 'Броня',
+                     'helmet': 'Шлем', 'leggings': 'Поножи'}
+            self.log(f"{names.get(slot, 'Слот')}: пусто.", COL_DIM)
+            return
+        setattr(p, slot, None)
         p.inventory[key] = p.inventory.get(key, 0) + 1
         p.recalc()
         self.log(f"Снято: {item_display_name(key)}", COL_DIM)
 
+    def unequip_weapon(self):
+        self.unequip_slot('weapon')
+
     def unequip_armor(self):
-        p = self.player
-        if not p.armor:
-            self.log("Броня не надета.", COL_DIM); return
-        key = p.armor
-        p.armor = None
-        p.inventory[key] = p.inventory.get(key, 0) + 1
-        p.recalc()
-        self.log(f"Снято: {item_display_name(key)}", COL_DIM)
+        self.unequip_slot('armor')
+
+    def unequip_helmet(self):
+        self.unequip_slot('helmet')
+
+    def unequip_leggings(self):
+        self.unequip_slot('leggings')
 
     # ════════════════════════ БОЙ ════════════════════════
     def attack(self, a, b):
@@ -736,6 +765,8 @@ class Game:
         self.add_float(monster.x, monster.y, f"+{monster.xp_value} XP", COL_XP)
 
         reward = rules.roll_kill_reward(monster, self.depth, self.player.greedy)
+        gold_pct = float(getattr(self.player, 'gold_pct', 0.0) or 0.0)
+        reward.gold = int(round(reward.gold * (1.0 + gold_pct)))
         self.player.gold += reward.gold
         self.total_gold_earned += reward.gold
         self.log(f"+{reward.gold} золота", COL_GOLD)
@@ -764,7 +795,8 @@ class Game:
         from audio import Audio
         Audio.play('level_up')
         p = self.player
-        self.log(f"Уровень {level}! +5 очков, HP восстановлено.", COL_GOLD)
+        self.log(f"Уровень {level}! +5 очков, +1 очко навыка, HP восстановлено.",
+                 COL_GOLD)
         n = self._lvl_float_idx % 4
         self._lvl_float_idx = n + 1
         self.add_float(p.x, p.y - n * 0.8, f"LVL {level}", COL_GOLD)
@@ -946,6 +978,8 @@ class Game:
             self.shop.handle_key(key); return
         if self.screen_mode == 'craft':
             self.craft.handle_key(key); return
+        if self.screen_mode == 'skills':
+            self.skills_ui.handle_key(key, scancode); return
         if self.screen_mode == 'dialogue':
             self.dialogue.handle_key(key, scancode);
             return
@@ -999,6 +1033,10 @@ class Game:
                 self.unequip_weapon()
             elif key == pygame.K_v:
                 self.unequip_armor()
+            elif key == pygame.K_b:
+                self.unequip_helmet()
+            elif key == pygame.K_n:
+                self.unequip_leggings()
             elif key == pygame.K_q:
                 self.inv_prev_page()
             elif key == pygame.K_e:
@@ -1032,6 +1070,8 @@ class Game:
             return
         if key == pygame.K_k:
             self.craft.open(); return
+        if key == pygame.K_n:
+            self.skills_ui.open(); return
         if key == pygame.K_h:
             self.quick_potion()
             self.update_fov()
@@ -1062,7 +1102,7 @@ class Game:
         close = getattr(self, '_modal_close_rect', None)
         if close and self.screen_mode in ('stats', 'inventory', 'craft',
                                           'quests', 'shop', 'stats_run',
-                                          'dialogue'):
+                                          'dialogue', 'skills'):
             if self._hit(close, pos):
                 self.screen_mode = 'game'
                 return True
@@ -1077,6 +1117,8 @@ class Game:
             return self._handle_stats_click(pos)
         if self.screen_mode == 'craft':
             return self._handle_craft_click(pos)
+        if self.screen_mode == 'skills':
+            return self._handle_skills_click(pos)
         if self.screen_mode == 'shop':
             return self._handle_shop_click(pos)
         if self.screen_mode == 'quests':
@@ -1095,6 +1137,8 @@ class Game:
                     self.inv_page = min(self.inv_page, self.inv_pages_count() - 1)
                 elif name == 'craft':
                     self.craft.open()
+                elif name == 'skills':
+                    self.skills_ui.open()
                 elif name == 'stats':
                     self.screen_mode = 'stats'
                 elif name == 'quests':
@@ -1147,10 +1191,7 @@ class Game:
                 return True
         for slot, rect in hits.get('equip', []):
             if self._hit(rect, pos):
-                if slot == 'weapon':
-                    self.unequip_weapon()
-                else:
-                    self.unequip_armor()
+                self.unequip_slot(slot)
                 return True
         for key, rect in hits.get('items', []):
             if self._hit(rect, pos):
@@ -1169,9 +1210,32 @@ class Game:
 
     def _handle_craft_click(self, pos):
         hits = self._ui_hits.get('craft', {})
+        if self.craft.minigame_active:
+            return self.craft.handle_click(pos)
         for idx, rect in hits.get('hammer', []):
             if self._hit(rect, pos):
                 self.craft.craft(idx)
+                return True
+        for tab, rect in hits.get('tabs', []):
+            if self._hit(rect, pos):
+                self.craft.set_tab(tab)
+                return True
+        return False
+
+    def _handle_skills_click(self, pos):
+        hits = self._ui_hits.get('skills', {})
+        for tab, rect in hits.get('tabs', []):
+            if self._hit(rect, pos):
+                self.skills_ui.set_tab(tab)
+                return True
+        for idx, rect in hits.get('rows', []):
+            if self._hit(rect, pos):
+                self.skills_ui.selection = idx
+                self.skills_ui.activate()
+                return True
+        for idx, rect in hits.get('promotion', []):
+            if self._hit(rect, pos):
+                self.skills_ui.change_class(idx)
                 return True
         return False
 
@@ -1190,7 +1254,8 @@ class Game:
     def _toolbar_rects(self):
         from core.config import TOOLBAR_BTN, TOOLBAR_GAP, TOOLBAR_MARGIN
         result = []
-        for i, name in enumerate(('inventory', 'craft', 'stats', 'quests')):
+        for i, name in enumerate(('inventory', 'craft', 'skills',
+                                  'stats', 'quests')):
             x = TOOLBAR_MARGIN + i * (TOOLBAR_BTN + TOOLBAR_GAP)
             y = TOOLBAR_MARGIN
             result.append((name, (x, y, TOOLBAR_BTN, TOOLBAR_BTN)))
@@ -1216,13 +1281,13 @@ class Game:
                 dx = 1
             if dx or dy:
                 if self.move_player(dx, dy):
-                    self.player_move_timer = PLAYER_MOVE_COOLDOWN
+                    self.player_move_timer = self.player.move_cooldown
                     self.update_fov()
 
         # ── Атака пробелом ──
         if keys[pygame.K_SPACE] and self.player_attack_timer <= 0:
             self.player_attack()
-            self.player_attack_timer = PLAYER_ATTACK_COOLDOWN
+            self.player_attack_timer = self.player.attack_cooldown
 
     def death_summary(self):
         """Сводка для death recap."""
@@ -1300,7 +1365,6 @@ class Game:
 
     def craftable_list(self):
         return self.craft.list()
-
     def craft_item(self, idx):
         self.craft.craft(idx)
 
@@ -1348,6 +1412,8 @@ class Game:
         # Пауза: смерть/победа/меню
         if self.dead or self.victory:
             return
+        if self.screen_mode == 'craft':
+            self.craft.update(dt)
         if self.screen_mode != 'game':
             self.player_move_timer = 0.0
             self.player_attack_timer = 0.0

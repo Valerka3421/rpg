@@ -227,7 +227,7 @@ def test_craft_consumes_materials():
 
 def test_craft_reasons():
     assert rules.craft('bone_sword', {}, level=5)[1] == 'materials'
-    assert rules.craft('potion_s', {}, level=5)[1] == 'no_recipe'
+    assert rules.craft('dagger', {}, level=5)[1] == 'no_recipe'
 
 
 # ── Предметы ──
