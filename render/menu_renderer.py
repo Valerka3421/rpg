@@ -45,6 +45,20 @@ class MenuRenderer(BaseRenderer):
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
 
+    # ════════════════════════ КНОПКА «НАЗАД» ════════════════════════
+    def draw_back_button(self, game):
+        """Единая кнопка возврата на шаг вверх для всех подменю."""
+        rect = game.menu.back_button_rect()
+        if not rect:
+            return
+        x, y, w, h = rect
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        hover = x <= mx <= x + w and y <= my <= y + h
+        self.draw_button_bg(rect, hover, radius=8)
+        color = (238, 222, 188) if hover else (200, 190, 170)
+        self.text("Назад", x + w // 2, y + h // 2, color,
+                  font=T.FONT_H2, center=True)
+
     # ════════════════════════ Мультиплеер ════════════════════════
     def draw_menu_multiplayer(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
@@ -82,6 +96,7 @@ class MenuRenderer(BaseRenderer):
 
         self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     def draw_menu_mp_join(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
@@ -108,7 +123,7 @@ class MenuRenderer(BaseRenderer):
                   cx, field_y + field_h + 14,
                   T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
 
-        btn_labels = ["Подключиться", "Назад"]
+        btn_labels = ["Подключиться"]
         for i, (idx, rect) in enumerate(game.menu.button_rects()):
             if i >= len(btn_labels):
                 break
@@ -123,6 +138,7 @@ class MenuRenderer(BaseRenderer):
         self.text("Enter — подключиться · Ctrl+V — вставить · Esc — назад",
                   cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     # ════════════════════════ СОХРАНЕНИЯ ════════════════════════
     def draw_saves(self, game):
@@ -148,6 +164,7 @@ class MenuRenderer(BaseRenderer):
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
+        self.draw_back_button(game)
 
     def _draw_slot(self, rect, slot, info, selected, mode, game=None):
         from datetime import datetime
@@ -295,6 +312,7 @@ class MenuRenderer(BaseRenderer):
                 rb = val_right + 16
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(rb, ay - 7), (rb + 10, ay), (rb, ay + 7)])
+        self.draw_back_button(game)
 
     def draw_controls(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
@@ -340,6 +358,7 @@ class MenuRenderer(BaseRenderer):
 
         self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     # ════════════════════════ ВЫБОР КЛАССА ════════════════════════
     def draw_class_select(self, game):
@@ -363,7 +382,7 @@ class MenuRenderer(BaseRenderer):
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
-
+        self.draw_back_button(game)
 
     def _draw_class_card(self, rect, cls, selected):
         x, y, w, h = rect

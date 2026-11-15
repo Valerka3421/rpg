@@ -54,6 +54,10 @@ def _key_to_char(key):
 class MenuController:
     MENU_START = ('start', 'load', 'multiplayer', 'settings', 'exit')
     MENU_PAUSE = ('resume', 'save', 'load', 'settings', 'exit_to_menu')
+    # Экраны, у которых есть родительское меню и кнопка «Назад».
+    BACK_MODES = ('menu_saves', 'menu_settings', 'menu_controls',
+                  'class_select', 'menu_multiplayer', 'menu_mp_join')
+    BACK_RECT = (34, 28, 190, 48)
 
     def __init__(self, game):
         self.game = game
@@ -85,6 +89,29 @@ class MenuController:
     def back(self):
         self.game.screen_mode = 'menu'
         self.selection = 0
+
+    def back_button_rect(self):
+        """Рект кнопки «Назад» для текущего подменю (или None)."""
+        if self.game.screen_mode in self.BACK_MODES:
+            return self.BACK_RECT
+        return None
+
+    def menu_back(self):
+        """Действие кнопки «Назад»: возврат на один уровень вверх."""
+        mode = self.game.screen_mode
+        if mode == 'menu_settings':
+            self.save_settings_and_back()
+        elif mode == 'menu_controls':
+            self.game.screen_mode = 'menu_settings'
+            self.selection_settings = 5
+        elif mode == 'menu_mp_join':
+            self.game.screen_mode = 'menu_multiplayer'
+        elif mode == 'class_select':
+            self.game.current_slot = 1
+            self.back()
+        else:
+            self.back()
+        return True
 
     def return_to_game(self):
         self.game.screen_mode = 'game'
@@ -262,7 +289,6 @@ class MenuController:
             by = 380
             return [
                 (0, (bx, by, bw, bh)),          # Подключиться
-                (1, (bx, by + 76, bw, bh)),     # Назад
             ]
         return []
 
@@ -466,6 +492,15 @@ class MenuController:
     def handle_mouse_click(self, pos):
         mx, my = pos
 
+        # ── Общая кнопка «Назад» во всех подменю ──
+        back_rect = self.back_button_rect()
+        if back_rect:
+            bx, by, bw, bh = back_rect
+            if bx <= mx <= bx + bw and by <= my <= by + bh:
+                from audio import Audio
+                Audio.play('menu_select')
+                return self.menu_back()
+
         # ── Стрелки в настройках ──
         if self.game.screen_mode == 'menu_settings':
             for row, direction, rect in self.settings_arrow_rects():
@@ -521,8 +556,6 @@ class MenuController:
                 elif m == 'menu_mp_join':
                     if idx == 0:
                         self._connect_mp()
-                    else:
-                        self.game.screen_mode = 'menu_multiplayer'
                 return True
         return False
 

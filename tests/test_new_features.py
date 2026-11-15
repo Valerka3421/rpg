@@ -437,3 +437,119 @@ def test_resolution_change_exits_fullscreen(make_game, monkeypatch):
     g.menu.adjust_setting(1)
     assert g.settings['fullscreen'] is False
     assert g.pending_resolution is not None
+
+
+# ── Счётчик предметов и кнопка «Назад» ──
+def test_inventory_count_badge_is_top_left(renderer):
+    rect = renderer.screens._draw_count_badge(100, 60, 120, 100, 5)
+    bx, by, bw, bh = rect
+    assert (bx, by) == (103, 63)
+    # Бейдж не вылезает за ячейку.
+    assert bx + bw <= 100 + 120
+    assert by + bh <= 60 + 100
+
+
+def test_back_button_exists_in_every_submenu(make_game):
+    g = make_game()
+    for mode in ('menu_saves', 'menu_settings', 'menu_controls',
+                 'class_select', 'menu_multiplayer', 'menu_mp_join'):
+        g.screen_mode = mode
+        assert g.menu.back_button_rect() is not None, mode
+    # У главного меню родителя нет — кнопка «Назад» не нужна.
+    g.screen_mode = 'menu'
+    assert g.menu.back_button_rect() is None
+
+
+def test_back_button_returns_from_submenus(make_game, monkeypatch):
+    import core.settings as settings_mod
+    monkeypatch.setattr(settings_mod, 'save_settings', lambda *a, **k: None)
+    g = make_game()
+
+    def click_back(mode):
+        g.screen_mode = mode
+        rect = g.menu.back_button_rect()
+        assert rect
+        return g.menu.handle_mouse_click(rect[:2])
+
+    assert click_back('menu_saves') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_settings') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_controls') is True
+    assert g.screen_mode == 'menu_settings'
+
+    assert click_back('menu_multiplayer') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_mp_join') is True
+    assert g.screen_mode == 'menu_multiplayer'
+
+    assert click_back('class_select') is True
+    assert g.screen_mode == 'menu'
+    assert g.current_slot == 1
+
+
+def test_submenus_render_back_button_without_errors(make_game, renderer):
+    g = make_game()
+    for mode in ('menu_saves', 'menu_settings', 'menu_controls',
+                 'class_select', 'menu_multiplayer', 'menu_mp_join'):
+        g.screen_mode = mode
+        renderer.draw(g)
+
+
+# ── Полноэкранный режим мультиплеера не должен ронять игру ──
+def test_display_falls_back_to_window_on_error(monkeypatch):
+    import pygame
+    import core.display as display_mod
+    import core.settings as settings_mod
+
+    class FakeSurface:
+        def get_size(self):
+            return (100, 100)
+
+        def get_flags(self):
+            return 0
+
+    def fake_get_surface():
+        return FakeSurface()
+
+    def fake_set_mode(size, flags=0):
+        if flags & pygame.FULLSCREEN:
+            raise pygame.error("ChangeDisplaySettingsEx() failed")
+        return FakeSurface()
+
+    monkeypatch.setattr(display_mod.pygame.display, 'get_surface',
+                        fake_get_surface)
+    monkeypatch.setattr(display_mod.pygame.display, 'set_mode', fake_set_mode)
+    saved = []
+    monkeypatch.setattr(settings_mod, 'save_settings',
+                        lambda s: saved.append(dict(s)))
+
+    settings = {'fullscreen': True}
+    surf = display_mod.set_mode((800, 600), True, settings)
+    assert surf is not None
+    # Настройки честно поправлены: следующий запуск не повторит ошибку.
+    assert settings['fullscreen'] is False
+    assert saved and saved[-1]['fullscreen'] is False
+
+
+def test_display_reuses_matching_surface(monkeypatch):
+    import pygame
+    import core.display as display_mod
+
+    class FakeSurface:
+        def get_size(self):
+            return (800, 600)
+
+        def get_flags(self):
+            return pygame.FULLSCREEN
+
+    def fail(*args, **kwargs):
+        raise AssertionError("set_mode не должен вызываться лишний раз")
+
+    monkeypatch.setattr(display_mod.pygame.display, 'get_surface',
+                        lambda: FakeSurface())
+    monkeypatch.setattr(display_mod.pygame.display, 'set_mode', fail)
+    assert display_mod.set_mode((800, 600), True) is not None

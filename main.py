@@ -13,6 +13,8 @@ config.set_resolution(_res[0], _res[1])
 
 import pygame
 
+from core.display import set_mode as set_display_mode
+
 
 # ════════════════════════ СМЕНА РАЗРЕШЕНИЯ ════════════════════════
 def _apply_resolution(game, new_w, new_h, fullscreen):
@@ -21,8 +23,7 @@ def _apply_resolution(game, new_w, new_h, fullscreen):
     Рендереры читают config.SCREEN_W/H и config.VIEW_W/H в момент отрисовки,
     поэтому никакой синхронизации копий констант не нужно.
     """
-    flags = pygame.FULLSCREEN if fullscreen else pygame.RESIZABLE
-    screen = pygame.display.set_mode((new_w, new_h), flags)
+    screen = set_display_mode((new_w, new_h), fullscreen, game.settings)
     pygame.display.set_caption(f"Этельгард — {new_w}×{new_h}")
     from render.window_icon import apply_window_icon
     apply_window_icon()
@@ -51,8 +52,8 @@ def _run_game_loop(game, screen, clock):
 
     current_fullscreen = game.settings.get('fullscreen', False)
     if current_fullscreen:
-        screen = pygame.display.set_mode(
-            (config.SCREEN_W, config.SCREEN_H), pygame.FULLSCREEN)
+        screen = set_display_mode(
+            (config.SCREEN_W, config.SCREEN_H), True, game.settings)
         game.renderer.screen = screen
         from render.window_icon import apply_window_icon
         apply_window_icon()
@@ -164,9 +165,9 @@ def main():
         if not pygame.font.get_init():
             pygame.font.init()
         settings_now = load_settings()
-        flags = pygame.FULLSCREEN if settings_now.get('fullscreen') else pygame.RESIZABLE
-        screen = pygame.display.set_mode(
-            (config.SCREEN_W, config.SCREEN_H), flags)
+        screen = set_display_mode(
+            (config.SCREEN_W, config.SCREEN_H),
+            settings_now.get('fullscreen', False), settings_now)
         pygame.display.set_caption(f"Этельгард — {config.SCREEN_W}×{config.SCREEN_H}")
         from render.window_icon import apply_window_icon
         apply_window_icon()

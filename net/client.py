@@ -349,8 +349,8 @@ class Client:
 
         pygame.init()
         Audio.init(volume=_s.get('volume', 7))
-        flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
-        screen = pygame.display.set_mode((SW, SH), flags)
+        from core.display import set_mode as set_display_mode
+        screen = set_display_mode((SW, SH), _s.get('fullscreen'), _s)
         pygame.display.set_caption("Этельгард MP")
         from render.window_icon import apply_window_icon
         apply_window_icon()
@@ -396,8 +396,8 @@ class Client:
         def apply_display():
             """Применить полноэкранный режим и перепривязать рендереры."""
             nonlocal screen
-            flags = pygame.FULLSCREEN if _s.get('fullscreen') else 0
-            screen = pygame.display.set_mode((SW, SH), flags)
+            from core.display import set_mode as set_display_mode
+            screen = set_display_mode((SW, SH), _s.get('fullscreen'), _s)
             from render.window_icon import apply_window_icon
             apply_window_icon()
             renderer.screen = screen

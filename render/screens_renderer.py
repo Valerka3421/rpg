@@ -393,12 +393,12 @@ class ScreensRenderer(BaseRenderer):
         self.text(label, x + w // 2, y + h - 16, color,
                   font=T.FONT_TINY, center=True)
 
-        # Улучшенный бейдж количества — в правом нижнем углу
+        # Бейдж количества — в левом верхнем углу ячейки
         if count > 1:
             self._draw_count_badge(x, y, w, h, count)
 
     def _draw_count_badge(self, x, y, w, h, count):
-        """Красивый бейдж количества в правом нижнем углу ячейки."""
+        """Красивый бейдж количества в левом верхнем углу ячейки."""
         txt = "99+" if count >= 100 else str(count)
         font = T.FONT_SMALL
         surf = font.render(txt, True, (255, 250, 240))
@@ -413,8 +413,8 @@ class ScreensRenderer(BaseRenderer):
         tw, th = surf.get_size()
         bw = max(tw + 16, 30)
         bh = max(th + 6, 24)
-        bx = x + w - bw - 3
-        by = y + h - bh - 3
+        bx = x + 3
+        by = y + 3
 
         # Тень
         shadow = pygame.Surface((bw, bh), pygame.SRCALPHA)
@@ -435,6 +435,7 @@ class ScreensRenderer(BaseRenderer):
         # Текст
         self.screen.blit(surf, (bx + (bw - tw) // 2,
                                 by + (bh - th) // 2 - 1))
+        return (bx, by, bw, bh)
 
     def _draw_page_button(self, label, rect, enabled, hover):
         bg = T.ROW_HOVER if enabled and hover else (30, 27, 21)
