@@ -95,10 +95,13 @@ def test_start_in_overworld(make_game):
 
 def test_overworld_has_entrance(make_game):
     g = make_game()
+    # Вход в главное подземелье — на кладбище; на скалах только шахта
+    graveyard = g.get_location('graveyard')
+    assert graveyard.stairs_pos is not None
+    ex, ey = graveyard.stairs_pos
+    assert graveyard.tiles[ey][ex] == Tile.STAIRS
     rock = g.get_location('rock')
-    assert rock.stairs_pos is not None
-    ex, ey = rock.stairs_pos
-    assert rock.tiles[ey][ex] == Tile.STAIRS
+    assert any(t.get('to') == 'mine' for t in rock.transitions.values())
 
 
 def test_enter_dungeon(make_game):

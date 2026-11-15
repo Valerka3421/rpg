@@ -99,9 +99,15 @@ def dungeon_to_dict(d):
         'stairs_pos': list(d.stairs_pos) if d.stairs_pos else None,
         'transitions': [
             {'x': k[0], 'y': k[1], 'to': v.get('to'),
-             'entry': list(v.get('entry', (k[0], k[1])))}
+             'entry': list(v.get('entry', (k[0], k[1]))),
+             'side': v.get('side')}
             for k, v in d.transitions.items()
         ],
+        'barrier_tiles': [list(p) for p in getattr(d, 'barrier_tiles', ())],
+        'treasury_pos': (list(d.treasury_pos)
+                         if getattr(d, 'treasury_pos', None) else None),
+        'boss_door_cells': [list(p)
+                            for p in getattr(d, 'boss_door_cells', ())],
         'harvestables': harvest_serialize(d),
     }
 
@@ -142,6 +148,8 @@ def dungeon_from_dict(d, is_overworld=False, is_location=False):
                     'to': tr['to'],
                     'entry': (int(entry[0]), int(entry[1])),
                 }
+                if tr.get('side'):
+                    dun.transitions[pos]['side'] = tr['side']
             except (KeyError, TypeError, ValueError, IndexError):
                 continue
         from core.harvest import deserialize as harvest_deserialize
@@ -185,8 +193,14 @@ def dungeon_from_dict(d, is_overworld=False, is_location=False):
             entry = tr.get('entry') or list(pos)
             dun.transitions[pos] = {'to': tr['to'],
                                     'entry': (int(entry[0]), int(entry[1]))}
+            if tr.get('side'):
+                dun.transitions[pos]['side'] = tr['side']
         except (KeyError, TypeError, ValueError, IndexError):
             continue
+    dun.barrier_tiles = {tuple(p) for p in d.get('barrier_tiles', [])}
+    dun.treasury_pos = (tuple(d['treasury_pos'])
+                        if d.get('treasury_pos') else None)
+    dun.boss_door_cells = {tuple(p) for p in d.get('boss_door_cells', [])}
     from core.harvest import deserialize as harvest_deserialize
     dun.harvestables = harvest_deserialize(d.get('harvestables', []))
     return dun

@@ -46,9 +46,11 @@ class Renderer:
 
         self.screen.fill(T.BG)
         self.game.draw_field(game)
-        if game.screen_mode == 'game':
+        if game.screen_mode in ('game', 'trade'):
             self.game.draw_minimap(game)
             self.game.draw_hud(game)
+            if getattr(game, 'player_popup', None):
+                self.game.draw_player_popup(game)
 
         if game.screen_mode == 'stats':
             self.screens.draw_stats(game)
@@ -64,6 +66,8 @@ class Renderer:
             self.screens.draw_quests(game)
         elif game.screen_mode == 'stats_run':
             self.screens.draw_run_stats(game)
+        elif game.screen_mode == 'trade':
+            self.screens.draw_trade(game)
 
         if game.dead:
             self.overlay.draw_death(game)

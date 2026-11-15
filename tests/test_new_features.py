@@ -319,7 +319,7 @@ def test_mountain_has_mine_and_mine_has_ore(make_game):
     assert len(ore) >= 20
 
 
-def test_ore_is_harvested_by_attack(make_game):
+def test_ore_is_harvested_by_e_key(make_game):
     g = make_game()
     g.travel_to('mine')
     dungeon = g.dungeon
@@ -339,12 +339,13 @@ def test_ore_is_harvested_by_attack(make_game):
     px, py, ox, oy = spot
     g.player.x, g.player.y = px, py
     g.player.atk = 10
-    g.player_attack()
+    # Возобновляемые ресурсы добываются только клавишей «E»
+    g.harvest_adjacent()
     assert g.player.inventory.get('ore', 0) >= 2
     assert not dungeon.harvestables[(ox, oy)]['has']
 
 
-def test_tree_is_harvested_by_attack(make_game):
+def test_tree_is_harvested_by_e_key(make_game):
     g = make_game()
     g.travel_to('pine')
     dungeon = g.dungeon
@@ -368,9 +369,9 @@ def test_tree_is_harvested_by_attack(make_game):
     px, py, tx, ty = spot
     g.player.x, g.player.y = px, py
     g.player.atk = 10
-    g.player_attack()
+    g.harvest_adjacent()
     assert g.player.inventory.get('wood', 0) >= 2
-    # Удар мог выбрать любое соседнее дерево — проверяем, что срублено
+    # «E» могло выбрать любое соседнее дерево — проверяем, что срублено
     # именно дерево по соседству.
     felled = [rec for pos, rec in dungeon.harvestables.items()
               if rec['kind'] == 'tree' and rec['has'] is False
@@ -440,10 +441,11 @@ def test_resolution_change_exits_fullscreen(make_game, monkeypatch):
 
 
 # ── Счётчик предметов и кнопка «Назад» ──
-def test_inventory_count_badge_is_top_left(renderer):
+def test_inventory_count_badge_is_top_right(renderer):
     rect = renderer.screens._draw_count_badge(100, 60, 120, 100, 5)
     bx, by, bw, bh = rect
-    assert (bx, by) == (103, 63)
+    # Бейдж «×N» — в правом верхнем углу ячейки
+    assert (bx, by) == (100 + 120 - bw - 3, 63)
     # Бейдж не вылезает за ячейку.
     assert bx + bw <= 100 + 120
     assert by + bh <= 60 + 100
@@ -516,7 +518,8 @@ def test_display_falls_back_to_window_on_error(monkeypatch):
         return FakeSurface()
 
     def fake_set_mode(size, flags=0):
-        if flags & pygame.FULLSCREEN:
+        # Полный экран ломается и в видеорежиме, и в borderless-окне
+        if flags & (pygame.FULLSCREEN | pygame.NOFRAME):
             raise pygame.error("ChangeDisplaySettingsEx() failed")
         return FakeSurface()
 
@@ -553,3 +556,140 @@ def test_display_reuses_matching_surface(monkeypatch):
                         lambda: FakeSurface())
     monkeypatch.setattr(display_mod.pygame.display, 'set_mode', fail)
     assert display_mod.set_mode((800, 600), True) is not None
+
+
+# ════════════════════ Босс-комплекс: арена, казна, дверь ════════════════════
+def test_boss_complex_has_locked_treasury():
+    from core.world import generate_dungeon
+    d = generate_dungeon(3)
+    locked = sum(1 for row in d.tiles for t in row if t == Tile.LOCKED_DOOR)
+    chests = sum(1 for row in d.tiles for t in row if t == Tile.CHEST)
+    assert locked == 2 and chests == 1
+    assert d.barrier_tiles and d.boss_door_cells and d.treasury_pos
+    # Сундук в казне рядом с лестницей вниз (казна ведёт глубже)
+    tx, ty = d.treasury_pos
+    assert d.tiles[ty][tx] == Tile.STAIRS
+    radius = 2
+    chest_near = any(
+        d.tiles[ty + dy][tx + dx] == Tile.CHEST
+        for dy in range(-radius, radius + 1)
+        for dx in range(-radius, radius + 1)
+        if 0 <= tx + dx < d.w and 0 <= ty + dy < d.h)
+    assert chest_near
+    # Босс ждёт в центре арены на максимальной глубине
+    deep = generate_dungeon(5)
+    assert any(m.boss for m in deep.monsters)
+
+
+def test_boss_key_drops_always_and_unlocks_door(make_game):
+    g = make_game()
+    g.enter_dungeon()
+    g.depth = 3
+    monster = SimpleNamespace(ch='X', boss=True, name='Босс', xp_value=10)
+    reward = rules.roll_kill_reward(monster, 3)
+    assert 'boss_key' in reward.drops
+    # Дверь заперта без ключа и открывается с ним
+    for (x, y) in g.dungeon.boss_door_cells:
+        if g.dungeon.tiles[y][x] != Tile.LOCKED_DOOR:
+            continue
+        assert g.move_player(x - g.player.x, y - g.player.y) is False
+        g.player.inventory['boss_key'] = 1
+        assert g.move_player(x - g.player.x, y - g.player.y) is True
+        assert g.dungeon.tiles[y][x] == Tile.FLOOR
+        break
+    else:
+        assert False, 'не нашли запертую дверь'
+
+
+def test_boss_barriers_open_after_kill():
+    from core.world import generate_dungeon, clear_boss_barriers
+    d = generate_dungeon(3)
+    assert clear_boss_barriers(d) is True
+    assert not d.barrier_tiles
+    assert clear_boss_barriers(d) is False
+
+
+# ════════════════════ Кладбище и сетка локаций ════════════════════
+def test_graveyard_location_and_walkable_grid(make_game):
+    g = make_game()
+    dead = g.get_location('dead')
+    gates = {t['to']: t for t in dead.transitions.values()}
+    assert 'graveyard' in gates
+    gy = g.get_location('graveyard')
+    assert gy.stairs_pos is not None
+    # У каждой локации все переходы имеют сторону появления
+    for key in ('pine', 'dead', 'graveyard', 'village'):
+        loc = g.get_location(key)
+        for tr in loc.transitions.values():
+            assert tr.get('side') in ('n', 'e', 's', 'w'), (key, tr)
+
+
+def test_gate_side_spawn_matches_side(make_game):
+    g = make_game()
+    # Нижний переход в деревню → появление в биоме у его «северных» врат
+    g.travel_to('pine')
+    entry = g.dungeon.transitions[(60, 66)]['entry']
+    # врата деревни pine (8,8): сторона w → появление у восточных врат pine
+    assert entry in (locations.SIDE_ENTRY['e'], locations.VILLAGE_INWARD['pine'])
+
+
+# ════════════════════ MP: обмен и общие квесты ════════════════════
+def _mp_core(players=2):
+    from net.core import GameCore
+    core = GameCore(seed=42)
+    for pid in range(players):
+        core.add_player(pid, 'warrior' if pid == 0 else 'rogue')
+    return core
+
+
+def test_trade_executes_offers_and_gold():
+    core = _mp_core()
+    a, b = core.players[0], core.players[1]
+    a.x = b.x + 1            # встать рядом
+    a.inventory['potion_s'] = 2
+    b.inventory['wood'] = 3
+    b.gold = 50
+    core.trade_request(0, 1)
+    core.trade_accept(1)
+    core.trade_offer_add(0, 'potion_s', 2)
+    core.trade_offer_add(1, 'wood', 2)
+    core.trade_gold(1, 40)
+    core.trade_ready(0)
+    core.trade_ready(1)
+    assert core.trade is None
+    assert a.inventory['wood'] == 2 and 'potion_s' not in a.inventory
+    assert b.inventory['potion_s'] == 2 and b.inventory['wood'] == 1
+    assert b.gold == 10 and a.gold >= 40
+
+
+def test_trade_snapshot_serializes_pids():
+    core = _mp_core()
+    a, b = core.players[0], core.players[1]
+    a.x = b.x + 1
+    core.trade_request(0, 1)
+    snap = core.get_snapshot()
+    assert snap['trade']['players'] == ['0', '1']
+
+
+def test_duel_request_only_logs():
+    core = _mp_core()
+    core.duel_request(0, 1)
+    snap = core.get_snapshot()
+    texts = [e['text'] for e in snap['events']]
+    assert any('дуэль' in t for t in texts)
+
+
+def test_mp_quests_shared_progress():
+    core = _mp_core()
+    log = core.quest_log
+    p = core.players[0]
+    # Разговор со старейшиной открывает его квесты (нужно стоять рядом)
+    assert core.elder is not None
+    p.x, p.y = core.elder.x + 1, core.elder.y
+    core.quest_talk(0)
+    assert log.available, 'старейшина не открыл квесты'
+    key = next(iter(log.available))
+    core.quest_accept(0, key)
+    assert key in log.active
+    # Прогресс общий: журнал в снапшоте у всего отряда
+    assert key in core.get_snapshot()['quests']['active']

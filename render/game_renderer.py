@@ -191,6 +191,11 @@ class GameRenderer(BaseRenderer):
                     self._draw_upstairs(px, py, light)
                 elif tile == Tile.GATE:
                     self._draw_gate(game, px, py, mx, my, light)
+                elif tile == Tile.LOCKED_DOOR:
+                    self.screen.blit(Tiles.get('locked_door', 0, light),
+                                     (px, py))
+                elif tile == Tile.CHEST:
+                    self.screen.blit(Tiles.get('chest', 0, light), (px, py))
         if not self._is_overworld:
             self._draw_darkness(game, cam_x, cam_y)
             self._draw_wall_shadows(game, cam_x, cam_y)
@@ -348,10 +353,17 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(Tiles.get('exit', 0, light), (px, py))
 
     def _draw_gate(self, game, px, py, mx, my, light=1.0):
-        """Врата локации. Вход в шахту выглядит как пещера."""
+        """Переход между локациями: стрелка в сторону назначения.
+
+        Вход в шахту остаётся пещерой; обычные врата рисуются стрелкой
+        (n/e/s/w) по стороне перехода.
+        """
         trans = game.dungeon.transitions.get((mx, my), {})
-        kind = 'cave' if trans.get('to') == 'mine' else 'gate'
-        self.screen.blit(Tiles.get(kind, 0, light), (px, py))
+        if trans.get('to') == 'mine':
+            self.screen.blit(Tiles.get('cave', 0, light), (px, py))
+            return
+        side = trans.get('side') or 's'
+        self.screen.blit(Tiles.get(f'arrow_{side}', 0, light), (px, py))
 
     def _draw_harvestables(self, game, cam_x, cam_y):
         """Кусты ягод: с ягодами или пустые, если ягоды уже собрали."""
@@ -538,8 +550,45 @@ class GameRenderer(BaseRenderer):
             img = Tiles.get('quest_board')
         self.screen.blit(img, (px, py))
     # ════════════════════════ HUD ════════════════════════
+    def draw_player_popup(self, game):
+        """Попап над другим игроком: «Обмен» / «Вызов на дуэль»."""
+        popup = getattr(game, 'player_popup', None)
+        hits = []
+        if popup:
+            w, h = 250, 128
+            x = (config.SCREEN_W - w) // 2
+            y = max(8, config.VIEW_H * TILE // 2 - h // 2)
+            panel = pygame.Surface((w, h), pygame.SRCALPHA)
+            panel.fill((24, 20, 16, 235))
+            pygame.draw.rect(panel, (206, 166, 82), (0, 0, w, h), 2,
+                             border_radius=8)
+            self.screen.blit(panel, (x, y))
+
+            title = T.render(f"{popup.get('name', 'Игрок')}",
+                             (240, 210, 120), T.FONT_BODY)
+            self.screen.blit(title, (x + (w - title.get_width()) // 2, y + 10))
+
+            bw, bh = w - 40, 28
+            bx, by = x + 20, y + 42
+            for action, label, color in (
+                    ('trade', 'Обмен', (240, 200, 100)),
+                    ('duel', 'Вызов на дуэль', (230, 120, 90)),
+                    ('close', 'Закрыть', (150, 150, 160))):
+                rect = (bx, by, bw, bh)
+                mx, my = game.mouse_pos
+                hover = bx <= mx <= bx + bw and by <= my <= by + bh
+                bg = (66, 54, 38) if hover else (40, 34, 26)
+                pygame.draw.rect(self.screen, bg, rect, border_radius=6)
+                pygame.draw.rect(self.screen, color, rect, 1, border_radius=6)
+                surf = T.render(label, color, T.FONT_SMALL)
+                self.screen.blit(surf, (bx + (bw - surf.get_width()) // 2,
+                                        by + (bh - surf.get_height()) // 2))
+                hits.append((action, rect))
+                by += bh + 6
+        game._player_popup_hits = hits
+
     def draw_hud(self, game):
-        y0 = config.SCREEN_H - config.HUD_HEIGHT
+        y0 = config.SCREEN_H - config.hud_height()
         pygame.draw.rect(self.screen, T.BG_HUD, (0, y0, config.SCREEN_W, config.SCREEN_H - y0))
         pygame.draw.line(self.screen, T.PANEL_BORDER_DARK, (0, y0), (config.SCREEN_W, y0), 1)
 

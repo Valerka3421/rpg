@@ -1,7 +1,11 @@
 """Точка входа. Запуск: python main.py"""
+import os
 import sys
 import time
 import threading
+
+# Окно игры центрируется при каждом создании/смене размера.
+os.environ.setdefault('SDL_VIDEO_CENTERED', '1')
 
 # 1) Настройки — ДО импорта game/render
 from core.settings import load_settings
@@ -24,6 +28,8 @@ def _apply_resolution(game, new_w, new_h, fullscreen):
     поэтому никакой синхронизации копий констант не нужно.
     """
     screen = set_display_mode((new_w, new_h), fullscreen, game.settings)
+    # Размер по факту: fullscreen может дать размер рабочего стола.
+    new_w, new_h = screen.get_width(), screen.get_height()
     pygame.display.set_caption(f"Этельгард — {new_w}×{new_h}")
     from render.window_icon import apply_window_icon
     apply_window_icon()
@@ -54,7 +60,13 @@ def _run_game_loop(game, screen, clock):
     if current_fullscreen:
         screen = set_display_mode(
             (config.SCREEN_W, config.SCREEN_H), True, game.settings)
+        # Размер по факту: borderless fullscreen = размер рабочего стола
+        config.set_resolution(screen.get_width(), screen.get_height())
         game.renderer.screen = screen
+        for sub in ('menu', 'game', 'screens', 'overlay', 'icons'):
+            r = getattr(game.renderer, sub, None)
+            if r is not None and hasattr(r, 'screen'):
+                r.screen = screen
         from render.window_icon import apply_window_icon
         apply_window_icon()
 

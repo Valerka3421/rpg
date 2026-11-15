@@ -135,6 +135,9 @@ def roll_kill_reward(monster, depth, greedy=False):
     if monster.boss:
         drops.extend(BOSS_DROPS.get(monster.ch, []))
         drops.append('potion_l')
+        # Ключ босса выпадает всегда: без него не попасть в казну
+        # (сундук + лестница вниз), а из арены не выйти, пока он жив.
+        drops.append('boss_key')
     # Кристалл маны может выпасть с любого моба. Размер зависит от моба.
     crystal = roll_mana_crystal(monster)
     if crystal:
@@ -276,7 +279,8 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
                 tx, ty = x + dx, y + dy
                 if not (0 <= tx < dungeon.w and 0 <= ty < dungeon.h):
                     continue
-                if (dungeon.tiles[ty][tx] == Tile.WALL
+                if (dungeon.tiles[ty][tx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST)
                         or (tx, ty) in dungeon.items
                         or (tx, ty) in blocked):
                     continue
@@ -567,8 +571,11 @@ def sell_price_for(key):
 
 # ════════════════════ СПАВН ════════════════════
 def tile_walkable(dungeon, x, y):
-    return (0 <= x < dungeon.w and 0 <= y < dungeon.h
-            and dungeon.tiles[y][x] != Tile.WALL)
+    if not (0 <= x < dungeon.w and 0 <= y < dungeon.h):
+        return False
+    tile = dungeon.tiles[y][x]
+    # WALL и LOCKED_DOOR (заперта до ключа босса) непроходимы.
+    return tile != Tile.WALL and tile != Tile.LOCKED_DOOR
 
 
 def find_free_tile(dungeon, x, y, occupied=(), max_radius=8):

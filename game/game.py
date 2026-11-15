@@ -17,7 +17,7 @@ from core.config import (
     COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
     COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
 )
-from core.data import BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH
+from core.data import BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH, ITEMS
 from core.entities import Player, Entity, Message, FloatText
 from core.world import (generate_dungeon, generate_overworld, place_entry_tile,
                         has_los, compute_fov, bfs_toward_player)
@@ -663,15 +663,15 @@ class Game:
         if target:
             self.attack(self.player, target)
             return True
-        # Кусты и руда лежат на проходимых клетках: идти в них нельзя,
-        # но удар добывает ресурс. Деревья — это стены.
+        # Ресурсы добываются только клавишей «E» — идти в клетку ресурса
+        # нельзя. Деревья/кусты/руда стоят на месте.
         if (nx, ny) in self.dungeon.harvestables:
-            self.harvest_at(nx, ny)
-            return True
+            return False
         tile = self.dungeon.tiles[ny][nx]
-        if tile == Tile.WALL:
-            if self.harvest_at(nx, ny):
-                return True
+        if tile in (Tile.WALL, Tile.LOCKED_DOOR, Tile.CHEST):
+            if tile == Tile.LOCKED_DOOR:
+                # Запертая дверь босс-комплекса: отпирается ключом босса.
+                return self._try_unlock_door(nx, ny)
             return False
         self.player.x, self.player.y = nx, ny
         if (nx, ny) in self.dungeon.items:
@@ -715,22 +715,64 @@ class Game:
         if target:
             self.attack(self.player, target)
             return
-        # Рудные камни, деревья и кусты: атака добывает ближайший ресурс.
-        candidates = list(self.dungeon.harvestables)
+        # Ресурсы добываются только клавишей «E» (harvest_adjacent):
+        # пробел бьёт только по монстрам.
+
+    def harvest_adjacent(self):
+        """Добыча ресурса или открытие сундука рядом с игроком («E»)."""
+        px, py = self.player.x, self.player.y
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tx, ty = px + dx, py + dy
+            if (0 <= tx < self.dungeon.w and 0 <= ty < self.dungeon.h
+                    and self.dungeon.tiles[ty][tx] == Tile.CHEST):
+                self._open_chest(tx, ty)
+                return True
+        if self.world_mode != 'overworld':
+            return False
+        best = None
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
                     continue
-                pos = (self.player.x + dx, self.player.y + dy)
-                if pos not in candidates and self.harvestable_kind_at(*pos):
-                    candidates.append(pos)
-        candidates.sort(key=lambda p: max(abs(p[0] - self.player.x),
-                                          abs(p[1] - self.player.y)))
-        for pos in candidates:
-            if max(abs(pos[0] - self.player.x),
-                   abs(pos[1] - self.player.y)) <= 1:
-                if self.harvest_at(*pos):
-                    return
+                pos = (px + dx, py + dy)
+                if self.harvestable_kind_at(*pos) is None:
+                    continue
+                dist = max(abs(dx), abs(dy))
+                if best is None or dist < best[0]:
+                    best = (dist, pos)
+        if best:
+            return self.harvest_at(*best[1])
+        return False
+
+    def _open_chest(self, x, y):
+        """Сундук казны: золото + пара предметов по глубине."""
+        from audio import Audio
+        Audio.play('pickup')
+        depth = max(1, self.depth)
+        gold = 20 + depth * 8
+        self.player.gold += gold
+        self.total_gold_earned += gold
+        self.log(f"Сундук открыт: +{gold} золота", COL_GOLD)
+        self.add_float(x, y, f"+{gold}g", COL_GOLD)
+        tier = min(3, max(1, (depth + 1) // 3))
+        pool = [k for k, v in ITEMS.items()
+                if v.get('tier', 1) <= tier
+                and v.get('type') not in ('book', 'resource', 'key')]
+        for _ in range(random.randint(2, 3)):
+            self._place_drop(x, y, random.choice(pool))
+        self.dungeon.tiles[y][x] = Tile.FLOOR
+        self.render_revision = getattr(self, 'render_revision', 0) + 1
+
+    def _try_unlock_door(self, x, y):
+        """Запертая дверь: тратит ключ босса и открывается."""
+        if self.player.inventory.get('boss_key', 0) > 0:
+            rules.consume(self.player.inventory, 'boss_key')
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
+            self.log("Ключ босса отпирает дверь.", COL_GOLD)
+            return True
+        self.log("Дверь заперта: нужен ключ босса.", COL_DIM)
+        return False
 
     def harvestable_kind_at(self, x, y):
         """'bush'/'tree'/'ore' для клетки или None."""
@@ -984,6 +1026,13 @@ class Game:
         for item_key in reward.drops:
             self._place_drop(monster.x, monster.y, item_key)
 
+        if monster.boss:
+            # Погиб босс: замурованные выходы его арены открываются.
+            from core.world import clear_boss_barriers
+            if clear_boss_barriers(self.dungeon):
+                self.render_revision = getattr(self, 'render_revision', 0) + 1
+                self.log("Выходы арены открыты.", COL_WIN)
+
         if monster.boss and self.depth == MAX_DEPTH:
             self.victory = True
             self.log("ДРЕВНИЙ ДРАКОН ПОБЕЖДЁН! ВЫ ПОБЕДИЛИ!", COL_WIN)
@@ -1107,7 +1156,8 @@ class Game:
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
                 continue
-            if self.dungeon.tiles[ny][nx] == Tile.WALL:
+            if self.dungeon.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST):
                 continue
             if any(o is not m and o.hp > 0 and o.x == nx and o.y == ny
                    for o in self.dungeon.monsters):
@@ -1185,7 +1235,8 @@ class Game:
         from core.config import Tile
         if not (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h):
             return False
-        if self.dungeon.tiles[y][x] == Tile.WALL:
+        if self.dungeon.tiles[y][x] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                        Tile.CHEST):
             return False
         if (x, y) in self.dungeon.harvestables:
             return False
@@ -1308,6 +1359,10 @@ class Game:
                 return
             self.log("Рядом нет NPC.", COL_DIM)
             return
+        if key == pygame.K_e:
+            self.harvest_adjacent()
+            self.update_fov()
+            return
         if key == pygame.K_l:
             self.quests.open();
             return
@@ -1408,6 +1463,16 @@ class Game:
                 and (tx, ty) in self.visible):
             if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
                 self.dialogue.open('merchant')
+            else:
+                self.log("Подойди ближе.", COL_DIM)
+            return True
+
+        # Клик по доске поручений открывает её.
+        if (self.quest_board
+                and (tx, ty) == (self.quest_board.x, self.quest_board.y)
+                and (tx, ty) in self.visible):
+            if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
+                self.dialogue.open('quest_board')
             else:
                 self.log("Подойди ближе.", COL_DIM)
             return True

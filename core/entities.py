@@ -187,6 +187,12 @@ class Dungeon:
         self.transitions = {}
         # Добываемые ресурсы: (x, y) -> запись core.harvest
         self.harvestables = {}
+        # Замурованные выходы арены босса: (x, y). После победы над боссом
+        # эти тайлы возвращаются в FLOOR и сет пустеет.
+        self.barrier_tiles = set()
+        # Босс-комплекс: центр казны и клетки запертой двери
+        self.treasury_pos = None
+        self.boss_door_cells = set()
 
 
 @dataclass

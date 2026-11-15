@@ -6,6 +6,7 @@
 import random
 import json
 import os
+import time
 
 from core.config import (
     MAP_W, MAP_H, MERCHANT_FLOORS, Tile,
@@ -20,11 +21,14 @@ from core.data import (BOSSES, make_shop_stock, reroll_price, item_sell_price,
                        craft_skill_reward, item_category, select_recipe,
                        MONSTERS_BY_CH)
 from core.entities import Player, Entity
+from core.quests import QuestLog
+from core.data import QUESTS
 from core.world import (
     generate_overworld, generate_dungeon, place_entry_tile, has_los,
-    bfs_toward_player,
+    bfs_toward_player, clear_boss_barriers,
 )
 from core.save import dungeon_to_dict, dungeon_from_dict
+from core import harvest as harvest_mod
 
 
 class GameCore:
@@ -46,6 +50,12 @@ class GameCore:
         self.dungeon_cache = {}
         self.merchant = None
         self.shop_stock = []
+
+        # Общий журнал квестов отряда: задания общие, награды персональные
+        self.quest_log = QuestLog()
+        # Активный обмен между двумя игроками (или None)
+        self.trade = None
+        self._harvest_cache = {}
 
         # Игроки
         self.players = {}                 # {pid: Player}
@@ -477,6 +487,32 @@ class GameCore:
             self.reroll_shop(pid)
         elif t == 'chat':
             self.chat(pid, msg.get('text', ''))
+        elif t == 'harvest':
+            self.harvest_adjacent(pid)
+        elif t == 'quest_accept':
+            self.quest_accept(pid, msg.get('key'))
+        elif t == 'quest_turn_in':
+            self.quest_turn_in(pid, msg.get('key'))
+        elif t == 'quest_talk':
+            self.quest_talk(pid)
+        elif t == 'trade_request':
+            self.trade_request(pid, msg.get('target'))
+        elif t == 'trade_accept':
+            self.trade_accept(pid)
+        elif t == 'trade_decline':
+            self.trade_decline(pid)
+        elif t == 'trade_cancel':
+            self.trade_cancel(pid)
+        elif t == 'trade_offer_add':
+            self.trade_offer_add(pid, msg.get('key'), msg.get('count', 1))
+        elif t == 'trade_offer_remove':
+            self.trade_offer_remove(pid, msg.get('key'), msg.get('count', 1))
+        elif t == 'trade_gold':
+            self.trade_gold(pid, msg.get('amount', 0))
+        elif t == 'trade_ready':
+            self.trade_ready(pid)
+        elif t == 'duel_request':
+            self.duel_request(pid, msg.get('target'))
         elif t == 'wait':
             pass
 
@@ -509,7 +545,19 @@ class GameCore:
         if target:
             self._strike(p, target)
             return True
-        if self.dungeon.tiles[ny][nx] == Tile.WALL:
+        # Ресурсы добываются только клавишей «E» (harvest).
+        if (nx, ny) in self.dungeon.harvestables:
+            return False
+        tile = self.dungeon.tiles[ny][nx]
+        if tile in (Tile.WALL, Tile.LOCKED_DOOR, Tile.CHEST):
+            if tile == Tile.LOCKED_DOOR:
+                if p.inventory.get('boss_key', 0) > 0:
+                    rules.consume(p.inventory, 'boss_key')
+                    self.dungeon.tiles[ny][nx] = Tile.FLOOR
+                    self._event(f"{p.class_name} отпер дверь ключом босса",
+                                COL_GOLD)
+                    return True
+                self._event("Дверь заперта: нужен ключ босса", COL_TEXT)
             return False
         p.x, p.y = nx, ny
         if (nx, ny) in self.dungeon.items:
@@ -532,11 +580,269 @@ class GameCore:
         return True
 
     def _on_pickup(self, player, result):
-        """Квестов в MP пока нет, но подбор попадает в лог отряда."""
+        """Квесты общие: подбор предмета двигает прогресс всего отряда."""
+        self.quest_log.update_collect(result.key, player.inventory)
         if result.kind == 'gold':
             self._event(f"{player.class_name}: +{result.gold} золота", COL_GOLD)
         else:
             self._event(f"{player.class_name} подобрал: {result.name}", COL_TEXT)
+
+    # ════════════════════════ ДОБЫЧА («E») ════════════════════════
+    def harvest_adjacent(self, pid):
+        """«E»: добыть смежный ресурс или открыть сундук казны."""
+        p = self.players.get(pid)
+        if p is None:
+            return
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tx, ty = p.x + dx, p.y + dy
+            if (0 <= tx < MAP_W and 0 <= ty < MAP_H
+                    and self.dungeon.tiles[ty][tx] == Tile.CHEST):
+                self._open_chest(p, tx, ty)
+                return
+        if self.world_mode != 'overworld':
+            return
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                pos = (p.x + dx, p.y + dy)
+                record = self.dungeon.harvestables.get(pos)
+                if record is None or not record.get('has', True):
+                    continue
+                now = time.time()
+                result = harvest_mod.hit(self.dungeon, p, pos[0], pos[1],
+                                         p.atk, now)
+                if result is None:
+                    return
+                if not result['done']:
+                    return
+                names = ', '.join(
+                    f"{item_display_name(key)}×{count}"
+                    for key, count in result['items'])
+                for key, count in result['items']:
+                    self.quest_log.update_collect(key, p.inventory)
+                self._event(f"{p.class_name} добыл: {names}", COL_HEAL)
+                return
+
+    def _open_chest(self, p, x, y):
+        """Сундук казны: золото + пара предметов по глубине."""
+        depth = max(1, self.depth)
+        gold = 20 + depth * 8
+        p.gold += gold
+        self._event(f"{p.class_name} открыл сундук: +{gold} золота", COL_GOLD)
+        tier = min(3, max(1, (depth + 1) // 3))
+        pool = [k for k, v in ITEMS.items()
+                if v.get('tier', 1) <= tier
+                and v.get('type') not in ('book', 'resource', 'key')]
+        for _ in range(random.randint(2, 3)):
+            rules.place_loot(self.dungeon, p.inventory, x, y,
+                             random.choice(pool))
+        self.dungeon.tiles[y][x] = Tile.FLOOR
+
+    # ════════════════════════ КВЕСТЫ (общие) ════════════════════════
+    def quest_talk(self, pid):
+        """Разговор со старейшиной открывает его квесты всему отряду."""
+        p = self.players.get(pid)
+        if p is None or not self._near_elder(p):
+            return
+        from core.data import quests_by_giver
+        self.quest_log.add_available(quests_by_giver('elder'))
+
+    def _near_elder(self, player):
+        return (self.elder is not None
+                and max(abs(player.x - self.elder.x),
+                        abs(player.y - self.elder.y)) <= 1)
+
+    def quest_accept(self, pid, key):
+        p = self.players.get(pid)
+        q = QUESTS.get(key or '')
+        if p is None or not q:
+            return
+        if key in self.quest_log.active or key in self.quest_log.turned_in:
+            return
+        if not self._near_elder(p):
+            self._event(f"{p.class_name}: квесты даёт старейшина — подойди "
+                        "к нему.", COL_TEXT)
+            return
+        self.quest_log.accept(key, q['count'], p.inventory)
+        self._event(f"{p.class_name} взял квест: {q['name']}", COL_GOLD)
+
+    def quest_turn_in(self, pid, key):
+        p = self.players.get(pid)
+        state = self.quest_log.active.get(key or '')
+        if p is None or state is None:
+            return
+        if state['progress'] < state['count']:
+            self._event(f"{p.class_name}: задание ещё не выполнено.", COL_TEXT)
+            return
+        if not self._near_elder(p):
+            self._event(f"{p.class_name}: сдать квест можно у старейшины.",
+                        COL_TEXT)
+            return
+        q = QUESTS.get(key, {})
+        self._turn_in_player = p
+        if self.quest_log.turn_in(key, p, self):
+            self._event(f"{p.class_name} сдал квест: {q.get('name', key)} "
+                        f"(+{q.get('reward_gold', 0)} з. лично)", COL_HEAL)
+
+    def level_up(self):
+        """Хук QuestLog.turn_in: уровняет игрока, сдающего квест."""
+        p = getattr(self, '_turn_in_player', None)
+        if p is None:
+            return
+        while p.xp >= p.xp_next:
+            p.xp -= p.xp_next
+            p.level += 1
+            p.xp_next = xp_to_next(p.level)
+            p.free_points += 5
+            p.recalc()
+            self._event(f"{p.class_name}: уровень {p.level}!", COL_GOLD)
+
+    # ════════════════════════ ОБМЕН МЕЖДУ ИГРОКАМИ ════════════════════════
+    def _trade_partner(self, pid):
+        if not self.trade:
+            return None
+        players = self.trade['players']
+        if pid not in players:
+            return None
+        return players[1] if players[0] == pid else players[0]
+
+    def _trade_release(self):
+        self.trade = None
+
+    def trade_request(self, pid, target):
+        p = self.players.get(pid)
+        other = self.players.get(target)
+        if p is None or other is None or target == pid:
+            return
+        if self.trade:
+            self._event("Обмен уже идёт — дождитесь его окончания.", COL_TEXT)
+            return
+        if max(abs(p.x - other.x), abs(p.y - other.y)) > 1:
+            self._event("Для обмена нужно стоять рядом.", COL_TEXT)
+            return
+        self.trade = {'players': [pid, target], 'offers': {pid: {}, target: {}},
+                      'gold': {pid: 0, target: 0}, 'ready': set(),
+                      'accepted': {pid}}
+        self._event(f"{p.class_name} предлагает обмен "
+                    f"{other.class_name}. «Принять» в окне обмена.", COL_MERCH)
+
+    def trade_accept(self, pid):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        self.trade['accepted'].add(pid)
+        if len(self.trade['accepted']) == len(self.trade['players']):
+            self._event("Обмен открыт: выложите предметы и подтвердите.",
+                        COL_MERCH)
+
+    def trade_decline(self, pid):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        names = [self.players[q].class_name for q in self.trade['players']
+                 if q in self.players]
+        self._trade_release()
+        self._event(f"{names[0] if names else 'Игрок'} отклонил обмен.",
+                    COL_TEXT)
+
+    def trade_cancel(self, pid):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        self._trade_release()
+        self._event("Обмен отменён.", COL_TEXT)
+
+    def trade_offer_add(self, pid, key, count=1):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        p = self.players.get(pid)
+        if p is None or not key:
+            return
+        count = max(1, int(count))
+        have = p.inventory.get(key, 0)
+        already = self.trade['offers'][pid].get(key, 0)
+        if already + count > have:
+            count = have - already
+        if count <= 0:
+            return
+        self.trade['offers'][pid][key] = already + count
+
+    def trade_offer_remove(self, pid, key, count=1):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        offers = self.trade['offers'].get(pid, {})
+        if not key or key not in offers:
+            return
+        offers[key] = max(0, offers[key] - max(1, int(count)))
+        if offers[key] <= 0:
+            del offers[key]
+
+    def trade_gold(self, pid, amount):
+        if not self.trade or pid not in self.trade['players']:
+            return
+        p = self.players.get(pid)
+        if p is None:
+            return
+        try:
+            amount = int(amount)
+        except (TypeError, ValueError):
+            return
+        self.trade['gold'][pid] = max(0, min(amount, p.gold))
+
+    def trade_ready(self, pid):
+        trade = self.trade
+        if not trade or pid not in trade['players']:
+            return
+        if pid in trade['ready']:
+            trade['ready'].discard(pid)
+            return
+        trade['ready'].add(pid)
+        if len(trade['ready']) == len(trade['players']):
+            self._trade_execute(trade)
+
+    def _trade_execute(self, trade):
+        """Меняет предметы и золото, если всё сходится."""
+        players = trade['players']
+        a, b = (self.players.get(q) for q in players)
+        if a is None or b is None:
+            self._trade_release()
+            return
+        offer_a, offer_b = trade['offers'][players[0]], trade['offers'][players[1]]
+        gold_a, gold_b = trade['gold'][players[0]], trade['gold'][players[1]]
+        # Проверка: у каждого хватает выкладываемого
+        for p, offer, gold in ((a, offer_a, gold_a), (b, offer_b, gold_b)):
+            if gold > p.gold:
+                self._event("Обмен сорвался: не хватает золота.", COL_DMG)
+                self._trade_release()
+                return
+            for key, cnt in offer.items():
+                if p.inventory.get(key, 0) < cnt:
+                    self._event("Обмен сорвался: предмета нет в инвентаре.",
+                                COL_DMG)
+                    self._trade_release()
+                    return
+        # Списание
+        for p, offer, gold in ((a, offer_a, gold_a), (b, offer_b, gold_b)):
+            for key, cnt in offer.items():
+                for _ in range(cnt):
+                    rules.consume(p.inventory, key)
+            if gold:
+                p.gold -= gold
+        # Выдача
+        for p, offer, gold in ((a, offer_b, gold_b), (b, offer_a, gold_a)):
+            for key, cnt in offer.items():
+                p.inventory[key] = p.inventory.get(key, 0) + cnt
+            if gold:
+                p.gold += gold
+        names = [q.class_name for q in (a, b)]
+        self._event(f"Обмен завершён: {names[0]} ⇄ {names[1]}", COL_MERCH)
+        self._trade_release()
+
+    def duel_request(self, pid, target):
+        p = self.players.get(pid)
+        other = self.players.get(target)
+        if p is None or other is None or target == pid:
+            return
+        self._event(f"{p.class_name} вызывает {other.class_name} на дуэль!",
+                    COL_DMG)
 
     def player_attack(self, pid):
         p = self.players.get(pid)
@@ -638,6 +944,7 @@ class GameCore:
         self._place_players_near(self.dungeon, cx, cy)
         rules.init_action_timers(self.dungeon.monsters)
         self.world_serial += 1
+        self.quest_log.update_reach(depth)
         if depth > 1:
             self._event(f"Спуск на глубину {depth}", COL_GOLD)
         if depth in BOSSES:
@@ -673,21 +980,34 @@ class GameCore:
             killer = self._nearest_player(monster)
         greedy = killer.greedy if killer is not None else False
         reward = rules.roll_kill_reward(monster, self.depth, greedy)
+        xp = monster.xp_value
+        levels = []
         if killer is not None:
             killer.gold += reward.gold
-            levels = rules.give_xp(killer, monster.xp_value)
-            inventory = killer.inventory
+            # Опыт 70/30: убийце 70%, остальные 30% делятся между союзниками.
+            others = [p for q, p in self.players.items() if p is not killer]
+            killer_xp = int(xp * 0.7)
+            levels = rules.give_xp(killer, killer_xp)
+            if others:
+                share = (xp - killer_xp) // len(others)
+                if share > 0:
+                    for o in others:
+                        rules.give_xp(o, share)
+                    self._event(f"Опыт поделен: {killer_xp} убийце, "
+                                f"{share} каждому союзнику", COL_XP)
+            self.quest_log.update_kill(monster.ch)
         else:
-            levels = []
             inventory = {}
         for item_key in reward.drops:
-            rules.place_loot(self.dungeon, inventory, monster.x, monster.y,
-                             item_key)
+            rules.place_loot(self.dungeon, killer.inventory if killer else {},
+                             monster.x, monster.y, item_key)
         if killer is not None:
             self._event(f"{monster.name} повержен ({killer.class_name}): "
-                        f"+{monster.xp_value} XP, +{reward.gold} зол.", COL_XP)
+                        f"+{reward.gold} зол.", COL_XP)
             for level in levels:
                 self._event(f"{killer.class_name}: уровень {level}!", COL_GOLD)
+        if monster.boss and clear_boss_barriers(self.dungeon):
+            self._event("Выходы арены босса открыты.", COL_WIN)
         self.dungeon.monsters = [m for m in self.dungeon.monsters if m.hp > 0]
 
     def _tick_statuses(self):
@@ -813,7 +1133,8 @@ class GameCore:
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
                 continue
-            if self.dungeon.tiles[ny][nx] == Tile.WALL:
+            if self.dungeon.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST):
                 continue
             if any(o is not m and o.hp > 0 and (o.x, o.y) == (nx, ny)
                    for o in self.dungeon.monsters):
@@ -850,7 +1171,10 @@ class GameCore:
     def _monster_move(self, m, x, y):
         if not (0 <= x < MAP_W and 0 <= y < MAP_H):
             return False
-        if self.dungeon.tiles[y][x] == Tile.WALL:
+        if self.dungeon.tiles[y][x] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                        Tile.CHEST):
+            return False
+        if (x, y) in self.dungeon.harvestables:
             return False
         if self.merchant and (x, y) == (self.merchant.x, self.merchant.y):
             return False
@@ -925,7 +1249,8 @@ class GameCore:
         } for m in alive]
         items_data = [{'x': k[0], 'y': k[1], 'key': v}
                       for k, v in self.dungeon.items.items()]
-        return {
+        harvest = self._harvest_snapshot()
+        snapshot = {
             'tick': self.tick,
             'world_mode': self.world_mode,
             'depth': self.depth,
@@ -938,5 +1263,35 @@ class GameCore:
                      if self.elder else None,
             'shop_stock': self.shop_stock,
             'events': self._take_events(),
+            'quests': self.quest_log.to_dict(),
+            'trade': self._trade_snapshot(),
+        }
+        if harvest is not None:
+            snapshot['harvestables'] = harvest
+        return snapshot
+
+    def _harvest_snapshot(self):
+        """Состояние ресурсов: шлётся целиком только при изменении."""
+        current = {}
+        for (x, y), rec in self.dungeon.harvestables.items():
+            current[(x, y)] = (rec.get('kind'), bool(rec.get('has', True)),
+                               rec.get('hp', 0), rec.get('max_hp', 0))
+        if current == self._harvest_cache:
+            return None
+        self._harvest_cache = dict(current)
+        return {f"{x},{y}": {'kind': k, 'has': h, 'hp': hp, 'max_hp': mhp}
+                for (x, y), (k, h, hp, mhp) in current.items()}
+
+    def _trade_snapshot(self):
+        trade = self.trade
+        if not trade:
+            return None
+        return {
+            'players': [str(q) for q in trade['players']],
+            'offers': {str(q): dict(offer)
+                       for q, offer in trade['offers'].items()},
+            'gold': {str(q): amount for q, amount in trade['gold'].items()},
+            'ready': [str(q) for q in trade['ready']],
+            'accepted': [str(q) for q in trade['accepted']],
         }
 
