@@ -1708,6 +1708,19 @@ class IconRenderer(BaseRenderer):
                              (cx - hw // 2 + 3, cy - int(11 * k)),
                              (cx + hw // 2 - 3, cy - int(11 * k)),
                              int(1 * k))
+        elif name == 'skills':
+            # Три узла ветки навыков
+            pygame.draw.line(s, dim, (cx, cy + int(10 * k)),
+                             (cx, cy - int(2 * k)), int(2 * k))
+            pygame.draw.line(s, dim, (cx, cy - int(2 * k)),
+                             (cx - int(11 * k), cy - int(13 * k)), int(2 * k))
+            pygame.draw.line(s, dim, (cx, cy - int(2 * k)),
+                             (cx + int(11 * k), cy - int(13 * k)), int(2 * k))
+            for nx, ny in ((cx, cy + int(12 * k)),
+                           (cx - int(11 * k), cy - int(15 * k)),
+                           (cx + int(11 * k), cy - int(15 * k))):
+                pygame.draw.circle(s, (40, 34, 24), (nx, ny), int(6 * k))
+                pygame.draw.circle(s, col, (nx, ny), int(6 * k), int(2 * k))
         elif name == 'stats':
             bar_w = int(7 * k)
             gap = int(4 * k)

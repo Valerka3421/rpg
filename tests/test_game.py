@@ -615,6 +615,7 @@ def test_craftable_list_returns_recipes(make_game):
 def test_craft_bone_sword(make_game):
     g = make_game()
     g.player.level = 5                  # костяной меч требует 3-й уровень
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     craftable = g.craftable_list()
     bone_idx = next((i for i, c in enumerate(craftable) if c[0] == 'bone_sword'), None)
@@ -654,6 +655,7 @@ def test_craft_via_click(make_game):
     from core.config import HAMMER_SIZE
     g = make_game()
     g.player.level = 5
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     g.screen_mode = 'craft'
     craftable = g.craftable_list()
@@ -994,7 +996,7 @@ def test_class_selection_screen(make_game):
     g.menu.class_selection = 1
     g.class_select_confirm()
     assert g.screen_mode == 'game'
-    assert g.player.class_key == 'assassin'
+    assert g.player.class_key == 'mage'
 
 
 def test_class_saved_and_loaded(make_game, tmp_path):
@@ -1009,12 +1011,15 @@ def test_class_saved_and_loaded(make_game, tmp_path):
 
 def test_preview_stats_matches_recalc(make_game):
     from core.entities import Player
-    for class_key in ('warrior', 'assassin', 'rogue', 'paladin', 'default'):
+    for class_key in ('warrior', 'mage', 'rogue', 'artisan',
+                      'assassin', 'paladin', 'default'):
         p = Player(class_key=class_key)
         stats = Player.preview_stats({
             'str': p.str, 'agi': p.agi, 'vit': p.vit,
             'luk': p.luk, 'df_stat': p.df_stat,
             'weapon': p.weapon, 'armor': p.armor,
+            'helmet': p.helmet, 'leggings': p.leggings,
+            'level': p.level, 'effects': p.effects(),
         })
         assert stats['max_hp'] == p.max_hp
         assert stats['atk'] == p.atk

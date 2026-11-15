@@ -10,7 +10,7 @@ import os
 from core.config import (
     MAP_W, MAP_H, MERCHANT_FLOORS, Tile,
     PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN,
-    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL,
+    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL, SAVE_VERSION,
     COL_TEXT, COL_GOLD, COL_XP, COL_DMG, COL_HEAL, COL_MERCH,
 )
 from core import rules
@@ -125,18 +125,26 @@ class GameCore:
     def _player_to_dict(self, p):
         return {
             'x': p.x, 'y': p.y, 'hp': p.hp,
+            'mana': getattr(p, 'mana', 0),
             'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
             'free_points': p.free_points,
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
             'df_stat': p.df_stat,
             'weapon': p.weapon, 'armor': p.armor,
+            'helmet': getattr(p, 'helmet', None),
+            'leggings': getattr(p, 'leggings', None),
             'inventory': dict(p.inventory),
             'gold': p.gold,
             'class_key': p.class_key,
+            'class_tier': getattr(p, 'class_tier', 1),
             'double_strike': p.double_strike,
             'regen': p.regen, 'vampire': p.vampire,
             'thorns': p.thorns, 'greedy': p.greedy,
             'statuses': dict(p.statuses),
+            'skill_points': getattr(p, 'skill_points', 0),
+            'skills': dict(getattr(p, 'skills', {})),
+            'skill_xp': dict(getattr(p, 'skill_xp', {})),
+            'skill_nodes': sorted(getattr(p, 'skill_nodes', set())),
         }
 
     def _player_from_dict(self, d):
@@ -150,6 +158,8 @@ class GameCore:
         p.df_stat = d['df_stat']
         p.weapon = d.get('weapon')
         p.armor = d.get('armor')
+        p.helmet = d.get('helmet')
+        p.leggings = d.get('leggings')
         p.inventory = dict(d.get('inventory', {}))
         p.gold = d.get('gold', 0)
         p.double_strike = d.get('double_strike', False)
@@ -158,8 +168,14 @@ class GameCore:
         p.thorns = d.get('thorns', False)
         p.greedy = d.get('greedy', False)
         p.statuses = dict(d.get('statuses', {}))
+        p.class_tier = int(d.get('class_tier', p.class_tier))
+        p.skill_points = int(d.get('skill_points', 1))
+        p.skills = dict(p.skills, **(d.get('skills') or {}))
+        p.skill_xp = dict(p.skill_xp, **(d.get('skill_xp') or {}))
+        p.skill_nodes = set(d.get('skill_nodes') or ())
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
+        p.mana = min(d.get('mana', p.max_mana), p.max_mana)
         p.anim_time = 0.0
         p.attack_anim = 0.0
         p.facing = (1, 0)
@@ -174,7 +190,7 @@ class GameCore:
                 'shop_stock': self.shop_stock,
             }
         data = {
-            'version': 6,
+            'version': SAVE_VERSION,
             'world_mode': self.world_mode,
             'depth': self.depth,
             'overworld': dungeon_to_dict(self.overworld),
@@ -318,18 +334,14 @@ class GameCore:
 
     def unequip(self, pid, slot):
         p = self.players.get(pid)
-        if p is None:
+        if p is None or slot not in ('weapon', 'armor', 'helmet', 'leggings'):
             return
-        if slot == 'weapon' and p.weapon:
-            key = p.weapon
-            p.weapon = None
-            p.inventory[key] = p.inventory.get(key, 0) + 1
-            p.recalc()
-        elif slot == 'armor' and p.armor:
-            key = p.armor
-            p.armor = None
-            p.inventory[key] = p.inventory.get(key, 0) + 1
-            p.recalc()
+        key = getattr(p, slot, None)
+        if not key:
+            return
+        setattr(p, slot, None)
+        p.inventory[key] = p.inventory.get(key, 0) + 1
+        p.recalc()
 
     # ════════════════════════ STATS / CRAFT / SHOP ════════════════════════
     def allocate_stat(self, pid, stat):
@@ -346,12 +358,12 @@ class GameCore:
         p = self.players.get(pid)
         if p is None:
             return False
-        recipes = rules.craftable_list(p.inventory, p.level)
+        recipes = rules.craftable_list(p.inventory, p.level, p)
         if idx < 0 or idx >= len(recipes):
             return False
         key = recipes[idx][0]
-        ok, _reason = rules.craft(key, p.inventory, p.level)
-        return ok
+        result = rules.craft_item(p, key)
+        return result.ok
 
     def _merchant_in_reach(self, player):
         return (self.merchant is not None
@@ -820,7 +832,10 @@ class GameCore:
             data = {
                 'x': p.x, 'y': p.y,
                 'hp': p.hp, 'max_hp': p.max_hp,
+                'mana': getattr(p, 'mana', 0),
+                'max_mana': getattr(p, 'max_mana', 0),
                 'class': p.class_key,
+                'class_tier': getattr(p, 'class_tier', 1),
                 'level': p.level,
                 'xp': p.xp, 'xp_next': p.xp_next,
                 'name': p.class_name,
@@ -831,10 +846,14 @@ class GameCore:
                 'atk': p.atk, 'df': p.df,
                 'crit': round(p.crit, 2), 'dodge': round(p.dodge, 2),
                 'free_points': p.free_points,
+                'skill_points': getattr(p, 'skill_points', 0),
+                'skills': dict(getattr(p, 'skills', {})),
                 'statuses': dict(p.statuses),
                 'str': p.str, 'agi': p.agi, 'vit': p.vit,
                 'luk': p.luk, 'df_stat': p.df_stat,
                 'weapon': p.weapon, 'armor': p.armor,
+                'helmet': getattr(p, 'helmet', None),
+                'leggings': getattr(p, 'leggings', None),
             }
             # Инвентарь меняется редко — шлём только при изменении.
             # Первый снапшот для игрока всегда содержит его.

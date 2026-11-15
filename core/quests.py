@@ -100,12 +100,19 @@ class QuestLog:
             player.inventory[mat] -= need
             if player.inventory[mat] <= 0:
                 del player.inventory[mat]
-        player.gold += q.get('reward_gold', 0)
+        gold = q.get('reward_gold', 0)
+        gold_pct = float(getattr(player, 'quest_gold_pct', 0.0) or 0.0)
+        player.gold += int(round(gold * (1.0 + gold_pct)))
         for it_key, cnt in q.get('reward_items', {}).items():
             player.inventory[it_key] = player.inventory.get(it_key, 0) + cnt
-        player.xp += q.get('reward_xp', 0)
-        while player.xp >= player.xp_next:
-            game.level_up()
+        xp = q.get('reward_xp', 0)
+        xp_pct = float(getattr(player, 'quest_xp_pct', 0.0) or 0.0)
+        from core import rules
+        levels = rules.give_xp(player, int(round(xp * (1.0 + xp_pct))),
+                               apply_bonus=False)
+        for level in levels:
+            if hasattr(game, '_on_level_up'):
+                game._on_level_up(level)
         self.completed.discard(q_key)
         self.turned_in.add(q_key)
         return True

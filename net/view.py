@@ -368,8 +368,12 @@ class ClientView:
     def _apply_player_data(self, p, pd):
         p.x, p.y = pd['x'], pd['y']
         p.hp, p.max_hp = pd['hp'], pd['max_hp']
+        p.mana = pd.get('mana', getattr(p, 'mana', 0))
+        p.max_mana = pd.get('max_mana', getattr(p, 'max_mana', 0))
         p.level = pd['level']
         p.class_name = pd['name']
+        p.class_key = pd.get('class', getattr(p, 'class_key', 'warrior'))
+        p.class_tier = pd.get('class_tier', getattr(p, 'class_tier', 1))
         p.gold = pd.get('gold', 0)
         # Сервер присылает инвентарь только при изменении — иначе
         # сохраняем уже известный, а не обнуляем его.
@@ -382,6 +386,9 @@ class ClientView:
         p.atk = pd.get('atk', p.atk)
         p.df = pd.get('df', p.df)
         p.free_points = pd.get('free_points', 0)
+        p.skill_points = pd.get('skill_points', getattr(p, 'skill_points', 0))
+        if 'skills' in pd:
+            p.skills = dict(pd['skills'])
         p.xp = pd.get('xp', 0)
         p.xp_next = pd.get('xp_next', 10)
         p.str = pd.get('str', 5)
@@ -391,6 +398,8 @@ class ClientView:
         p.df_stat = pd.get('df_stat', 5)
         p.weapon = pd.get('weapon')
         p.armor = pd.get('armor')
+        p.helmet = pd.get('helmet')
+        p.leggings = pd.get('leggings')
         return p
 
     def update_from_snapshot(self, snap, tiles, my_pid):

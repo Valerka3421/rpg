@@ -525,7 +525,7 @@ def main():
     parser.add_argument('--host', default='localhost')
     parser.add_argument('--port', type=int, default=9000)
     parser.add_argument('--class', dest='class_key', default='warrior',
-                        choices=('warrior', 'assassin', 'rogue', 'paladin'))
+                        choices=('warrior', 'mage', 'rogue', 'artisan'))
     args = parser.parse_args()
     Client(args.host, args.port, args.class_key).start()
 
