@@ -72,6 +72,8 @@ class Renderer:
             self.screens.draw_run_stats(game)
         elif game.screen_mode == 'trade':
             self.screens.draw_trade(game)
+        elif game.screen_mode == 'dev_console':
+            self.screens.draw_dev_console(game)
 
         if game.dead:
             self.overlay.draw_death(game)

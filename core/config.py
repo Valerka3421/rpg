@@ -1,4 +1,5 @@
 """Константы, цвета, enum'ы. Ни от чего не зависит."""
+import hashlib
 import os
 import sys
 from enum import IntEnum
@@ -124,6 +125,26 @@ MINIMAP_SCALE = 2
 MINIMAP_MARGIN = 8
 
 SAVE_VERSION = 7
+
+# ── Консоль разработчика ──
+# Пароль хранится хешем, чтобы он не лежал в сейвах/настройках открытым
+# текстом. Пароль по умолчанию — «ethelgard»; его можно переопределить
+# переменной окружения ETHELGARD_DEV_PASSWORD (или сразу хешем через
+# ETHELGARD_DEV_PASSWORD_HASH).
+DEV_CONSOLE_PASSWORD_HASH = (
+    '0670b05790a5a75f60c941b10e7866c3347b3261b216e4881145c4bb5f172f4a'
+)
+DEV_CONSOLE_MAX_ATTEMPTS = 3
+DEV_CONSOLE_LOCK_SECONDS = 30
+
+
+def dev_console_password_hash():
+    """Хеш пароля консоли с учётом переменных окружения."""
+    plain = os.environ.get('ETHELGARD_DEV_PASSWORD')
+    if plain:
+        return hashlib.sha256(plain.encode('utf-8')).hexdigest()
+    return os.environ.get('ETHELGARD_DEV_PASSWORD_HASH',
+                          DEV_CONSOLE_PASSWORD_HASH)
 
 # ── Real-time таймеры ──
 PLAYER_MOVE_COOLDOWN   = 0.12

@@ -32,6 +32,7 @@ from game.menu_controller import MenuController
 from game.shop_controller import ShopController
 from game.craft_controller import CraftController
 from game.skills_controller import SkillsController
+from game.dev_console_controller import DevConsoleController
 
 
 # Порядок характеристик для цифровых клавиш в окне статов
@@ -51,6 +52,7 @@ class Game:
         self.shop = ShopController(self)
         self.craft = CraftController(self)
         self.skills_ui = SkillsController(self)
+        self.dev_console = DevConsoleController(self)
 
         self.dialogue = DialogueController(self)
         self.quests = QuestController(self)
@@ -78,6 +80,12 @@ class Game:
             self.craft = CraftController(self)
         if not hasattr(self, 'skills_ui'):
             self.skills_ui = SkillsController(self)
+        if not hasattr(self, 'dev_console'):
+            self.dev_console = DevConsoleController(self)
+        else:
+            self.dev_console.return_mode = 'game'
+            self.dev_console.buffer = ''
+            self.dev_console.error = ''
         if not hasattr(self, 'dialogue'):
             self.dialogue = DialogueController(self)
         if not hasattr(self, 'quests'):
@@ -1312,6 +1320,21 @@ class Game:
 
     # ════════════════════════ МАРШРУТИЗАЦИЯ INPUT ════════════════════════
     def handle_key(self, key, scancode=0, unicode='', mods=0):
+        # Консоль разработчика — раньше любых экранов, чтобы её нельзя было
+        # «застрять» в модалке. F12 переключает, ` открывает.
+        if key == pygame.K_F12:
+            if self.screen_mode == 'dev_console':
+                self.dev_console.close()
+            else:
+                self.dev_console.open()
+            return
+        if key == pygame.K_BACKQUOTE and self.screen_mode != 'dev_console':
+            self.dev_console.open()
+            return
+        if self.screen_mode == 'dev_console':
+            self.dev_console.handle_key(key, unicode, mods)
+            return
+
         # Меню и все его подэкраны
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
@@ -1459,6 +1482,10 @@ class Game:
 
         # Крестик — ПЕРВЫМ, до любых других обработчиков
         close = getattr(self, '_modal_close_rect', None)
+        if close and self.screen_mode == 'dev_console':
+            if self._hit(close, pos):
+                self.dev_console.close()
+                return True
         if close and self.screen_mode in ('stats', 'inventory', 'craft',
                                           'quests', 'shop', 'stats_run',
                                           'dialogue', 'skills'):
