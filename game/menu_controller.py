@@ -59,7 +59,7 @@ class MenuController:
     BACK_MODES = ('menu_saves', 'menu_settings', 'menu_controls',
                   'menu_credits', 'class_select', 'menu_multiplayer',
                   'menu_mp_join')
-    BACK_RECT = (34, 28, 190, 48)
+    BACK_RECT = (34, 28, 52, 48)
 
     def __init__(self, game):
         self.game = game

@@ -106,14 +106,14 @@ BIOME_GATES = {
          VILLAGE_INWARD['rock']),
     ),
     'autumn': (
-        (SIDE_POS['n'], 'n', 'pine',    SIDE_ENTRY['s']),
+        (SIDE_POS['n'], 'n', 'pine',    (40, LOCATION_H - 6)),
         (SIDE_POS['s'], 's', 'dark',    SIDE_ENTRY['n']),
-        (SIDE_POS['e'], 'e', 'village', (VILLAGE_W - 4, LOCATION_H // 2)),
+        (SIDE_POS['e'], 'e', 'village', VILLAGE_INWARD['autumn']),
     ),
     'swamp': (
-        (SIDE_POS['n'], 'n', 'rock',    SIDE_ENTRY['s']),
+        (SIDE_POS['n'], 'n', 'rock',    (80, LOCATION_H - 6)),
         (SIDE_POS['s'], 's', 'dead',    SIDE_ENTRY['n']),
-        (SIDE_POS['w'], 'w', 'village', (VILLAGE_W - 4, LOCATION_H // 2)),
+        (SIDE_POS['w'], 'w', 'village', VILLAGE_INWARD['swamp']),
     ),
     'dark': (
         (SIDE_POS['n'], 'n', 'autumn',  SIDE_ENTRY['s']),
@@ -235,9 +235,10 @@ def road_cells(key):
 VILLAGE_GATE_ENTRY = {
     'autumn': SIDE_ENTRY['e'],   # врата autumn→village на востоке
     'swamp': SIDE_ENTRY['w'],    # врата swamp→village на западе
+    'meadow': SIDE_ENTRY['n'],   # врата meadow→village на севере
     'goblin_village': (LOCATION_W // 2, LOCATION_H - 8),
 }
-for _k in ('pine', 'birch', 'rock', 'dark', 'meadow', 'dead'):
+for _k in ('pine', 'birch', 'rock', 'dark', 'dead'):
     VILLAGE_GATE_ENTRY.setdefault(_k, SIDE_ENTRY['s'])
 
 # Куда игрок попадает, выйдя из деревни в локацию.

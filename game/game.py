@@ -725,17 +725,51 @@ class Game:
         # Ресурсы добываются только клавишей «E» (harvest_adjacent):
         # пробел бьёт только по монстрам.
 
+    def map_tile_under(self, pos):
+        """Клетка карты под курсором или None (курсор вне игрового поля)."""
+        from core.config import TILE, MAP_W, MAP_H
+        ox, oy = config.view_origin()
+        mx, my = pos
+        if not (ox <= mx < ox + config.VIEW_W * TILE
+                and oy <= my < oy + config.VIEW_H * TILE):
+            return None
+        w_cells = getattr(self.dungeon, 'w', MAP_W)
+        h_cells = getattr(self.dungeon, 'h', MAP_H)
+        cam_x = max(0, min(self.player.x - config.VIEW_W // 2,
+                           max(0, w_cells - config.VIEW_W)))
+        cam_y = max(0, min(self.player.y - config.VIEW_H // 2,
+                           max(0, h_cells - config.VIEW_H)))
+        return ((mx - ox) // TILE + cam_x, (my - oy) // TILE + cam_y)
+
     def harvest_adjacent(self):
-        """Добыча ресурса или открытие сундука рядом с игроком («E»)."""
+        """Добыча ресурса или открытие сундука («E»).
+
+        Приоритет — клетка под курсором, если она в пределах шага; иначе
+        выбирается ближайший смежный ресурс (как раньше).
+        """
         px, py = self.player.x, self.player.y
+        hovered = self.map_tile_under(getattr(self, 'mouse_pos', (-1, -1)))
+        if hovered is not None and max(abs(hovered[0] - px),
+                                       abs(hovered[1] - py)) > 1:
+            hovered = None
+
+        def is_chest(x, y):
+            return (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h
+                    and self.dungeon.tiles[y][x] == Tile.CHEST)
+
+        if hovered and is_chest(*hovered):
+            self._open_chest(*hovered)
+            return True
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             tx, ty = px + dx, py + dy
-            if (0 <= tx < self.dungeon.w and 0 <= ty < self.dungeon.h
-                    and self.dungeon.tiles[ty][tx] == Tile.CHEST):
+            if is_chest(tx, ty):
                 self._open_chest(tx, ty)
                 return True
         if self.world_mode != 'overworld':
             return False
+        # Ресурс под курсором — даже если рядом есть другие.
+        if hovered and self.harvestable_kind_at(*hovered) is not None:
+            return self.harvest_at(*hovered)
         best = None
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):

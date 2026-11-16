@@ -52,7 +52,7 @@ class MenuRenderer(BaseRenderer):
 
     # ════════════════════════ КНОПКА «НАЗАД» ════════════════════════
     def draw_back_button(self, game):
-        """Единая кнопка возврата на шаг вверх для всех подменю."""
+        """Единая кнопка возврата на шаг вверх для всех подменю (стрелка)."""
         rect = game.menu.back_button_rect()
         if not rect:
             return
@@ -61,8 +61,17 @@ class MenuRenderer(BaseRenderer):
         hover = x <= mx <= x + w and y <= my <= y + h
         self.draw_button_bg(rect, hover, radius=8)
         color = (238, 222, 188) if hover else (200, 190, 170)
-        self.text("Назад", x + w // 2, y + h // 2, color,
-                  font=T.FONT_H2, center=True)
+        cx, cy = x + w // 2, y + h // 2
+        shaft = max(8, min(w, h) // 4)
+        head = max(6, min(w, h) // 5)
+        tip = cx - shaft - head // 2
+        pygame.draw.line(self.screen, color, (cx + shaft, cy),
+                         (tip + head // 2, cy), 3)
+        pygame.draw.polygon(self.screen, color, [
+            (tip, cy),
+            (tip + head, cy - head),
+            (tip + head, cy + head),
+        ])
 
     # ════════════════════════ Мультиплеер ════════════════════════
     def draw_menu_multiplayer(self, game):

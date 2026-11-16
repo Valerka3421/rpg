@@ -279,8 +279,12 @@ class ClientView:
                 potions.sort()
                 self.send_fn({'type': 'use_item', 'key': potions[0][1]})
         elif key == pygame.K_e:
-            # «E» — добыча смежного ресурса / открытие сундука
-            self.send_fn({'type': 'harvest'})
+            # «E» — добыча ресурса под курсором (или смежного)
+            msg = {'type': 'harvest'}
+            target = self._map_tile_under(self.mouse_pos)
+            if target:
+                msg['x'], msg['y'] = target
+            self.send_fn(msg)
         elif key in (pygame.K_t, pygame.K_RETURN):
             # Диалог с NPC в MP: старейшина на поверхности, торговец
             # в подземелье. Дальше — выбор реплик/торговли в диалоге.

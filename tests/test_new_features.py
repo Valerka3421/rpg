@@ -683,6 +683,104 @@ def test_roads_have_no_items_harvestables_or_monsters(make_game):
         assert all((m.x, m.y) not in roads for m in loc.monsters), key
 
 
+def test_every_gate_spawns_next_to_its_return_gate(make_game):
+    """Из любых врат выходишь рядом с вратами назад, а не на другом краю."""
+    g = make_game()
+
+    def dist_to_return(start_key):
+        back = [p for p, tr in g.dungeon.transitions.items()
+                if tr.get('to') == start_key]
+        assert back, f'нет обратных врат в {start_key}'
+        return min(max(abs(p[0] - g.player.x), abs(p[1] - g.player.y))
+                   for p in back)
+
+    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'dark',
+                'meadow', 'dead', 'graveyard'):
+        for pos, _side, to, _entry in locations.BIOME_GATES.get(key, ()):
+            g.travel_to(key)
+            entry = g.dungeon.transitions[pos]['entry']
+            assert g.travel_to(to, entry)
+            dist = dist_to_return(key)
+            assert dist <= 5, (key, to, pos, entry,
+                               (g.player.x, g.player.y), dist)
+
+    for key, gate in locations.VILLAGE_GATES.items():
+        g.travel_to('village')
+        entry = g.dungeon.transitions[gate]['entry']
+        assert g.travel_to(key, entry)
+        dist = dist_to_return('village')
+        assert dist <= 5, (key, (g.player.x, g.player.y), dist)
+
+    # Вход в шахту с горы и обратно.
+    g.travel_to('rock')
+    mine_gate = next(p for p, tr in g.dungeon.transitions.items()
+                     if tr['to'] == 'mine')
+    assert g.travel_to('mine', g.dungeon.transitions[mine_gate]['entry'])
+    assert dist_to_return('rock') <= 5
+
+    # Деревня гоблинов: туда и обратно.
+    g.travel_to('village')
+    goblin_gate = locations.VILLAGE_GATES['goblin_village']
+    entry = g.dungeon.transitions[goblin_gate]['entry']
+    assert g.travel_to('goblin_village', entry)
+    assert dist_to_return('village') <= 5
+    back_gate = next(p for p, tr in g.dungeon.transitions.items()
+                     if tr['to'] == 'village')
+    assert g.travel_to('village', g.dungeon.transitions[back_gate]['entry'])
+
+    # Кладбище → подземелье → обратно к тем же ступеням.
+    g.travel_to('graveyard')
+    sx, sy = g.dungeon.stairs_pos
+    g.player.x, g.player.y = sx, sy - 1
+    g.move_player(0, 1)
+    assert g.world_mode == 'dungeon'
+    g.exit_to_overworld()
+    assert g.location == 'graveyard'
+    assert g.world_mode == 'overworld'
+    assert max(abs(g.player.x - sx), abs(g.player.y - sy)) <= 1
+
+
+def _tile_screen_pos(g, tx, ty):
+    from core import config
+    from core.config import TILE
+    ox, oy = config.view_origin()
+    w = getattr(g.dungeon, 'w', 140)
+    h = getattr(g.dungeon, 'h', 70)
+    cam_x = max(0, min(g.player.x - config.VIEW_W // 2,
+                       max(0, w - config.VIEW_W)))
+    cam_y = max(0, min(g.player.y - config.VIEW_H // 2,
+                       max(0, h - config.VIEW_H)))
+    return (ox + (tx - cam_x) * TILE + TILE // 2,
+            oy + (ty - cam_y) * TILE + TILE // 2)
+
+
+def test_harvest_prefers_resource_under_cursor(make_game):
+    g = make_game()
+    px, py = g.player.x, g.player.y
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            g.dungeon.tiles[py + dy][px + dx] = Tile.FLOOR
+            g.dungeon.harvestables.pop((px + dx, py + dy), None)
+    left = (px - 1, py)
+    right = (px + 1, py)
+    g.dungeon.harvestables[left] = harvest.make_harvestable('bush')
+    g.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+
+    g.mouse_pos = _tile_screen_pos(g, *right)
+    assert g.map_tile_under(g.mouse_pos) == right
+    assert g.harvest_adjacent() is True
+    assert not g.dungeon.harvestables[right]['has']
+    assert g.dungeon.harvestables[left]['has']
+
+    # Курсор далеко от игрока — добывается ближайший соседний ресурс.
+    g.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+    g.mouse_pos = _tile_screen_pos(g, px + 6, py)
+    assert g.map_tile_under(g.mouse_pos) == (px + 6, py)
+    assert g.harvest_adjacent() is True
+    assert sum(1 for pos in (left, right)
+               if not g.dungeon.harvestables[pos]['has']) == 1
+
+
 def test_new_visual_tiles_registered():
     from render import tiles
     for kind in ('arrow_n', 'arrow_e', 'arrow_s', 'arrow_w',
@@ -699,6 +797,23 @@ def _mp_core(players=2):
     for pid in range(players):
         core.add_player(pid, 'warrior' if pid == 0 else 'rogue')
     return core
+
+
+def test_mp_harvest_prefers_requested_tile():
+    core = _mp_core(1)
+    p = core.players[0]
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            core.dungeon.tiles[p.y + dy][p.x + dx] = Tile.FLOOR
+            core.dungeon.harvestables.pop((p.x + dx, p.y + dy), None)
+    left = (p.x - 1, p.y)
+    right = (p.x + 1, p.y)
+    core.dungeon.harvestables[left] = harvest.make_harvestable('bush')
+    core.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+    core.apply_input(0, {'type': 'harvest',
+                         'x': right[0], 'y': right[1]})
+    assert not core.dungeon.harvestables[right]['has']
+    assert core.dungeon.harvestables[left]['has']
 
 
 def test_trade_executes_offers_and_gold():

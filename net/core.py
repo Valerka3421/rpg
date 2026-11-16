@@ -492,7 +492,7 @@ class GameCore:
         elif t == 'chat':
             self.chat(pid, msg.get('text', ''))
         elif t == 'harvest':
-            self.harvest_adjacent(pid)
+            self.harvest_adjacent(pid, msg.get('x'), msg.get('y'))
         elif t == 'quest_accept':
             self.quest_accept(pid, msg.get('key'))
         elif t == 'quest_turn_in':
@@ -592,10 +592,19 @@ class GameCore:
             self._event(f"{player.class_name} подобрал: {result.name}", COL_TEXT)
 
     # ════════════════════════ ДОБЫЧА («E») ════════════════════════
-    def harvest_adjacent(self, pid):
-        """«E»: добыть смежный ресурс или открыть сундук казны."""
+    def harvest_adjacent(self, pid, tx=None, ty=None):
+        """«E»: добыть ресурс под курсором (смежный) или открыть сундук."""
         p = self.players.get(pid)
         if p is None:
+            return
+        target = None
+        if (isinstance(tx, int) and not isinstance(tx, bool)
+                and isinstance(ty, int) and not isinstance(ty, bool)
+                and max(abs(tx - p.x), abs(ty - p.y)) <= 1):
+            target = (tx, ty)
+        if target and (0 <= tx < MAP_W and 0 <= ty < MAP_H
+                       and self.dungeon.tiles[ty][tx] == Tile.CHEST):
+            self._open_chest(p, tx, ty)
             return
         for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             tx, ty = p.x + dx, p.y + dy
@@ -605,6 +614,10 @@ class GameCore:
                 return
         if self.world_mode != 'overworld':
             return
+        # Ресурс под курсором важнее соседних.
+        if target and self.dungeon.harvestables.get(target) is not None:
+            self._hit_harvestable(p, target)
+            return
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
@@ -613,20 +626,22 @@ class GameCore:
                 record = self.dungeon.harvestables.get(pos)
                 if record is None or not record.get('has', True):
                     continue
-                now = time.time()
-                result = harvest_mod.hit(self.dungeon, p, pos[0], pos[1],
-                                         p.atk, now)
-                if result is None:
-                    return
-                if not result['done']:
-                    return
-                names = ', '.join(
-                    f"{item_display_name(key)}×{count}"
-                    for key, count in result['items'])
-                for key, count in result['items']:
-                    self.quest_log.update_collect(key, p.inventory)
-                self._event(f"{p.class_name} добыл: {names}", COL_HEAL)
+                self._hit_harvestable(p, pos)
                 return
+
+    def _hit_harvestable(self, p, pos):
+        record = self.dungeon.harvestables.get(pos)
+        if record is None or not record.get('has', True):
+            return
+        now = time.time()
+        result = harvest_mod.hit(self.dungeon, p, pos[0], pos[1], p.atk, now)
+        if result is None or not result['done']:
+            return
+        names = ', '.join(f"{item_display_name(key)}×{count}"
+                          for key, count in result['items'])
+        for key, count in result['items']:
+            self.quest_log.update_collect(key, p.inventory)
+        self._event(f"{p.class_name} добыл: {names}", COL_HEAL)
 
     def _open_chest(self, p, x, y):
         """Сундук казны: золото + пара предметов по глубине."""

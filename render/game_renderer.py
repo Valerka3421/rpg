@@ -118,6 +118,8 @@ class GameRenderer(BaseRenderer):
             # (игрок, мобы, лут, NPC) всегда остаются ПОВЕРХ текстур мира.
             # 4) Всплывающие цифры — поверх всего
             self._draw_floats(game, cam_x, cam_y)
+            # 5) Подсветка ресурса под курсором
+            self._draw_hover_highlight(game, cam_x, cam_y)
         finally:
             self.screen = previous
             self.icons.screen = previous_icons_screen
@@ -364,6 +366,29 @@ class GameRenderer(BaseRenderer):
             return
         side = trans.get('side') or 's'
         self.screen.blit(Tiles.get(f'arrow_{side}', 0, light), (px, py))
+
+    def _draw_hover_highlight(self, game, cam_x, cam_y):
+        """Рамка вокруг ресурса под курсором: золотая — в пределах шага."""
+        tile_under = getattr(game, 'map_tile_under', None)
+        kind_at = getattr(game, 'harvestable_kind_at', None)
+        if tile_under is None or kind_at is None:
+            return
+        pos = tile_under(getattr(game, 'mouse_pos', (-1, -1)))
+        if not pos:
+            return
+        mx, my = pos
+        if not (cam_x <= mx < cam_x + config.VIEW_W
+                and cam_y <= my < cam_y + config.VIEW_H):
+            return
+        player = getattr(game, 'player', None)
+        if kind_at(mx, my) is None:
+            return
+        reach = (player is not None
+                 and max(abs(mx - player.x), abs(my - player.y)) <= 1)
+        color = (226, 192, 112) if reach else (120, 110, 92)
+        rect = ((mx - cam_x) * TILE + 2, (my - cam_y) * TILE + 2,
+                TILE - 4, TILE - 4)
+        pygame.draw.rect(self.screen, color, rect, 2)
 
     def _draw_harvestables(self, game, cam_x, cam_y):
         """Кусты ягод: с ягодами или пустые, если ягоды уже собрали."""
