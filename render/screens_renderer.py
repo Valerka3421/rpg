@@ -1,5 +1,6 @@
 """Экраны поверх игры: статы, инвентарь, магазин, крафт, диалог, квесты, статистика."""
 from core import config
+import math
 import pygame
 from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
 from core.data import (ITEMS, parse_item_key, item_display_name,
@@ -654,72 +655,322 @@ class ScreensRenderer(BaseRenderer):
         self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 
+    # ── Графическая ветка класса ──
+    # Цвет значка по главному эффекту узла — как цветные иконки на референсе.
+    _GLYPH_COLORS = {
+        'atk': (230, 124, 88), 'crit': (238, 192, 92),
+        'hp': (214, 98, 98), 'df': (148, 176, 204),
+        'dodge': (166, 202, 176), 'mana': (108, 154, 232),
+        'lifesteal': (204, 92, 124), 'attack_speed': (242, 212, 108),
+        'move_speed': (146, 208, 188), 'gold_pct': (238, 196, 88),
+        'xp_pct': (148, 196, 242), 'craft_xp': (208, 170, 116),
+        'craft_quality': (224, 188, 126), 'quest_gold': (228, 200, 128),
+        'quest_xp': (168, 200, 236), 'summon': (188, 166, 222),
+        'rage': (230, 110, 92), 'frenzy': (232, 136, 96),
+    }
+
+    @staticmethod
+    def _hex_points(cx, cy, r):
+        """Точки шестиугольника «вершиной вверх»."""
+        return [(cx + r * math.cos(math.radians(60 * i - 90)),
+                 cy + r * math.sin(math.radians(60 * i - 90)))
+                for i in range(6)]
+
+    def _dotted_line(self, a, b, color, width=2, dash=6, gap=5):
+        ax, ay = a
+        bx, by = b
+        dx, dy = bx - ax, by - ay
+        dist = math.hypot(dx, dy)
+        if dist <= 0.1:
+            return
+        ux, uy = dx / dist, dy / dist
+        pos = 0.0
+        while pos < dist:
+            end = min(pos + dash, dist)
+            pygame.draw.line(self.screen, color,
+                             (ax + ux * pos, ay + uy * pos),
+                             (ax + ux * end, ay + uy * end), width)
+            pos = end + gap
+
+    def _draw_skill_glyph(self, effects, cx, cy, r, color, strength=1.0):
+        """Процедурный значок узла по его главному эффекту."""
+        key = next((k for k in (
+            'atk', 'crit', 'lifesteal', 'attack_speed', 'mana', 'hp', 'df',
+            'dodge', 'move_speed', 'gold_pct', 'xp_pct', 'craft_xp',
+            'craft_quality', 'quest_gold', 'quest_xp', 'summon', 'rage',
+            'frenzy') if effects.get(k)), None)
+        color = T.shade(self._GLYPH_COLORS.get(key, color), strength)
+        s = max(0.55, r / 26.0)
+        w = max(1, int(round(2 * s)))
+        if key == 'atk':
+            pygame.draw.line(self.screen, color, (cx, cy - 11 * s), (cx, cy + 5 * s), w)
+            pygame.draw.line(self.screen, color, (cx - 7 * s, cy + 2 * s),
+                             (cx + 7 * s, cy + 2 * s), w)
+            pygame.draw.line(self.screen, color, (cx, cy + 5 * s), (cx, cy + 10 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy + 11 * s)), max(1, int(2 * s)))
+        elif key == 'crit':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(9 * s), w)
+            pygame.draw.line(self.screen, color, (cx - 12 * s, cy), (cx + 12 * s, cy), w)
+            pygame.draw.line(self.screen, color, (cx, cy - 12 * s), (cx, cy + 12 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), max(1, int(2 * s)))
+        elif key in ('lifesteal', 'mana'):
+            pygame.draw.polygon(self.screen, color, [
+                (cx, cy - 11 * s), (cx + 8 * s, cy + 1 * s),
+                (cx + 4 * s, cy + 9 * s), (cx - 4 * s, cy + 9 * s),
+                (cx - 8 * s, cy + 1 * s)])
+            if key == 'lifesteal':
+                pygame.draw.line(self.screen, (24, 20, 18),
+                                 (cx - 3 * s, cy + 2 * s), (cx + 3 * s, cy + 2 * s), w)
+        elif key == 'attack_speed':
+            pygame.draw.polygon(self.screen, color, [
+                (cx + 3 * s, cy - 11 * s), (cx - 7 * s, cy + 1 * s),
+                (cx - 1 * s, cy + 1 * s), (cx - 3 * s, cy + 11 * s),
+                (cx + 8 * s, cy - 2 * s), (cx + 2 * s, cy - 2 * s)])
+        elif key == 'hp':
+            rr = max(2, int(5 * s))
+            pygame.draw.circle(self.screen, color, (int(cx - 4 * s), int(cy - 3 * s)), rr)
+            pygame.draw.circle(self.screen, color, (int(cx + 4 * s), int(cy - 3 * s)), rr)
+            pygame.draw.polygon(self.screen, color, [
+                (cx - 9 * s, cy - 1 * s), (cx + 9 * s, cy - 1 * s),
+                (cx, cy + 10 * s)])
+        elif key == 'df':
+            shield = [(cx, cy - 11 * s), (cx + 9 * s, cy - 6 * s),
+                      (cx + 7 * s, cy + 5 * s), (cx, cy + 11 * s),
+                      (cx - 7 * s, cy + 5 * s), (cx - 9 * s, cy - 6 * s)]
+            pygame.draw.polygon(self.screen, color, shield, w)
+            pygame.draw.line(self.screen, color, (cx, cy - 7 * s), (cx, cy + 7 * s), 1)
+        elif key == 'dodge':
+            rect = pygame.Rect(int(cx - 10 * s), int(cy - 10 * s),
+                               int(20 * s), int(20 * s))
+            pygame.draw.arc(self.screen, color, rect,
+                            math.radians(25), math.radians(300), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)),
+                               max(1, int(2.5 * s)))
+        elif key == 'move_speed':
+            for off in (-4, 5):
+                pygame.draw.lines(self.screen, color, False, [
+                    (cx + off * s - 4 * s, cy - 7 * s),
+                    (cx + off * s + 3 * s, cy),
+                    (cx + off * s - 4 * s, cy + 7 * s)], w)
+        elif key == 'gold_pct':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(10 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(4 * s), w)
+            pygame.draw.line(self.screen, color, (cx, cy - 10 * s), (cx, cy - 13 * s), w)
+        elif key == 'xp_pct':
+            pts = []
+            for i in range(10):
+                ang = math.radians(-90 + i * 36)
+                rad = r * (0.72 if i % 2 == 0 else 0.3)
+                pts.append((cx + rad * math.cos(ang), cy + rad * math.sin(ang)))
+            pygame.draw.polygon(self.screen, color, pts)
+        elif key in ('craft_xp', 'craft_quality'):
+            pygame.draw.polygon(self.screen, color, [
+                (cx - 11 * s, cy - 5 * s), (cx + 11 * s, cy - 5 * s),
+                (cx + 6 * s, cy + 1 * s), (cx + 3 * s, cy + 1 * s),
+                (cx + 4 * s, cy + 6 * s), (cx + 8 * s, cy + 10 * s),
+                (cx - 8 * s, cy + 10 * s), (cx - 4 * s, cy + 6 * s),
+                (cx - 3 * s, cy + 1 * s), (cx - 6 * s, cy + 1 * s)])
+        elif key in ('quest_gold', 'quest_xp'):
+            pygame.draw.rect(self.screen, color, (int(cx - 8 * s), int(cy - 9 * s),
+                                                  int(16 * s), int(18 * s)), w)
+            pygame.draw.line(self.screen, color, (cx - 4 * s, cy - 3 * s),
+                             (cx + 4 * s, cy - 3 * s), 1)
+            pygame.draw.line(self.screen, color, (cx - 4 * s, cy + 2 * s),
+                             (cx + 4 * s, cy + 2 * s), 1)
+        elif key == 'summon':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy - 2 * s)), int(8 * s), w)
+            pygame.draw.rect(self.screen, color, (int(cx - 4 * s), int(cy + 4 * s),
+                                                  int(8 * s), int(5 * s)), w)
+            pygame.draw.circle(self.screen, color, (int(cx - 3 * s), int(cy - 3 * s)),
+                               max(1, int(2 * s)))
+            pygame.draw.circle(self.screen, color, (int(cx + 3 * s), int(cy - 3 * s)),
+                               max(1, int(2 * s)))
+        else:
+            pygame.draw.polygon(self.screen, color, [
+                (cx, cy - 11 * s), (cx + 9 * s, cy),
+                (cx, cy + 11 * s), (cx - 9 * s, cy)], w)
+
+    def _draw_node_counter(self, nx, ny, count, total, learned):
+        label = f"{count}/{total}"
+        color = (126, 166, 226) if learned else (196, 184, 158)
+        fw = T.FONT_TINY.size(label)[0]
+        box = (nx - fw // 2 - 5, ny, fw + 10, 15)
+        T.rounded_rect(self.screen, (14, 12, 10), box, radius=3,
+                       border_color=(64, 56, 42))
+        self.text(label, nx, ny + 7, color, font=T.FONT_TINY, center=True)
+
+    def _draw_skill_node(self, nx, ny, r, node, selected, mouse):
+        state = node.get('state')
+        learned = bool(node.get('learned'))
+        if learned:
+            fill, border, glyph = (30, 38, 27), (208, 172, 86), (238, 216, 152)
+        elif state == 'available':
+            fill, border, glyph = (32, 29, 22), (170, 140, 70), (224, 202, 148)
+        else:
+            fill, border, glyph = (22, 20, 18), (66, 58, 45), (108, 98, 82)
+        rect = (nx - r - 7, ny - r - 17, r * 2 + 14, r * 2 + 40)
+        hover = self._in_rect(rect, mouse)
+        if selected:
+            border = (246, 228, 172)
+        elif hover:
+            border = T.shade(border, 1.3)
+        pygame.draw.polygon(self.screen, (10, 9, 8), self._hex_points(nx, ny, r + 6))
+        pygame.draw.polygon(self.screen, fill, self._hex_points(nx, ny, r))
+        pygame.draw.polygon(self.screen, T.shade(fill, 1.6),
+                            self._hex_points(nx, ny, r - 6), 1)
+        pygame.draw.polygon(self.screen, border, self._hex_points(nx, ny, r + 3), 3)
+        if selected:
+            pygame.draw.polygon(self.screen, (252, 238, 196),
+                                self._hex_points(nx, ny, r + 6), 1)
+        strength = 1.0 if learned else (0.82 if state == 'available' else 0.5)
+        self._draw_skill_glyph(node.get('effects', {}), nx, ny, r * 0.74,
+                               glyph, strength)
+        self._draw_node_counter(nx, ny + r + 8, 1 if learned else 0, 1, learned)
+        return rect
+
+    def _draw_class_hub(self, cls, cx, cy, r, learned, total):
+        border = T.GOLD
+        pygame.draw.polygon(self.screen, (9, 8, 7), self._hex_points(cx, cy, r + 8))
+        pygame.draw.polygon(self.screen, (44, 36, 23), self._hex_points(cx, cy, r + 3))
+        pygame.draw.polygon(self.screen, (28, 25, 19), self._hex_points(cx, cy, r))
+        pygame.draw.polygon(self.screen, border, self._hex_points(cx, cy, r + 3), 3)
+        pygame.draw.polygon(self.screen, T.shade(border, 0.55),
+                            self._hex_points(cx, cy, r - 6), 1)
+        pygame.draw.circle(self.screen, T.shade(border, 0.4),
+                           (int(cx), int(cy)), int(r * 0.64), 1)
+        self._draw_skill_glyph(cls.get('effects') or {'hp': 1},
+                               cx, cy - 2, r * 0.6, (232, 208, 154))
+        self._draw_node_counter(cx, cy + r + 8, learned, total, True)
+
+    def _draw_class_tree(self, game, nodes, cls, ctrl, x, y, cw, tree_bottom):
+        """Шестиугольное древо: центральный узел класса и две ветви."""
+        top = y
+        tree_h = max(200, tree_bottom - top)
+        cx = x + cw // 2
+        cy = top + int(tree_h * 0.54)
+        r = max(20, min(28, int(tree_h * 0.075)))
+        dx = min(152, int(cw * 0.13))
+        dy = min(92, int(tree_h * 0.24))
+        # Крылья поднимаются от класса вверх, венец — над центральным узлом.
+        positions = [
+            (cx - dx * 0.85, cy + dy * 0.78),
+            (cx - dx * 1.68, cy + dy * 0.04),
+            (cx - dx * 2.45, cy - dy * 0.88),
+            (cx + dx * 0.85, cy + dy * 0.78),
+            (cx + dx * 1.68, cy + dy * 0.04),
+            (cx + dx * 2.45, cy - dy * 0.88),
+            (cx, top + r + 12),
+        ]
+        pos = [positions[i % len(positions)] for i in range(len(nodes))]
+        hub = (cx, cy)
+        learned_count = sum(1 for n in nodes if n.get('learned'))
+
+        # Тусклый декоративный круг под древом — как фон-орнамент.
+        ring = int(min(tree_h * 0.46, cw * 0.3))
+        pygame.draw.circle(self.screen, (44, 38, 29), (int(cx), int(cy)), ring, 1)
+        pygame.draw.circle(self.screen, (33, 29, 23), (int(cx), int(cy)),
+                           int(ring * 0.72), 1)
+
+        # Связи: золотые к изученным узлам, тусклые пунктирные — к прочим.
+        pairs = ((None, 0), (0, 1), (1, 2), (None, 3), (3, 4), (4, 5),
+                 (None, 6))
+        for a, b in pairs:
+            if b >= len(pos) or (a is not None and a >= len(pos)):
+                continue
+            pa = hub if a is None else pos[a]
+            pb = pos[b]
+            done = bool(nodes[b].get('learned')) and (
+                a is None or nodes[a].get('learned'))
+            if done:
+                pygame.draw.line(self.screen, (198, 162, 74), pa, pb, 3)
+                pygame.draw.circle(self.screen, (236, 208, 132),
+                                   (int(pb[0]), int(pb[1])), 2)
+            else:
+                self._dotted_line(pa, pb, (92, 79, 56), 2, 7, 6)
+
+        game._ui_hits['skills']['rows'] = []
+        mouse = getattr(game, 'mouse_pos', (-1, -1))
+        for i, node in enumerate(nodes):
+            nx, ny = pos[i]
+            rect = self._draw_skill_node(int(nx), int(ny), r, node,
+                                         i == ctrl.selection, mouse)
+            game._ui_hits['skills']['rows'].append((i, rect))
+        self._draw_class_hub(cls, cx, cy, r + 12, learned_count, len(nodes))
+
+    def _draw_selected_node_panel(self, sk, nodes, ctrl, x, y, cw, ch, p):
+        panel = (x, y, cw, ch)
+        T.rounded_rect(self.screen, (24, 21, 17), panel, radius=8,
+                       border_color=T.PANEL_BORDER)
+        node = nodes[ctrl.selection] if nodes else None
+        if not node:
+            self.text("Нет узлов в этой ветке.", x + 16, y + 12,
+                      T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        state = node.get('state')
+        self.text(self.fit_text(node['name'], cw - 200, T.FONT_H2),
+                  x + 16, y + 8, T.TITLE_LIGHT, font=T.FONT_H2)
+        need = node['level']
+        self.text(f"Уровень {need}", x + cw - 16, y + 12,
+                  T.GOLD if p.level >= need else T.HP_CRIT,
+                  font=T.FONT_SMALL, align_right=True)
+        effects = sk.describe_effects(node.get('effects', {}))
+        self.text(self.fit_text(effects or "Пассивных бонусов нет.",
+                                cw - 32, T.FONT_SMALL),
+                  x + 16, y + 37, T.TEXT, font=T.FONT_SMALL)
+        status = {
+            'learned': ("✓ Изучено", (120, 208, 120)),
+            'available': ("Доступно · Enter или повторный клик — изучить за 1 очко",
+                          (240, 210, 96)),
+            'level': (f"Откроется на {need} уровне", (176, 162, 132)),
+            'points': ("Нет очков навыков", (212, 158, 112)),
+        }.get(state, ("", T.TEXT_DIM))
+        self.text(status[0], x + 16, y + 60, status[1], font=T.FONT_SMALL)
+
     def _draw_class_tab(self, game, x, y, cw, ch, cls, ctrl, sk, class_data):
         p = game.player
+        bottom = game._modal_content_rect[1] + ch
         perk = cls.get('perk', '')
         if perk:
             self.text(self.fit_text(perk, cw, T.FONT_SMALL), x, y,
                       (200, 180, 130), font=T.FONT_SMALL)
-            y += 26
+            y += 24
 
         # ── Смена класса ──
         options = ctrl.promotion_options()
         req = ctrl.change_class_requirement()
         if options:
             ready = req is not None and p.level >= req
-            title = "Смена класса"
+            label = "Смена класса"
             if req is not None and not ready:
-                title += f" (с {req} уровня)"
-            self.text(title, x, y, T.TITLE if ready else T.TEXT_MUTED,
-                      font=T.FONT_H2)
-            y += 26
-            bx = x
+                label += f" (с {req} ур.)"
+            self.text(label, x, y + 5, T.TITLE if ready else T.TEXT_MUTED,
+                      font=T.FONT_SMALL)
+            bx = x + T.FONT_SMALL.size(label)[0] + 14
             for i, key in enumerate(options):
                 name = class_data(key).get('name', key)
-                w = max(120, T.FONT_SMALL.size(name)[0] + 26)
-                rect = (bx, y, w, 28)
+                text = f"{i + 1}. {name}"
+                w = max(92, T.FONT_SMALL.size(text)[0] + 18)
+                rect = (bx, y, w, 26)
                 hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
                 T.rounded_rect(self.screen, T.ROW_HOVER if hover else
                                (32, 28, 22), rect, radius=6,
                                border_color=T.TITLE if ready else
                                T.PANEL_BORDER_DARK)
-                self.text(f"{i + 1}. {name}", bx + 10, y + 5,
+                self.text(self.fit_text(text, w - 12, T.FONT_SMALL),
+                          bx + 7, y + 4,
                           T.TITLE_LIGHT if ready else T.TEXT_MUTED,
                           font=T.FONT_SMALL)
                 game._ui_hits['skills']['promotion'].append((i, rect))
                 bx += w + 8
-            y += 38
+            y += 34
 
-        # ── Узлы ──
         nodes = ctrl.rows()
-        row_h = 46
-        for i, node in enumerate(nodes):
-            if y + row_h > ch + 20:
-                break
-            rect = (x, y, cw, row_h - 6)
-            selected = i == ctrl.selection
-            if selected:
-                T.rounded_rect(self.screen, T.ROW_HOVER, rect, radius=6,
-                               border_color=T.ROW_BORDER)
-            state = node.get('state')
-            color = {
-                'learned': (120, 220, 120),
-                'available': (240, 210, 90),
-                'level': T.TEXT_MUTED,
-                'points': (200, 160, 120),
-            }.get(state, T.TEXT)
-            mark = {'learned': '✓', 'available': '+', 'level': '×',
-                    'points': '●'}.get(state, '·')
-            self.text(f"{mark}  {node['name']}", x + 10, y + 4, color,
-                      font=T.FONT_BODY)
-            self.text(f"ур. {node['level']}", x + 300, y + 6,
-                      T.GOLD if p.level >= node['level'] else T.HP_CRIT,
-                      font=T.FONT_SMALL)
-            effects = sk.describe_effects(node.get('effects', {}))
-            self.text(effects or "—", x + 390, y + 6, T.TEXT_DIM,
-                      font=T.FONT_SMALL)
-            game._ui_hits['skills']['rows'].append((i, rect))
-            y += row_h
+        panel_h = 84
+        panel_y = bottom - panel_h - 30
+        self._draw_class_tree(game, nodes, cls, ctrl, x, y + 2, cw,
+                              panel_y - 6)
+        self._draw_selected_node_panel(sk, nodes, ctrl, x, panel_y, cw,
+                                       panel_h, p)
 
     def _draw_craft_tab(self, game, x, y, cw, ch, ctrl, sk):
         p = game.player
@@ -770,12 +1021,16 @@ class ScreensRenderer(BaseRenderer):
 
     # ════════════════════════ КРАФТ ════════════════════════
     def _draw_tabs(self, game, tabs, active, x, y, cw, prefix):
-        """Общий ряд вкладок. Возвращает (новый_y, hits)."""
+        """Общий ряд вкладок по центру. Возвращает (новый_y, hits)."""
         from core import skills as sk
         hits = []
-        tab_w = min(200, (cw - 8 * (len(tabs) - 1)) // max(1, len(tabs)))
-        tx = x
-        for tab in tabs:
+        labels = [sk.TAB_SHORT.get(tab, tab) for tab in tabs]
+        max_w = (cw - 8 * (len(tabs) - 1)) // max(1, len(tabs))
+        widths = [min(max_w, max(96, T.FONT_SMALL.size(label)[0] + 44))
+                  for label in labels]
+        total = sum(widths) + 8 * (len(tabs) - 1)
+        tx = x + max(0, (cw - total) // 2)
+        for tab, label, tab_w in zip(tabs, labels, widths):
             rect = (tx, y, tab_w, 30)
             is_active = tab == active
             hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
@@ -783,8 +1038,8 @@ class ScreensRenderer(BaseRenderer):
             border = T.TITLE if is_active else T.PANEL_BORDER
             T.rounded_rect(self.screen, bg, rect, radius=6,
                            border_color=border)
-            self.text(sk.TAB_SHORT.get(tab, tab), tx + tab_w // 2,
-                      y + 6, T.TITLE_LIGHT if is_active else T.TEXT_DIM,
+            self.text(label, tx + tab_w // 2, y + 15,
+                      T.TITLE_LIGHT if is_active else T.TEXT_DIM,
                       font=T.FONT_SMALL, center=True)
             hits.append((tab, rect))
             tx += tab_w + 8

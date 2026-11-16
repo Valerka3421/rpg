@@ -140,9 +140,113 @@ _TIER_SCALE = {1: 1.0, 2: 1.4, 3: 1.8}
 _CLASS_TREE_CACHE = {}
 _NODE_INDEX = {}
 
+# Названия узлов по основному эффекту: разные классы получают разные
+# наборы, поэтому ветки специализаций не выглядят копией базовой.
+_EFFECT_NAME_POOLS = {
+    'atk': ('Точный удар', 'Натиск', 'Сокрушение', 'Казнь', 'Размах',
+            'Пробой', 'Рассечение'),
+    'hp': ('Закалка', 'Стойкость', 'Живучесть', 'Второе дыхание',
+           'Толстокожесть', 'Выносливость'),
+    'df': ('Тяжёлый шаг', 'Щит', 'Бастион', 'Крепость', 'Отпор', 'Защита'),
+    'crit': ('Печать крита', 'Хладнокровие', 'Смертельный глаз', 'Остриё',
+             'Меткий глаз', 'Слабое место'),
+    'dodge': ('Ловкость', 'Тень', 'Скольжение', 'Уворот', 'Неуловимость',
+              'Воздушный шаг'),
+    'mana': ('Медитация', 'Поток силы', 'Источник', 'Резонанс', 'Средоточие',
+             'Печать силы'),
+    'lifesteal': ('Жажда боя', 'Кровопийца', 'Вампиризм', 'Пир смерти'),
+    'gold_pct': ('Мародёр', 'Делец', 'Добытчик', 'Золотая жила'),
+    'xp_pct': ('Искатель', 'Бывалый', 'Следопыт'),
+    'craft_xp': ('Ученик', 'Мастерская', 'Дело жизни', 'Ремесленный глаз'),
+    'craft_quality': ('Верный глаз', 'Изобретательность', 'Ювелирная работа'),
+    'attack_speed': ('Быстрый взмах', 'Скорость', 'Вихрь'),
+    'move_speed': ('Лёгкий шаг', 'Проворство'),
+    'quest_gold': ('Награда', 'Заказчик'),
+    'quest_xp': ('Опыт заданий', 'Исполнитель'),
+    'smithing_xp': ('Кузнец', 'Наковальня'),
+    'alchemy_xp': ('Алхимик', 'Котёл'),
+    'engineering_xp': ('Инженер', 'Руны'),
+}
+
+
+def _stable_offset(key):
+    """Детерминированный сдвиг по имени класса (не зависит от hash seed)."""
+    return sum(ord(ch) for ch in str(key)) % 97
+
+
+def _class_order(class_key, count):
+    """Детерминированная перестановка средних узлов ветки для класса."""
+    order = list(range(count))
+    seed = _stable_offset(class_key) + 17
+    for i in range(count - 1, 0, -1):
+        seed = (seed * 1103515245 + 12345) & 0x7fffffff
+        j = seed % (i + 1)
+        order[i], order[j] = order[j], order[i]
+    return order
+
+
+def _pool_name(effects, offset, fallback, used=None):
+    for key in effects:
+        pool = _EFFECT_NAME_POOLS.get(key)
+        if pool:
+            for step in range(len(pool)):
+                candidate = pool[(offset + step) % len(pool)]
+                if not used or candidate not in used:
+                    return candidate
+            return pool[offset % len(pool)]
+    return fallback
+
+
+def _class_profile(class_key):
+    """Характеристики и эффекты класса с учётом базового архетипа."""
+    cls = class_data(class_key)
+    base = class_data(cls.get('base', 'default'))
+    stats = dict(base.get('stats') or {})
+    for key, value in (cls.get('bonus') or {}).items():
+        stats[key] = stats.get(key, 0) + value
+    if cls.get('stats'):
+        stats.update(cls['stats'])
+    return stats, dict(cls.get('effects') or {})
+
+
+def _profile_effects(stats):
+    """Прибавки к капительному узлу по «сильным» характеристикам класса."""
+    out = {}
+    if stats.get('str', 5) >= 6:
+        out['atk'] = 1
+    if stats.get('df_stat', 5) >= 6:
+        out['df'] = 1
+    if stats.get('vit', 5) >= 6:
+        out['hp'] = 4
+    if stats.get('agi', 5) >= 6:
+        out['dodge'] = 0.02
+    if stats.get('luk', 5) >= 6:
+        out['crit'] = 0.02
+    return out
+
+
+def _fragment(effects, share):
+    """Часть эффектов класса для конкретного узла (доли/проценты)."""
+    out = {}
+    for key, value in effects.items():
+        if key in ('summon', 'extra_stats', 'plain_weapons'):
+            piece = value if share >= 0.5 else 0
+        elif isinstance(value, float):
+            piece = round(value * share, 2)
+        else:
+            piece = int(round(value * share))
+        if piece:
+            out[key] = piece
+    return out
+
 
 def class_tree(class_key):
-    """Узлы ветки класса: [{key, name, level, effects}]."""
+    """Узлы ветки класса: [{key, name, level, effects}].
+
+    Ветка привязана к конкретному классу: у специализаций меняются и
+    названия узлов, и эффекты (часть классовых бонусов + профиль
+    характеристик), поэтому после смены класса дерево другое.
+    """
     cached = _CLASS_TREE_CACHE.get(class_key)
     if cached is not None:
         return cached
@@ -150,14 +254,48 @@ def class_tree(class_key):
     template = _ARCHETYPE_TEMPLATES.get(cls.get('base', 'warrior'),
                                        _ARCHETYPE_TEMPLATES['warrior'])
     factor = _TIER_SCALE.get(cls.get('tier', 1), 1.0)
+    tier = int(cls.get('tier', 1) or 1)
+    stats, class_effects = _class_profile(class_key)
+    profile = _profile_effects(stats)
+    offset = _stable_offset(class_key)
+    template_effects = [effects for (_name, _level, effects) in template]
+    if tier >= 2 and len(template) > 3:
+        # Специализации получают свой порядок средних узлов: ветка
+        # отличается не только названием, но и набором бонусов.
+        middle = list(range(1, len(template) - 1))
+        shuffled = [template_effects[middle[k]]
+                    for k in _class_order(class_key, len(middle))]
+        for slot, effects in zip(middle, shuffled):
+            template_effects[slot] = effects
     nodes = []
+    used_names = set()
     for i, (name, level, effects) in enumerate(template):
+        node_effects = dict(template_effects[i])
+        if tier >= 2:
+            # 40% классовых эффектов — средний узел, 60% — венец ветки.
+            share = 0.4 if i == 3 else (0.6 if i == 6 else 0.0)
+            if share:
+                for key, value in _fragment(class_effects, share).items():
+                    node_effects[key] = node_effects.get(key, 0) + value
+            if i == 6:
+                for key, value in profile.items():
+                    node_effects[key] = node_effects.get(key, 0) + value
+            if i == 0:
+                node_name = f"Путь: {cls['name']}"
+            elif i == len(template) - 1:
+                node_name = f"Венец: {cls['name']}"
+            else:
+                node_name = _pool_name(node_effects, offset + i, name,
+                                       used_names)
+        else:
+            node_name = name
+        used_names.add(node_name)
         node = {
             'key': f'{class_key}:{i}',
-            'name': name,
+            'name': node_name,
             'level': level,
             'class_key': class_key,
-            'effects': _scale_effects(effects, factor),
+            'effects': _scale_effects(node_effects, factor),
         }
         nodes.append(node)
         _NODE_INDEX[node['key']] = node
@@ -368,6 +506,39 @@ def can_change_class(player):
     return req is not None and player.level >= req and bool(promotion_options(player))
 
 
+def _node_class_key(node_key):
+    """Класс, которому принадлежит узел (или None для ремесленных)."""
+    node = _NODE_INDEX.get(node_key)
+    if node is not None:
+        if node.get('tab'):
+            return None
+        return node.get('class_key')
+    if ':' in node_key:
+        return node_key.split(':', 1)[0]
+    return None
+
+
+def release_class_nodes(player, keep_class):
+    """Убирает узлы прежних классов. Возвращает число возвращённых очков.
+
+    Ветка привязана к классу, поэтому после повышения старая ветка
+    недоступна: её узлы снимаются, а потраченные очки возвращаются,
+    чтобы игрок мог вложить их в новую ветку.
+    """
+    learned = set(getattr(player, 'skill_nodes', set()) or ())
+    kept = set()
+    refund = 0
+    for key in learned:
+        node_class = _node_class_key(key)
+        if node_class is not None and node_class != keep_class:
+            refund += 1
+        else:
+            kept.add(key)
+    if refund:
+        player.skill_nodes = kept
+    return refund
+
+
 def change_class(player, new_key):
     """Смена класса. Возвращает (успех, причина)."""
     cls = class_data(getattr(player, 'class_key', 'default'))
@@ -384,11 +555,12 @@ def change_class(player, new_key):
 
     for stat, value in (target.get('bonus') or {}).items():
         setattr(player, stat, getattr(player, stat, 0) + value)
+    refunded = release_class_nodes(player, new_key)
     player.class_key = new_key
     player.class_name = target['name']
     player.class_tier = target.get('tier', player.class_tier + 1)
     player.class_changes = getattr(player, 'class_changes', 0) + 1
-    player.skill_points = getattr(player, 'skill_points', 0) + 2
+    player.skill_points = getattr(player, 'skill_points', 0) + 2 + refunded
     player.recalc()
     return True, 'ok'
 
@@ -411,6 +583,11 @@ def disallowed_equipment(player):
 def learn_node(player, node_key):
     """Покупает узел классовой ветки за очко навыка."""
     node = _NODE_INDEX.get(node_key)
+    if node is None and ':' in node_key:
+        # Ветка ещё не запрашивалась в этой сессии (например, после
+        # загрузки сейва) — строим её, чтобы ключ стал известен.
+        class_tree(node_key.split(':', 1)[0])
+        node = _NODE_INDEX.get(node_key)
     if not node or node.get('tab'):
         return False, 'unknown'
     learned = getattr(player, 'skill_nodes', set())

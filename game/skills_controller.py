@@ -95,10 +95,16 @@ class SkillsController:
             return False
         key = options[index]
         p = self.game.player
+        old_nodes = set(getattr(p, 'skill_nodes', set()))
         ok, reason = skills.change_class(p, key)
         if ok:
             name = CLASSES.get(key, {}).get('name', key)
             self.game.log(f"Новый класс: {name}!", (240, 210, 90))
+            dropped = old_nodes - set(getattr(p, 'skill_nodes', set()))
+            if dropped:
+                self.game.log(
+                    f"Ветка прежнего класса сброшена: возвращено "
+                    f"{len(dropped)} очк. навыков.", (200, 184, 140))
             self.selection = 0
             self.tab = skills.TAB_CLASS
             # Смена класса могла запретить текущую экипировку.

@@ -1606,8 +1606,10 @@ class Game:
                 return True
         for idx, rect in hits.get('rows', []):
             if self._hit(rect, pos):
-                self.skills_ui.selection = idx
-                self.skills_ui.activate()
+                if self.skills_ui.selection == idx:
+                    self.skills_ui.activate()
+                else:
+                    self.skills_ui.selection = idx
                 return True
         for idx, rect in hits.get('promotion', []):
             if self._hit(rect, pos):

@@ -867,3 +867,110 @@ def test_mp_quests_shared_progress():
     assert key in log.active
     # Прогресс общий: журнал в снапшоте у всего отряда
     assert key in core.get_snapshot()['quests']['active']
+
+
+# ════════════════════ Древо навыков: ветки классов ════════════════════
+def test_class_tree_is_unique_per_class():
+    from core import skills
+    from core.data import CLASSES, class_data
+
+    warrior = skills.class_tree('warrior')
+    squire = skills.class_tree('squire')
+    knight = skills.class_tree('knight')
+    assert len(warrior) == len(squire) == len(knight) == 7
+    assert [n['name'] for n in warrior] != [n['name'] for n in squire]
+    assert [n['effects'] for n in squire] != [n['effects'] for n in knight]
+    assert all(n['class_key'] == 'squire' for n in squire)
+    assert squire[0]['name'] == f"Путь: {class_data('squire')['name']}"
+    assert squire[-1]['name'] == f"Венец: {class_data('squire')['name']}"
+
+    # У каждой играбельной ветки собственный набор узлов, и в одной
+    # ветке нет двух узлов с одинаковым названием.
+    seen = {}
+    for key in CLASSES:
+        if key == 'default':
+            continue
+        names = [n['name'] for n in skills.class_tree(key)]
+        assert len(set(names)) == len(names), (key, names)
+        signature = tuple(names)
+        assert signature not in seen, (key, seen.get(signature))
+        seen[signature] = key
+
+
+def test_change_class_resets_branch_and_refunds_points(make_game):
+    from core import skills
+
+    g = make_game()
+    p = g.player
+    p.class_key, p.class_name, p.class_tier = 'warrior', 'Воин', 1
+    p.level = 5
+    p.skill_points = 0
+    p.skill_nodes = {'warrior:0', 'warrior:3', 'warrior:6'}
+    p.recalc()
+
+    ok, reason = skills.change_class(p, 'squire')
+    assert ok, reason
+    assert p.class_key == 'squire'
+    assert p.skill_nodes == set(), 'узлы прежнего класса остались'
+    # 2 очка за повышение + 1 за каждый снятый узел.
+    assert p.skill_points == 2 + 3
+    rows = skills.available_nodes(p)
+    assert rows[0]['key'].startswith('squire:')
+    assert rows[0]['name'].startswith('Путь:')
+
+
+def test_skills_screen_draws_centered_tabs_and_graph(make_game, renderer):
+    from core import skills
+
+    g = make_game()
+    g.screen_mode = 'skills'
+    g.skills_ui.open()
+    g.player.class_key, g.player.class_name, g.player.class_tier = (
+        'warrior', 'Воин', 1)
+    g.player.level = 15
+    g.player.skill_points = 2
+    g.player.recalc()
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    assert len(hits['rows']) == len(skills.class_tree('warrior')) == 7
+    cx0, cy0, cw, ch = g._modal_content_rect
+    first = hits['tabs'][0][1]
+    last = hits['tabs'][-1][1]
+    left_gap = first[0] - cx0
+    right_gap = cx0 + cw - (last[0] + last[2])
+    assert abs(left_gap - right_gap) <= 2, (left_gap, right_gap)
+
+    # Узлы разложены по площади, а не столбиком: разные y и широкий размах.
+    ys = {rect[1] for _i, rect in hits['rows']}
+    xs = sorted(rect[0] for _i, rect in hits['rows'])
+    assert len(ys) >= 3
+    assert xs[-1] - xs[0] > cw // 2
+    # Все узлы внутри панели.
+    for _i, rect in hits['rows']:
+        assert cx0 <= rect[0] and rect[0] + rect[2] <= cx0 + cw
+        assert cy0 <= rect[1] and rect[1] + rect[3] <= cy0 + ch
+
+
+def test_skill_node_click_selects_then_learns(make_game, renderer):
+    g = make_game()
+    g.screen_mode = 'skills'
+    g.skills_ui.open()
+    g.player.class_key, g.player.class_name = 'warrior', 'Воин'
+    g.player.level = 15
+    g.player.skill_points = 3
+    g.player.skill_nodes = set()
+    g.player.recalc()
+    g.skills_ui.selection = 3
+    renderer.draw(g)
+
+    rect = dict(g._ui_hits['skills']['rows'])[0]
+    pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    # Первый клик только выбирает узел и показывает его описание.
+    assert g._handle_skills_click(pos)
+    assert g.skills_ui.selection == 0
+    assert not g.player.skill_nodes
+    # Повторный клик по выбранному узлу изучает его.
+    assert g._handle_skills_click(pos)
+    assert 'warrior:0' in g.player.skill_nodes
+    assert g.player.skill_points == 2
