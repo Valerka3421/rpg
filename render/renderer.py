@@ -8,6 +8,7 @@ from render.game_renderer import GameRenderer
 from render.screens_renderer import ScreensRenderer
 from render.overlay_renderer import OverlayRenderer
 
+
 class Renderer:
     # Алиасы для обратной совместимости (тесты зовут Renderer._compare_item)
     _compare_item = staticmethod(BaseRenderer.compare_item)
@@ -18,13 +19,14 @@ class Renderer:
         T.init()
         Sprites.init()
         from render.tiles import Tiles
-        Tiles.prewarm()          # ~60 мс на старте вместо рывка на 1-м кадре
+        Tiles.prewarm()          # ~0.4 с на старте вместо рывка на 1-м кадре
         self.icons   = IconRenderer(screen)
         self.menu    = MenuRenderer(screen, self.icons)
+        # Градиент тьмы прогревается в GameRenderer.__init__ — наружу
+        # приватный метод не торчим.
         self.game    = GameRenderer(screen, self.icons)
         self.screens = ScreensRenderer(screen, self.icons)
         self.overlay = OverlayRenderer(screen)
-        self.game._light_gradient()   # градиент тьмы тоже заранее
 
     def draw(self, game):
         if game.screen_mode == 'menu':
@@ -44,9 +46,11 @@ class Renderer:
 
         self.screen.fill(T.BG)
         self.game.draw_field(game)
-        if game.screen_mode == 'game':
+        if game.screen_mode in ('game', 'trade'):
             self.game.draw_minimap(game)
             self.game.draw_hud(game)
+            if getattr(game, 'player_popup', None):
+                self.game.draw_player_popup(game)
 
         if game.screen_mode == 'stats':
             self.screens.draw_stats(game)
@@ -64,6 +68,8 @@ class Renderer:
             self.screens.draw_quests(game)
         elif game.screen_mode == 'stats_run':
             self.screens.draw_run_stats(game)
+        elif game.screen_mode == 'trade':
+            self.screens.draw_trade(game)
 
         if game.dead:
             self.overlay.draw_death(game)

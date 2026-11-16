@@ -1,5 +1,7 @@
 """Загрузчик спрайтов с кэшем, рекурсивным поиском и fallback."""
 import os
+import warnings
+
 import pygame
 
 from core.config import TILE, ASSETS_DIR
@@ -30,6 +32,16 @@ class Sprites:
                 cls._index[full] = full
                 if stem not in cls._index:
                     cls._index[stem] = full
+                else:
+                    # Коллизия basename: фоллбэк по имени вернёт первый
+                    # найденный файл. Warning даст шанс заметить это до
+                    # того, как в рендере появится «не тот» спрайт.
+                    warnings.warn(
+                        f"Sprites: коллизия имени '{stem}': "
+                        f"'{cls._index[stem]}' vs '{full}' — "
+                        f"используется первый",
+                        stacklevel=2,
+                    )
 
     @classmethod
     def has(cls, name):

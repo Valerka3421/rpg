@@ -22,20 +22,44 @@ SKILL_XP_BASE = 26
 SKILL_XP_EXPONENT = 1.28
 
 TAB_CLASS = 'class'
-CRAFT_TABS = ('smithing', 'alchemy', 'engineering')
+# Канонические ключи веток создания совпадают с категориями предметов
+# (core.data.SKILLS). Старые имена оставлены как алиасы.
+CRAFT_TABS = ('blacksmith', 'alchemy', 'magic_engineering')
 TABS = (TAB_CLASS,) + CRAFT_TABS
 TAB_NAMES = {
     TAB_CLASS: 'Навыки класса',
-    'smithing': 'Кузнечное дело',
+    'blacksmith': 'Кузнечное дело',
     'alchemy': 'Алхимия',
-    'engineering': 'Магическая инженерия',
+    'magic_engineering': 'Магическая инженерия',
 }
 TAB_SHORT = {
     TAB_CLASS: 'Класс',
-    'smithing': 'Ковка',
+    'blacksmith': 'Ковка',
     'alchemy': 'Алхимия',
-    'engineering': 'Инженерия',
+    'magic_engineering': 'Инженерия',
 }
+# Алиасы старых названий веток (сейвы и код до слияния).
+SKILL_ALIASES = {
+    'smithing': 'blacksmith',
+    'engineering': 'magic_engineering',
+    'blacksmith': 'blacksmith',
+    'alchemy': 'alchemy',
+    'magic_engineering': 'magic_engineering',
+}
+# Канонический ключ -> имя эффекта опыта у класса.
+SKILL_XP_EFFECT = {
+    'blacksmith': 'smithing_xp',
+    'alchemy': 'alchemy_xp',
+    'magic_engineering': 'engineering_xp',
+}
+
+
+def canon_skill(tab):
+    """Приводит старое/новое имя ветки к каноническому ключу."""
+    if tab is None:
+        return None
+    return SKILL_ALIASES.get(tab, tab)
+
 
 # Названия бонусов для UI.
 EFFECT_NAMES = {
@@ -143,7 +167,7 @@ def class_tree(class_key):
 
 # ── Общие ветки создания ──
 CRAFT_TREES = {
-    'smithing': {
+    'blacksmith': {
         'name': 'Кузнечное дело',
         'desc': 'Оружие, броня, шлемы и поножи. С уровнем открываются рецепты.',
         'nodes': (
@@ -171,7 +195,7 @@ CRAFT_TREES = {
             ('Эликсиры', 25, {'craft_quality': 1}),
         ),
     },
-    'engineering': {
+    'magic_engineering': {
         'name': 'Магическая инженерия',
         'desc': 'Свитки и руны. Уровень открывает новые формулы.',
         'nodes': (
@@ -189,6 +213,7 @@ CRAFT_TREES = {
 
 
 def craft_tree(tab):
+    tab = canon_skill(tab)
     tree = CRAFT_TREES.get(tab)
     if not tree:
         return []
@@ -207,19 +232,62 @@ def skill_xp_to_next(level):
     return max(1, int(SKILL_XP_BASE * (max(1, level) ** SKILL_XP_EXPONENT)))
 
 
+def _merge_aliases(player, tab):
+    """Переносит плоские/старые записи навыков в канонический ключ."""
+    skills = getattr(player, 'skills', None)
+    if not isinstance(skills, dict):
+        skills = {}
+        player.skills = skills
+    for alias, canon in SKILL_ALIASES.items():
+        if alias == canon or alias not in skills:
+            continue
+        legacy = skills.pop(alias)
+        current = skills.get(canon)
+        if isinstance(legacy, dict):
+            level = int(legacy.get('level', 1) or 1)
+            xp = int(legacy.get('xp', 0) or 0)
+        else:
+            level = int(legacy or 1)
+            xp = int((getattr(player, 'skill_xp', {}) or {}).get(canon, 0) or 0)
+        if not isinstance(current, dict):
+            skills[canon] = {'level': level, 'xp': xp}
+            continue
+        if level > int(current.get('level', 1) or 1):
+            current['level'] = level
+            current['xp'] = max(xp, int(current.get('xp', 0) or 0))
+
+
+def _skill_entry(player, tab):
+    """Запись навыка: {'level': N, 'xp': M}. Понимает и старый формат."""
+    tab = canon_skill(tab)
+    _merge_aliases(player, tab)
+    skills = getattr(player, 'skills', None) or {}
+    value = skills.get(tab, 1)
+    if isinstance(value, dict):
+        return value
+    # Старый формат: плоский уровень в skills + опыт в skill_xp.
+    level = int(value or 1)
+    xp = int((getattr(player, 'skill_xp', {}) or {}).get(tab, 0))
+    entry = {'level': level, 'xp': xp}
+    skills[tab] = entry
+    player.skills = skills
+    return entry
+
+
 def craft_level(player, tab):
-    return int((getattr(player, 'skills', {}) or {}).get(tab, 1))
+    return max(1, int(_skill_entry(player, tab).get('level', 1) or 1))
 
 
 def craft_xp(player, tab):
-    return int((getattr(player, 'skill_xp', {}) or {}).get(tab, 0))
+    return max(0, int(_skill_entry(player, tab).get('xp', 0) or 0))
 
 
 def craft_multiplier(player, tab):
     """Множитель опыта создания от класса (1.25, 1.5, 2.5 ...)."""
+    tab = canon_skill(tab)
     cls = class_data(getattr(player, 'class_key', 'default'))
     effects = cls.get('effects', {})
-    specific = effects.get(f'{tab}_xp', 0.0)
+    specific = effects.get(SKILL_XP_EFFECT.get(tab, f'{tab}_xp'), 0.0)
     generic = (effects.get('craft_xp', 0.0)
                + aggregate(player).get('craft_xp', 0.0))
     return max(1.0, 1.0 + max(specific, generic))
@@ -227,18 +295,23 @@ def craft_multiplier(player, tab):
 
 def gain_craft_xp(player, tab, base_amount):
     """Начисляет опыт навыка. Возвращает список новых уровней навыка."""
+    tab = canon_skill(tab)
     if tab not in CRAFT_TABS:
         return []
     amount = max(1, int(round(base_amount * craft_multiplier(player, tab))))
-    player.skill_xp[tab] = craft_xp(player, tab) + amount
+    entry = _skill_entry(player, tab)
+    entry['xp'] = craft_xp(player, tab) + amount
     gained = []
     while craft_level(player, tab) < SKILL_CAP:
         need = skill_xp_to_next(craft_level(player, tab))
-        if player.skill_xp[tab] < need:
+        if entry['xp'] < need:
             break
-        player.skill_xp[tab] -= need
-        player.skills[tab] = craft_level(player, tab) + 1
-        gained.append(player.skills[tab])
+        entry['xp'] -= need
+        entry['level'] = craft_level(player, tab) + 1
+        gained.append(entry['level'])
+    # Дублируем плоский словарь для старых сейвов и UI.
+    player.skill_xp = dict(getattr(player, 'skill_xp', {}) or {})
+    player.skill_xp[tab] = entry['xp']
     return gained
 
 
@@ -247,7 +320,7 @@ def recipe_requirement(item):
     """(ветка, требуемый уровень) для предмета или (None, 0)."""
     if not item:
         return None, 0
-    tab = item.get('skill')
+    tab = canon_skill(item.get('skill'))
     if tab not in CRAFT_TABS:
         return None, 0
     return tab, int(item.get('skill_req', 1))
@@ -265,7 +338,7 @@ def craftable_keys(tab, player):
     from core.data import get_craftable_items
     result = []
     for key, item in get_craftable_items():
-        if item.get('skill') != tab:
+        if canon_skill(item.get('skill')) != canon_skill(tab):
             continue
         result.append(key)
     return result
@@ -324,7 +397,7 @@ def disallowed_equipment(player):
     """Слоты, которые текущий класс носить не может."""
     from core.data import class_can_use
     result = []
-    for slot in ('weapon', 'armor', 'helmet', 'leggings'):
+    for slot in ('weapon', 'armor', 'head', 'legs'):
         key = getattr(player, slot, None)
         if not key:
             continue
@@ -397,13 +470,14 @@ def craft_quality_bonus(player):
 
 # Кто получает мини-игру качества и для каких веток.
 _MINIGAME_CLASSES = {
-    'smithing': ('apprentice', 'blacksmith', 'magic_engineer'),
-    'engineering': ('apprentice', 'blacksmith', 'magic_engineer'),
+    'blacksmith': ('apprentice', 'blacksmith', 'magic_engineer'),
+    'magic_engineering': ('apprentice', 'blacksmith', 'magic_engineer'),
     'alchemy': ('potionmaker', 'alchemist', 'herbalist'),
 }
 
 
 def has_craft_minigame(player, tab):
+    tab = canon_skill(tab)
     return getattr(player, 'class_key', 'default') in _MINIGAME_CLASSES.get(tab, ())
 
 
@@ -460,7 +534,8 @@ def recipes_for_level(tab, level):
     from core.data import get_craftable_items
     result = []
     for key, item in get_craftable_items():
-        if item.get('skill') == tab and int(item.get('skill_req', 1)) == level:
+        if canon_skill(item.get('skill')) == canon_skill(tab) and \
+                int(item.get('skill_req', 1)) == level:
             result.append((key, item))
     return result
 

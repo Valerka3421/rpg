@@ -56,6 +56,11 @@ class DialogueController:
                 self.options.append(('quests', 'Квесты'))
             self.options.append(('close', 'Уйти'))
             self.current_line = LORE_MERCHANT[0]
+        elif npc_type == 'quest_board':
+            self.board_quests = []
+            self._refresh_board()
+            self._rebuild_options()
+            self.current_line = "Доска поручений. Выберите задание."
         self.game.screen_mode = 'dialogue'
 
     def activate(self):
@@ -70,6 +75,39 @@ class DialogueController:
             self.game.quests.open()
         elif choice == 'talk':
             self._talk_lore()
+        elif choice.startswith('board_accept_'):
+            idx = int(choice.split('_')[-1])
+            if idx < len(self.board_quests):
+                q = self.board_quests[idx]
+                if self.game.quest_log.accept_generated(q):
+                    self.game.log(f"Взято: {q['name']}", (240, 220, 120))
+                    self._refresh_board()
+                    self._rebuild_options()
+                else:
+                    self.game.log("Уже взято.", (110, 110, 130))
+
+    def _refresh_board(self):
+        from core.data import generate_board_quests
+        board = getattr(self.game, 'quest_board', None)
+        if board is None:
+            self.board_quests = []
+            return
+        qlog = self.game.quest_log
+        dmin = getattr(board, 'board_depth_min', 0)
+        dmax = getattr(board, 'board_depth_max', 4)
+        seed = (hash((dmin, dmax, board.x, board.y)) & 0xFFFF)
+        all_q = generate_board_quests(dmin, dmax, count=3, base_seed=seed)
+        self.board_quests = [q for q in all_q
+                             if q['id'] not in qlog.active
+                             and q['id'] not in qlog.turned_in]
+
+    def _rebuild_options(self):
+        self.options = []
+        for i, q in enumerate(self.board_quests):
+            self.options.append((f'board_accept_{i}', f"Взять: {q['name']}"))
+        self.options.append(('close', 'Уйти'))
+        self.selection = min(self.selection, max(0, len(self.options) - 1))
+
 
     def _talk_lore(self):
         """Прокрутить реплику в панели диалога."""

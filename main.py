@@ -1,7 +1,11 @@
 """Точка входа. Запуск: python main.py"""
+import os
 import sys
 import time
 import threading
+
+# Окно игры центрируется при каждом создании/смене размера.
+os.environ.setdefault('SDL_VIDEO_CENTERED', '1')
 
 # 1) Настройки — ДО импорта game/render
 from core.settings import load_settings
@@ -13,6 +17,8 @@ config.set_resolution(_res[0], _res[1])
 
 import pygame
 
+from core.display import set_mode as set_display_mode
+
 
 # ════════════════════════ СМЕНА РАЗРЕШЕНИЯ ════════════════════════
 def _apply_resolution(game, new_w, new_h, fullscreen):
@@ -21,8 +27,9 @@ def _apply_resolution(game, new_w, new_h, fullscreen):
     Рендереры читают config.SCREEN_W/H и config.VIEW_W/H в момент отрисовки,
     поэтому никакой синхронизации копий констант не нужно.
     """
-    flags = pygame.FULLSCREEN if fullscreen else 0
-    screen = pygame.display.set_mode((new_w, new_h), flags)
+    screen = set_display_mode((new_w, new_h), fullscreen, game.settings)
+    # Размер по факту: fullscreen может дать размер рабочего стола.
+    new_w, new_h = screen.get_width(), screen.get_height()
     pygame.display.set_caption(f"Этельгард — {new_w}×{new_h}")
     from render.window_icon import apply_window_icon
     apply_window_icon()
@@ -51,9 +58,15 @@ def _run_game_loop(game, screen, clock):
 
     current_fullscreen = game.settings.get('fullscreen', False)
     if current_fullscreen:
-        screen = pygame.display.set_mode(
-            (config.SCREEN_W, config.SCREEN_H), pygame.FULLSCREEN)
+        screen = set_display_mode(
+            (config.SCREEN_W, config.SCREEN_H), True, game.settings)
+        # Размер по факту: borderless fullscreen = размер рабочего стола
+        config.set_resolution(screen.get_width(), screen.get_height())
         game.renderer.screen = screen
+        for sub in ('menu', 'game', 'screens', 'overlay', 'icons'):
+            r = getattr(game.renderer, sub, None)
+            if r is not None and hasattr(r, 'screen'):
+                r.screen = screen
         from render.window_icon import apply_window_icon
         apply_window_icon()
 
@@ -79,6 +92,7 @@ def _run_game_loop(game, screen, clock):
         if getattr(game, 'pending_resolution', None):
             new_w, new_h = game.pending_resolution
             game.pending_resolution = None
+            current_fullscreen = game.settings.get('fullscreen', False)
             screen = _apply_resolution(game, new_w, new_h, current_fullscreen)
 
         # ── Fullscreen toggle ──
@@ -163,9 +177,9 @@ def main():
         if not pygame.font.get_init():
             pygame.font.init()
         settings_now = load_settings()
-        flags = pygame.FULLSCREEN if settings_now.get('fullscreen') else 0
-        screen = pygame.display.set_mode(
-            (config.SCREEN_W, config.SCREEN_H), flags)
+        screen = set_display_mode(
+            (config.SCREEN_W, config.SCREEN_H),
+            settings_now.get('fullscreen', False), settings_now)
         pygame.display.set_caption(f"Этельгард — {config.SCREEN_W}×{config.SCREEN_H}")
         from render.window_icon import apply_window_icon
         apply_window_icon()

@@ -22,6 +22,8 @@ from core.data import (
     ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
     roll_monster_drops, roll_rarity, make_loot_key, parse_item_key,
     item_display_name, item_display_color, item_sell_price, xp_to_next,
+    item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
+    SKILLS, default_skills, skill_xp_to_next,
 )
 from core.entities import Player, Entity
 from core import skills
@@ -141,15 +143,27 @@ class KillReward:
 
 def roll_kill_reward(monster, depth, greedy=False):
     """Золото/опыт/дроп за убитого моба (не применяет к игроку)."""
-    gold = random.randint(2, 5 + max(1, depth))
-    if monster.boss:
-        gold += 30 + depth * 10
-    if greedy:
-        gold = int(gold * 1.5)
+    profile = MONSTERS_BY_CH.get(getattr(monster, 'ch', ''), {})
+    # Животные не носят монет — с них падают только трофеи/материалы.
+    # Боссы и разумные монстры дают золото.
+    gold = 0
+    if profile.get('gold', True) or monster.boss:
+        gold = random.randint(2, 5 + max(1, depth))
+        if monster.boss:
+            gold += 30 + depth * 10
+        if greedy:
+            gold = int(gold * 1.5)
     drops = list(roll_monster_drops(monster.ch))
     if monster.boss:
         drops.extend(BOSS_DROPS.get(monster.ch, []))
         drops.append('potion_l')
+        # Ключ босса выпадает всегда: без него не попасть в казну
+        # (сундук + лестница вниз), а из арены не выйти, пока он жив.
+        drops.append('boss_key')
+    # Кристалл маны может выпасть с любого моба. Размер зависит от моба.
+    crystal = roll_mana_crystal(monster)
+    if crystal:
+        drops.append(crystal)
     return KillReward(gold=gold, xp=monster.xp_value, drops=drops)
 
 
@@ -292,7 +306,8 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
                 tx, ty = x + dx, y + dy
                 if not (0 <= tx < dungeon.w and 0 <= ty < dungeon.h):
                     continue
-                if (dungeon.tiles[ty][tx] == Tile.WALL
+                if (dungeon.tiles[ty][tx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST)
                         or (tx, ty) in dungeon.items
                         or (tx, ty) in blocked):
                     continue
@@ -304,7 +319,7 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
 
 # ════════════════════ КРАФТ ════════════════════
 # Качество (+N) имеет смысл только для снаряжения.
-EQUIP_TYPES = ('weapon', 'armor', 'helmet', 'leggings')
+EQUIP_TYPES = ('weapon', 'armor', 'head', 'legs')
 
 
 @dataclass
@@ -316,12 +331,20 @@ class CraftResult:
     skill: str = ''
     skill_levels: list = field(default_factory=list)
     item: dict = field(default_factory=dict)
+    count: int = 1
 
 
-def recipe_info(item_key, inventory, level, player=None):
-    """(recipe, есть_материалы, всё_ли_выполнено)."""
+def recipe_info(item_key, inventory, level, player=None, recipe_index=None):
+    """(материалы, есть_материалы, всё_ли_выполнено).
+
+    ``player`` проверяется на требования навыка. Для совместимости со
+    старым вызовом ``recipe_info(key, inv, level, recipe_index)``
+    четвёртым позиционным аргументом может быть индекс рецепта.
+    """
+    if isinstance(player, int) and not isinstance(player, bool):
+        player, recipe_index = None, player
     item = ITEMS.get(item_key, {})
-    recipe = item.get('recipe', {})
+    recipe, _count, _idx = select_recipe(item_key, inventory, recipe_index)
     has_materials = bool(recipe) and all(
         inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
     level_ok = level >= item.get('level_req', 1)
@@ -331,9 +354,9 @@ def recipe_info(item_key, inventory, level, player=None):
     return recipe, has_materials, level_ok and skill_ok
 
 
-def can_craft(item_key, inventory, level, player=None):
-    recipe, has_materials, allowed = recipe_info(item_key, inventory, level,
-                                                 player)
+def can_craft(item_key, inventory, level, player=None, recipe_index=None):
+    recipe, has_materials, allowed = recipe_info(
+        item_key, inventory, level, player, recipe_index)
     return bool(recipe) and has_materials and allowed
 
 
@@ -371,20 +394,24 @@ def _consume_recipe(inventory, recipe):
             del inventory[mat]
 
 
-def craft_item(player, item_key, quality=None):
+def craft_item(player, item_key, quality=None, recipe_index=None):
     """Создаёт предмет с опытом навыка и качеством. Возвращает CraftResult."""
     inventory = player.inventory
     item = ITEMS.get(item_key, {})
-    recipe, has_materials, allowed = recipe_info(
-        item_key, inventory, player.level, player)
-    if not item.get('recipe'):
+    if not item or not ('recipe' in item or 'recipes' in item):
         return CraftResult(False, 'no_recipe', item=item)
+    recipe, _count, _idx = select_recipe(item_key, inventory, recipe_index)
+    recipe, has_materials, allowed = recipe_info(
+        item_key, inventory, player.level, player, recipe_index)
     if not allowed:
         need_level = player.level < item.get('level_req', 1)
-        return CraftResult(False, 'level' if need_level else 'skill', item=item)
+        return CraftResult(False, 'level' if need_level else 'skill',
+                           item=item)
     if not has_materials:
         return CraftResult(False, 'materials', item=item)
 
+    _mats, count, _variant = select_recipe(item_key, inventory, recipe_index)
+    count = max(1, int(count))
     _consume_recipe(inventory, recipe)
 
     if quality is None:
@@ -393,50 +420,74 @@ def craft_item(player, item_key, quality=None):
     if item.get('type') not in EQUIP_TYPES:
         quality = 0
     full_key = make_loot_key(item_key, quality)
-    inventory[full_key] = inventory.get(full_key, 0) + 1
+    inventory[full_key] = inventory.get(full_key, 0) + count
 
-    tab = item.get('skill')
+    category = item_category(item_key)
     levels = []
-    if tab in skills.CRAFT_TABS:
-        base = 6 + int(item.get('tier', 1)) * 4 \
-            + int(item.get('level_req', 1)) * 2
-        levels = skills.gain_craft_xp(player, tab, base)
-    return CraftResult(True, 'ok', full_key, quality, tab or '', levels, item)
+    if category in skills.CRAFT_TABS:
+        base = (6 + int(item.get('tier', 1)) * 4
+                + int(item.get('level_req', 1)) * 2) * count
+        levels = skills.gain_craft_xp(player, category, base)
+        # Совместимость: плоский словарь опыта навыков.
+        player.skill_xp = dict(getattr(player, 'skill_xp', {}) or {})
+        player.skill_xp[category] = skills.craft_xp(player, category)
+    return CraftResult(True, 'ok', full_key, quality, category, levels,
+                       item, count)
 
 
-def craft(item_key, inventory, level, player=None, quality=None):
+def craft(item_key, inventory, level, player=None, recipe_index=None,
+          quality=None):
     """Создаёт предмет. Возвращает (успех, причина).
 
     Без ``player`` работает «сырой» режим (тесты/консоль): требования
     навыков не проверяются. С игроком — полный цикл через craft_item.
     """
     if player is not None:
-        res = craft_item(player, item_key, quality)
+        res = craft_item(player, item_key, quality, recipe_index)
         return res.ok, res.reason
-    recipe, has_materials, level_ok = recipe_info(item_key, inventory, level)
+    item = ITEMS.get(item_key, {})
+    recipe, count, _idx = select_recipe(item_key, inventory, recipe_index)
     if not recipe:
         return False, 'no_recipe'
-    if not level_ok:
+    if level < item.get('level_req', 1):
         return False, 'level'
-    if not has_materials:
+    if not all(inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items()):
         return False, 'materials'
     _consume_recipe(inventory, recipe)
-    inventory[item_key] = inventory.get(item_key, 0) + 1
+    inventory[item_key] = inventory.get(item_key, 0) + max(1, int(count))
     return True, 'ok'
 
 
-def craftable_list(inventory, level, player=None, tab=None):
-    """[(key, data, recipe, can) ...] — как для окна крафта."""
+def craftable_list(inventory, level, player=None, tab='all'):
+    """[(key, data, recipe, can, category, recipe_index, count) ...].
+
+    `tab` — ключ вкладки окна крафта: 'all' или категория навыка.
+    """
     from core.data import get_craftable_items
     result = []
     for key, item in get_craftable_items():
-        if tab is not None and item.get('skill') != tab:
+        category = item_category(key)
+        if tab not in (None, 'all') and category != tab:
             continue
-        recipe, has_materials, allowed = recipe_info(key, inventory, level,
-                                                     player)
-        result.append((key, item, recipe, has_materials and allowed))
+        recipe, count, recipe_index = select_recipe(key, inventory)
+        has_materials = bool(recipe) and all(
+            inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
+        level_ok = level >= item.get('level_req', 1)
+        allowed = level_ok and (player is None
+                                or skills.recipe_unlocked(player, item))
+        result.append((key, item, recipe, has_materials and allowed,
+                       category, recipe_index, count))
     return result
 
+
+def give_skill_xp(player, skill, amount):
+    """Начисляет опыт навыка крафта. Возвращает число новых уровней."""
+    if amount <= 0 or skills.canon_skill(skill) not in SKILLS:
+        return 0
+    levels = skills.gain_craft_xp(player, skill, amount)
+    player.skill_xp = dict(getattr(player, 'skill_xp', {}) or {})
+    player.skill_xp[skills.canon_skill(skill)] = skills.craft_xp(player, skill)
+    return len(levels)
 
 # ════════════════════ ПРЕДМЕТЫ ════════════════════
 def consume(inventory, key):
@@ -462,8 +513,11 @@ class UseResult:
 SLOT_FOR_TYPE = {
     'weapon': 'weapon',
     'armor': 'armor',
-    'helmet': 'helmet',
-    'leggings': 'leggings',
+    'head': 'head',
+    'legs': 'legs',
+    # Старое имя типа предмета из ранних сейвов/данных.
+    'helmet': 'head',
+    'leggings': 'legs',
 }
 
 
@@ -586,7 +640,7 @@ def use_item(player, key, monsters=None, on_hit=None):
                          f"Экипировано: {item_display_name(key)}", 0,
                          item.get('color', (225, 225, 235)))
 
-    if kind == 'scroll':
+    if kind in ('scroll', 'rune'):
         return _use_scroll(player, key, item, monsters or [], on_hit)
 
     if kind == 'book':
@@ -724,8 +778,11 @@ def sell_price_for(key):
 
 # ════════════════════ СПАВН ════════════════════
 def tile_walkable(dungeon, x, y):
-    return (0 <= x < dungeon.w and 0 <= y < dungeon.h
-            and dungeon.tiles[y][x] != Tile.WALL)
+    if not (0 <= x < dungeon.w and 0 <= y < dungeon.h):
+        return False
+    tile = dungeon.tiles[y][x]
+    # WALL и LOCKED_DOOR (заперта до ключа босса) непроходимы.
+    return tile != Tile.WALL and tile != Tile.LOCKED_DOOR
 
 
 def find_free_tile(dungeon, x, y, occupied=(), max_radius=8):

@@ -3,7 +3,7 @@ import random
 
 
 MONSTERS = {
-    'rat':      {'ch': 'r', 'name': 'Крыса',  'hp': 3,  'atk': 1, 'df': 0, 'xp': 3,  'color': (170, 150, 130), 'min_depth': 1, 'ability': 'poison'},
+    'rat':      {'ch': 'r', 'name': 'Крыса',  'hp': 3,  'atk': 1, 'df': 0, 'xp': 3,  'color': (170, 150, 130), 'min_depth': 1, 'ability': 'poison', 'gold': False},
     'goblin':   {'ch': 'g', 'name': 'Гоблин', 'hp': 8,  'atk': 3, 'df': 1, 'xp': 6,  'color': (120, 190, 100), 'min_depth': 1},
     'archer':   {'ch': 'a', 'name': 'Гоблин-лучник', 'hp': 6, 'atk': 2, 'df': 0, 'xp': 7, 'color': (150, 200, 100), 'min_depth': 2, 'ability': 'ranged'},
     'skeleton': {'ch': 's', 'name': 'Скелет', 'hp': 12, 'atk': 4, 'df': 1, 'xp': 12, 'color': (220, 220, 220), 'min_depth': 2},
@@ -15,7 +15,18 @@ MONSTERS = {
     'dragonling':{'ch': 'd','name': 'Дракончик','hp': 90, 'atk': 16, 'df': 5, 'xp': 130, 'color': (200, 150, 60), 'min_depth': 10, 'ability': 'burning'},
     'golem':    {'ch': 'Y', 'name': 'Голем',  'hp': 120, 'atk': 14, 'df': 8, 'xp': 150, 'color': (130, 130, 140), 'min_depth': 12},
     'wraith':   {'ch': 'W', 'name': 'Призрак','hp': 80, 'atk': 18, 'df': 4, 'xp': 140, 'color': (180, 180, 220), 'min_depth': 14, 'ability': 'bleeding'},
+    # ── Лесные обитатели поверхности ──
+    # overworld_only: они не должны появляться в подземелье.
+    'deer':     {'ch': 'e', 'name': 'Олень',   'hp': 8,  'atk': 2, 'df': 0, 'xp': 8,  'color': (170, 125, 80),  'min_depth': 1, 'overworld_only': True, 'passive': True, 'flees': True, 'gold': False},
+    'wolf':     {'ch': 'w', 'name': 'Волк',    'hp': 14, 'atk': 4, 'df': 1, 'xp': 12, 'color': (130, 135, 145), 'min_depth': 1, 'overworld_only': True, 'ability': 'bleeding', 'gold': False},
+    'bear':     {'ch': 'b', 'name': 'Медведь', 'hp': 30, 'atk': 7, 'df': 2, 'xp': 25, 'color': (105, 72, 45),   'min_depth': 1, 'overworld_only': True, 'gold': False},
+    'slime':    {'ch': 'j', 'name': 'Слайм',   'hp': 10, 'atk': 2, 'df': 1, 'xp': 6,  'color': (100, 190, 90),  'min_depth': 1, 'overworld_only': True, 'ability': 'poison', 'gold': False},
+    'boar':     {'ch': 'p', 'name': 'Кабан',   'hp': 18, 'atk': 5, 'df': 1, 'xp': 15, 'color': (120, 100, 80),  'min_depth': 1, 'overworld_only': True, 'gold': False},
 }
+
+# Быстрый доступ к данным моба по символу: ИИ проверяет пассивность,
+# не зная ключа вида (у сущности есть только ch).
+MONSTERS_BY_CH = {v['ch']: dict(v, key=k) for k, v in MONSTERS.items()}
 
 BOSSES = {
     5:  {'ch': 'G', 'name': 'Король гоблинов',  'hp': 80,  'atk': 9,  'df': 2, 'xp': 150,  'color': (255, 100, 100)},
@@ -28,18 +39,21 @@ ITEMS = {
     # Зелья
     'potion_s': {'ch': '!', 'name': 'Малое зелье', 'type': 'heal', 'value': 10,
                  'color': (230, 130, 130), 'tier': 1, 'sell': 2,
-                 'recipe': {'mushroom': 2, 'berry': 1},
+                 'category': 'alchemy', 'level_req': 1,
+                 'recipe': {'berry': 2, 'mushroom': 1},
                  'skill': 'alchemy', 'skill_req': 1,
                  'desc': 'Восстанавливает 10 HP.'},
     'potion_m': {'ch': '!', 'name': 'Зелье', 'type': 'heal', 'value': 20,
                  'color': (230, 90, 100), 'tier': 2, 'sell': 4,
-                 'recipe': {'mushroom': 3, 'berry': 2},
-                 'skill': 'alchemy', 'skill_req': 5,
+                 'category': 'alchemy', 'level_req': 3,
+                 'recipe': {'mushroom': 2, 'magic_powder': 1},
+                 'skill': 'alchemy', 'skill_req': 3,
                  'desc': 'Восстанавливает 20 HP.'},
     'potion_l': {'ch': '!', 'name': 'Большое зелье', 'type': 'heal', 'value': 40,
                  'color': (255, 60, 80), 'tier': 3, 'sell': 6,
-                 'recipe': {'mushroom': 4, 'berry': 3, 'bone': 1},
-                 'skill': 'alchemy', 'skill_req': 12,
+                 'category': 'alchemy', 'level_req': 6,
+                 'recipe': {'potion_m': 1, 'magic_powder': 2},
+                 'skill': 'alchemy', 'skill_req': 6,
                  'desc': 'Восстанавливает 40 HP.'},
     # Алхимия: мана и баффы
     'mana_s': {'ch': '!', 'name': 'Малое зелье маны', 'type': 'mana', 'value': 12,
@@ -115,69 +129,87 @@ ITEMS = {
     # Крафт-оружие
     'bone_sword': {'ch': '/', 'name': 'Костяной меч', 'type': 'weapon', 'value': 2,
                    'level_req': 3, 'color': (230, 220, 200), 'tier': 2, 'sell': 12,
-                   'wtype': 'sword', 'recipe': {'bone': 2, 'wood': 1},
+                   'wtype': 'sword', 'category': 'blacksmith',
+                   'recipe': {'bone': 2, 'wood': 1},
                    'skill': 'smithing', 'skill_req': 3, 'desc': '+2 ATK.'},
     'demon_blade': {'ch': '/', 'name': 'Клинок демона', 'type': 'weapon', 'value': 5,
                     'level_req': 8, 'color': (200, 70, 70), 'tier': 3, 'sell': 35,
-                    'wtype': 'sword',
+                    'wtype': 'sword', 'category': 'blacksmith',
                     'recipe': {'demon_scale': 3, 'orc_tusk': 1, 'sword': 1},
                     'skill': 'smithing', 'skill_req': 18, 'desc': '+5 ATK.'},
     'golem_hammer': {'ch': '/', 'name': 'Молот голема', 'type': 'weapon', 'value': 6,
                      'level_req': 10, 'color': (130, 130, 140), 'tier': 3, 'sell': 40,
-                     'wtype': 'hammer',
+                     'wtype': 'hammer', 'category': 'blacksmith',
                      'recipe': {'golem_core': 1, 'stone': 5, 'greatsword': 1},
                      'skill': 'smithing', 'skill_req': 22, 'desc': '+6 ATK.'},
     # ── Новое оружие под классы ──
     'wooden_club': {'ch': '/', 'name': 'Дубина', 'type': 'weapon', 'value': 1,
                     'level_req': 1, 'color': (160, 120, 70), 'tier': 1, 'sell': 3,
-                    'wtype': 'mace', 'recipe': {'wood': 2},
+                    'wtype': 'mace', 'category': 'blacksmith',
+                    'recipe': {'wood': 2},
                     'skill': 'smithing', 'skill_req': 1, 'desc': '+1 ATK.'},
     'stone_hatchet': {'ch': '/', 'name': 'Каменный топор', 'type': 'weapon',
                       'value': 1, 'level_req': 1, 'color': (170, 170, 175),
                       'tier': 1, 'sell': 4, 'wtype': 'axe',
+                      'category': 'blacksmith',
                       'recipe': {'wood': 1, 'stone': 2},
                       'skill': 'smithing', 'skill_req': 1, 'desc': '+1 ATK.'},
     'wooden_shield': {'ch': ']', 'name': 'Деревянный щит', 'type': 'weapon',
                       'value': 0, 'level_req': 2, 'color': (150, 110, 60),
                       'tier': 1, 'sell': 5, 'wtype': 'shield', 'df_bonus': 1,
+                      'category': 'blacksmith',
                       'recipe': {'wood': 3},
                       'skill': 'smithing', 'skill_req': 3,
                       'desc': '+1 DEF, +1 ATK.'},
-    'iron_sword': {'ch': '/', 'name': 'Железный меч', 'type': 'weapon', 'value': 3,
-                   'level_req': 5, 'color': (200, 215, 235), 'tier': 2, 'sell': 20,
-                   'wtype': 'sword', 'recipe': {'ore': 2, 'wood': 1},
-                   'skill': 'smithing', 'skill_req': 6, 'desc': '+3 ATK.'},
-    'steel_sword': {'ch': '/', 'name': 'Стальной меч', 'type': 'weapon', 'value': 5,
-                    'level_req': 9, 'color': (220, 232, 250), 'tier': 3, 'sell': 34,
-                    'wtype': 'sword', 'recipe': {'ore': 4, 'bone': 2},
-                    'skill': 'smithing', 'skill_req': 12, 'desc': '+5 ATK.'},
     'battle_hammer': {'ch': '/', 'name': 'Боевой молот', 'type': 'weapon',
                       'value': 5, 'level_req': 9, 'color': (190, 180, 170),
                       'tier': 3, 'sell': 32, 'wtype': 'hammer',
+                      'category': 'blacksmith',
                       'recipe': {'ore': 4, 'wood': 2},
                       'skill': 'smithing', 'skill_req': 12, 'desc': '+5 ATK.'},
     'hunting_bow': {'ch': ')', 'name': 'Охотничий лук', 'type': 'weapon',
                     'value': 2, 'level_req': 4, 'color': (180, 140, 90),
                     'tier': 2, 'sell': 16, 'wtype': 'bow',
+                    'category': 'blacksmith',
                     'recipe': {'wood': 3, 'rat_tail': 1},
                     'skill': 'smithing', 'skill_req': 6, 'desc': '+2 ATK.'},
     'long_staff': {'ch': '|', 'name': 'Длинный посох', 'type': 'weapon',
                    'value': 2, 'level_req': 3, 'color': (140, 180, 210),
                    'tier': 2, 'sell': 15, 'wtype': 'staff', 'crit_bonus': 0.02,
+                   'category': 'blacksmith',
                    'recipe': {'wood': 3, 'stone': 1},
                    'skill': 'smithing', 'skill_req': 4,
                    'desc': '+2 ATK, +2% крит.'},
     'runed_blade': {'ch': '/', 'name': 'Рунный клинок', 'type': 'weapon',
                     'value': 6, 'level_req': 12, 'color': (150, 200, 240),
                     'tier': 3, 'sell': 46, 'wtype': 'sword', 'crit_bonus': 0.04,
+                    'category': 'blacksmith',
                     'recipe': {'ore': 3, 'golem_core': 1, 'bone': 2},
                     'skill': 'smithing', 'skill_req': 20,
                     'desc': '+6 ATK, +4% крит.'},
     'dragon_blade': {'ch': '/', 'name': 'Клинок дракона', 'type': 'weapon',
                      'value': 8, 'level_req': 16, 'color': (245, 150, 70),
                      'tier': 3, 'sell': 60, 'wtype': 'greatsword',
+                     'category': 'blacksmith',
                      'recipe': {'dragon_scale': 3, 'ore': 4, 'demon_scale': 2},
                      'skill': 'smithing', 'skill_req': 25, 'desc': '+8 ATK.'},
+    # Оружие из новых лесных материалов
+    'iron_sword': {'ch': '/', 'name': 'Железный меч', 'type': 'weapon', 'value': 3,
+                   'level_req': 3, 'color': (185, 195, 210), 'tier': 2, 'sell': 16,
+                   'wtype': 'sword', 'category': 'blacksmith',
+                   'recipe': {'iron_ingot': 2, 'wood': 1},
+                   'skill': 'smithing', 'skill_req': 6, 'desc': '+3 ATK.'},
+    'steel_sword': {'ch': '/', 'name': 'Стальной меч', 'type': 'weapon', 'value': 4,
+                    'level_req': 5, 'color': (210, 220, 240), 'tier': 3, 'sell': 24,
+                    'wtype': 'sword', 'category': 'blacksmith',
+                    'recipe': {'steel_ingot': 2, 'leather': 1},
+                    'skill': 'smithing', 'skill_req': 12, 'desc': '+4 ATK.'},
+    'tusk_axe': {'ch': '/', 'name': 'Клыкастый топор', 'type': 'weapon', 'value': 4,
+                 'level_req': 4, 'color': (210, 190, 160), 'tier': 2, 'sell': 20,
+                 'wtype': 'axe', 'category': 'blacksmith', 'dodge_bonus': -0.02,
+                 'recipe': {'boar_tusk': 2, 'iron_ingot': 1, 'wood': 1},
+                 'skill': 'smithing', 'skill_req': 4,
+                 'desc': '+4 ATK, −2% укл.'},
     # Броня
     'padded':     {'ch': '[', 'name': 'Стёганая куртка', 'type': 'armor', 'value': 1,
                    'level_req': 1, 'color': (200, 180, 140), 'tier': 1, 'sell': 7,
@@ -201,81 +233,122 @@ ITEMS = {
     # Крафт-броня
     'leather_armor': {'ch': '[', 'name': 'Броня из огра', 'type': 'armor', 'value': 3,
                       'level_req': 5, 'color': (150, 110, 60), 'tier': 2, 'sell': 22,
-                      'armor_type': 'light',
+                      'armor_type': 'light', 'category': 'blacksmith',
                       'recipe': {'ogre_leather': 3, 'goblin_ear': 1},
                       'skill': 'smithing', 'skill_req': 8,
                       'desc': '+3 DEF.'},
     'dragon_armor': {'ch': '[', 'name': 'Броня дракона', 'type': 'armor', 'value': 4,
                      'level_req': 10, 'color': (240, 130, 40), 'tier': 3, 'sell': 45,
-                     'armor_type': 'heavy',
+                     'armor_type': 'heavy', 'category': 'blacksmith',
                      'recipe': {'dragon_scale': 5, 'plate': 1},
                      'skill': 'smithing', 'skill_req': 20,
                      'desc': '+4 DEF.'},
     'lich_robe': {'ch': '[', 'name': 'Мантия лича', 'type': 'armor', 'value': 4,
                   'level_req': 9, 'color': (200, 100, 255), 'tier': 3, 'sell': 40,
-                  'armor_type': 'robe',
+                  'armor_type': 'robe', 'category': 'blacksmith',
                   'recipe': {'bone': 3, 'wraith_essence': 2, 'plate': 1},
                   'skill': 'smithing', 'skill_req': 22,
                   'desc': '+4 DEF.'},
     'mage_robe': {'ch': '[', 'name': 'Мантия мага', 'type': 'armor', 'value': 1,
                   'level_req': 1, 'color': (130, 150, 220), 'tier': 1, 'sell': 8,
-                  'armor_type': 'robe',
+                  'armor_type': 'robe', 'category': 'blacksmith',
                   'recipe': {'hide': 2, 'wood': 1},
                   'skill': 'smithing', 'skill_req': 1,
                   'desc': '+1 DEF.'},
     'arcane_robe': {'ch': '[', 'name': 'Магическая мантия', 'type': 'armor',
                     'value': 3, 'level_req': 9, 'color': (160, 180, 240),
                     'tier': 3, 'sell': 30, 'armor_type': 'robe',
+                    'category': 'blacksmith',
                     'recipe': {'hide': 4, 'golem_core': 1, 'ore': 2},
                     'skill': 'smithing', 'skill_req': 16,
                     'desc': '+3 DEF, +5 маны.', 'mana_bonus': 5},
     # ── Шлемы ──
-    'leather_cap': {'ch': '^', 'name': 'Кожаный шлем', 'type': 'helmet',
+    'leather_cap': {'ch': '^', 'name': 'Кожаный шлем', 'type': 'head',
                     'value': 1, 'level_req': 1, 'color': (200, 170, 110),
-                    'tier': 1, 'sell': 4, 'armor_type': 'light',
+                    'tier': 1, 'sell': 5, 'armor_type': 'light',
+                    'category': 'blacksmith',
                     'recipe': {'hide': 2}, 'skill': 'smithing', 'skill_req': 1,
                     'desc': '+1 DEF.'},
-    'iron_helm': {'ch': '^', 'name': 'Железный шлем', 'type': 'helmet',
+    'iron_helm': {'ch': '^', 'name': 'Железный шлем', 'type': 'head',
                   'value': 2, 'level_req': 4, 'color': (190, 195, 205),
                   'tier': 2, 'sell': 12, 'armor_type': 'medium',
+                  'hp_bonus': 3, 'category': 'blacksmith',
                   'recipe': {'ore': 2, 'hide': 1}, 'skill': 'smithing',
-                  'skill_req': 8, 'desc': '+2 DEF.'},
-    'steel_helm': {'ch': '^', 'name': 'Стальной шлем', 'type': 'helmet',
+                  'skill_req': 8, 'desc': '+2 DEF, +3 HP.'},
+    'steel_helm': {'ch': '^', 'name': 'Стальной шлем', 'type': 'head',
                    'value': 3, 'level_req': 8, 'color': (215, 225, 245),
                    'tier': 3, 'sell': 22, 'armor_type': 'heavy',
+                   'category': 'blacksmith',
                    'recipe': {'ore': 3, 'bone': 1}, 'skill': 'smithing',
                    'skill_req': 14, 'desc': '+3 DEF, +2 HP.', 'hp_bonus': 2},
-    'mage_hood': {'ch': '^', 'name': 'Капюшон мага', 'type': 'helmet',
+    'crown': {'ch': '^', 'name': 'Корона', 'type': 'head', 'value': 3,
+              'level_req': 7, 'color': (240, 210, 100), 'tier': 3, 'sell': 30,
+              'hp_bonus': 5, 'desc': '+3 DEF, +5 HP.'},
+    'mage_hood': {'ch': '^', 'name': 'Капюшон мага', 'type': 'head',
                   'value': 1, 'level_req': 2, 'color': (140, 160, 230),
                   'tier': 2, 'sell': 10, 'armor_type': 'robe',
+                  'category': 'blacksmith',
                   'recipe': {'hide': 3, 'mushroom': 1}, 'skill': 'smithing',
                   'skill_req': 6, 'desc': '+1 DEF, +3 маны.', 'mana_bonus': 3},
-    'dragon_helm': {'ch': '^', 'name': 'Шлем дракона', 'type': 'helmet',
+    'dragon_helm': {'ch': '^', 'name': 'Шлем дракона', 'type': 'head',
                     'value': 4, 'level_req': 14, 'color': (245, 150, 70),
                     'tier': 3, 'sell': 34, 'armor_type': 'heavy',
+                    'category': 'blacksmith',
                     'recipe': {'dragon_scale': 2, 'ore': 3}, 'skill': 'smithing',
                     'skill_req': 20, 'desc': '+4 DEF, +4 HP.', 'hp_bonus': 4},
+    'wolf_hood': {'ch': '^', 'name': 'Волчий капюшон', 'type': 'head', 'value': 1,
+                  'level_req': 3, 'color': (135, 140, 150), 'tier': 2, 'sell': 14,
+                  'dodge_bonus': 0.03, 'category': 'blacksmith',
+                  'recipe': {'wolf_pelt': 2, 'leather_cap': 1},
+                  'skill': 'smithing', 'skill_req': 6,
+                  'desc': '+1 DEF, +3% укл.'},
     # ── Поножи ──
-    'leather_legs': {'ch': 'n', 'name': 'Кожаные поножи', 'type': 'leggings',
+    'cloth_pants':   {'ch': '|', 'name': 'Штаны', 'type': 'legs', 'value': 1,
+                      'level_req': 1, 'color': (150, 130, 100), 'tier': 1, 'sell': 4,
+                      'desc': '+1 DEF.'},
+    'leather_boots': {'ch': '|', 'name': 'Кожаные сапоги', 'type': 'legs', 'value': 1,
+                      'level_req': 1, 'color': (160, 120, 80), 'tier': 1, 'sell': 6,
+                      'dodge_bonus': 0.03, 'desc': '+1 DEF, +3% укл.'},
+    'plate_greaves': {'ch': '|', 'name': 'Латные поножи', 'type': 'legs', 'value': 2,
+                      'level_req': 6, 'color': (220, 220, 240), 'tier': 2, 'sell': 15,
+                      'desc': '+2 DEF.'},
+    'leather_legs': {'ch': 'n', 'name': 'Кожаные поножи', 'type': 'legs',
                      'value': 1, 'level_req': 1, 'color': (190, 160, 100),
                      'tier': 1, 'sell': 4, 'armor_type': 'light',
+                     'category': 'blacksmith',
                      'recipe': {'hide': 3, 'wood': 1}, 'skill': 'smithing',
                      'skill_req': 1, 'desc': '+1 DEF.'},
-    'chain_legs': {'ch': 'n', 'name': 'Кольчужные поножи', 'type': 'leggings',
+    'chain_legs': {'ch': 'n', 'name': 'Кольчужные поножи', 'type': 'legs',
                    'value': 2, 'level_req': 5, 'color': (170, 170, 180),
                    'tier': 2, 'sell': 14, 'armor_type': 'medium',
+                   'category': 'blacksmith',
                    'recipe': {'ore': 2, 'hide': 2}, 'skill': 'smithing',
                    'skill_req': 10, 'desc': '+2 DEF.'},
-    'plate_legs': {'ch': 'n', 'name': 'Латные поножи', 'type': 'leggings',
+    'plate_legs': {'ch': 'n', 'name': 'Латные поножи', 'type': 'legs',
                    'value': 3, 'level_req': 9, 'color': (215, 220, 240),
                    'tier': 3, 'sell': 24, 'armor_type': 'heavy',
+                   'category': 'blacksmith',
                    'recipe': {'ore': 4, 'bone': 1}, 'skill': 'smithing',
                    'skill_req': 16, 'desc': '+3 DEF, +2 HP.', 'hp_bonus': 2},
-    'cloth_legs': {'ch': 'n', 'name': 'Тканевые поножи', 'type': 'leggings',
+    'cloth_legs': {'ch': 'n', 'name': 'Тканевые поножи', 'type': 'legs',
                    'value': 1, 'level_req': 2, 'color': (140, 160, 220),
                    'tier': 2, 'sell': 9, 'armor_type': 'robe',
+                   'category': 'blacksmith',
                    'recipe': {'hide': 3, 'berry': 2}, 'skill': 'smithing',
                    'skill_req': 6, 'desc': '+1 DEF, +2 маны.', 'mana_bonus': 2},
+    # Броня из шкур новых лесных зверей
+    'wolf_armor': {'ch': '[', 'name': 'Волчья броня', 'type': 'armor', 'value': 2,
+                   'level_req': 3, 'color': (135, 140, 150), 'tier': 2, 'sell': 18,
+                   'hp_bonus': 2, 'category': 'blacksmith',
+                   'recipe': {'wolf_pelt': 3, 'padded': 1},
+                   'skill': 'smithing', 'skill_req': 4,
+                   'desc': '+2 DEF, +2 HP.'},
+    'bear_cloak': {'ch': '[', 'name': 'Медвежья шкура', 'type': 'armor', 'value': 3,
+                   'level_req': 5, 'color': (110, 78, 50), 'tier': 2, 'sell': 26,
+                   'hp_bonus': 4, 'category': 'blacksmith',
+                   'recipe': {'bear_pelt': 3, 'leather_armor': 1},
+                   'skill': 'smithing', 'skill_req': 8,
+                   'desc': '+3 DEF, +4 HP.'},
     # Золото
     'gold_small':  {'ch': '$', 'name': 'Монеты', 'type': 'gold', 'value': 5,
                     'color': (240, 210, 90), 'tier': 1, 'desc': 'Немного золота.'},
@@ -326,6 +399,10 @@ ITEMS = {
     'berry':    {'ch': ':', 'name': 'Ягоды', 'type': 'resource', 'heal': 3,
                  'value': 0, 'sell': 1, 'color': (220, 80, 120), 'tier': 1,
                  'desc': '+3 HP.'},
+    # Квестовый ключ: падает с босса (100%), отпирает дверь в казну.
+    'boss_key': {'ch': '¶', 'name': 'Ключ босса', 'type': 'key',
+                 'value': 0, 'sell': 0, 'color': (255, 215, 100), 'tier': 3,
+                 'desc': 'Отпирает запертую дверь в сокровищнице подземелья.'},
     'wood':     {'ch': '=', 'name': 'Дерево', 'type': 'resource',
                  'value': 0, 'sell': 2, 'color': (150, 100, 60), 'tier': 1,
                  'desc': 'Материал для крафта.'},
@@ -349,65 +426,273 @@ ITEMS = {
     'dragon_scale':  {'ch': '*', 'name': 'Чешуя дракона',    'type': 'material', 'sell': 15, 'color': (240, 130, 40),  'tier': 3, 'desc': 'Прочная чешуя.'},
     'golem_core':    {'ch': 'o', 'name': 'Ядро голема',      'type': 'material', 'sell': 12, 'color': (200, 220, 255), 'tier': 3, 'desc': 'Магическое ядро.'},
     'wraith_essence':{'ch': '~', 'name': 'Эссенция призрака','type': 'material', 'sell': 8,  'color': (180, 180, 220), 'tier': 3, 'desc': 'Призрачная субстанция.'},
+    # ── Материалы новых лесных мобов ──
+    'venison':       {'ch': '~', 'name': 'Оленина',        'type': 'material', 'sell': 2,  'color': (170, 90, 80),   'tier': 1, 'desc': 'Свежее мясо оленя.'},
+    'wolf_pelt':     {'ch': '~', 'name': 'Волчья шкура',   'type': 'material', 'sell': 4,  'color': (130, 135, 145), 'tier': 1, 'desc': 'Прочная серая шкура.'},
+    'bear_pelt':     {'ch': '~', 'name': 'Медвежья шкура', 'type': 'material', 'sell': 7,  'color': (105, 72, 45),   'tier': 2, 'desc': 'Толстая бурая шкура.'},
+    'bear_claw':     {'ch': 'v', 'name': 'Медвежий коготь','type': 'material', 'sell': 5,  'color': (220, 210, 190), 'tier': 2, 'desc': 'Острый коготь.'},
+    'slime_gel':     {'ch': 'o', 'name': 'Слизь',          'type': 'material', 'sell': 2,  'color': (100, 190, 90),  'tier': 1, 'desc': 'Желеобразная субстанция.'},
+    'boar_tusk':     {'ch': 'v', 'name': 'Кабаний клык',   'type': 'material', 'sell': 3,  'color': (235, 230, 205), 'tier': 1, 'desc': 'Крепкий клык кабана.'},
+    # ── Магические кристаллы и порошок ──
+    'mana_crystal_small': {'ch': 'o', 'name': 'Малый кристалл маны', 'type': 'material',
+                           'sell': 6, 'color': (120, 170, 255), 'tier': 1,
+                           'desc': 'Крупица чистой маны.'},
+    'mana_crystal':       {'ch': 'o', 'name': 'Кристалл маны', 'type': 'material',
+                           'sell': 12, 'color': (145, 120, 255), 'tier': 2,
+                           'desc': 'Сгусток магической энергии.'},
+    'mana_crystal_large': {'ch': 'o', 'name': 'Большой кристалл маны', 'type': 'material',
+                           'sell': 24, 'color': (205, 150, 255), 'tier': 3,
+                           'desc': 'Мощный магический кристалл.'},
+    'magic_powder': {'ch': '*', 'name': 'Магический порошок', 'type': 'material',
+                     'sell': 10, 'color': (190, 150, 255), 'tier': 2,
+                     'category': 'alchemy', 'level_req': 1,
+                     'recipe': {'mana_crystal_small': 1},
+                     'recipes': [
+                         {'materials': {'mana_crystal_small': 1}, 'count': 1},
+                         {'materials': {'mana_crystal': 1}, 'count': 2},
+                         {'materials': {'mana_crystal_large': 1}, 'count': 4},
+                     ],
+                     'desc': 'Основа алхимии и магической инженерии.'},
+    # ── Слитки ──
+    'iron_ingot':   {'ch': '=', 'name': 'Железный слиток', 'type': 'material',
+                     'sell': 6, 'color': (175, 180, 190), 'tier': 1,
+                     'category': 'blacksmith', 'level_req': 1,
+                     'recipe': {'ore': 2, 'wood': 1},
+                     'desc': 'Заготовка для оружия и брони.'},
+    'steel_ingot':  {'ch': '=', 'name': 'Стальной слиток', 'type': 'material',
+                     'sell': 11, 'color': (205, 215, 230), 'tier': 2,
+                     'category': 'blacksmith', 'level_req': 2,
+                     'recipe': {'iron_ingot': 2, 'stone': 1},
+                     'desc': 'Крепкая сталь для снаряжения.'},
+    'mithril_ingot': {'ch': '=', 'name': 'Мифриловый слиток', 'type': 'material',
+                      'sell': 20, 'color': (180, 210, 230), 'tier': 3,
+                      'category': 'blacksmith', 'level_req': 5,
+                      'recipe': {'ore': 3, 'stone': 2},
+                      'desc': 'Лёгкий и прочный металл.'},
     # ── Свитки и руны ──
     'scroll_heal': {'ch': '&', 'name': 'Свиток лечения', 'type': 'scroll',
                     'effect': 'heal', 'value': 30, 'color': (120, 240, 120),
                     'tier': 2, 'sell': 12, 'shop_price': 60, 'mana_cost': 5,
-                    'recipe': {'wood': 1, 'berry': 1},
-                    'skill': 'engineering', 'skill_req': 1,
+                    'category': 'magic_engineering', 'level_req': 1,
+                    'recipe': {'magic_powder': 1, 'berry': 2},
+                    'skill': 'magic_engineering', 'skill_req': 1,
                     'desc': 'Восстанавливает 30 HP. Мана: 5.'},
     'scroll_fireball': {'ch': '&', 'name': 'Свиток огня', 'type': 'scroll',
                         'effect': 'fireball', 'value': 20, 'color': (255, 120, 50),
                         'tier': 2, 'sell': 15, 'shop_price': 80, 'mana_cost': 7,
-                        'recipe': {'ore': 1, 'wood': 1},
-                        'skill': 'engineering', 'skill_req': 6,
+                        'category': 'magic_engineering', 'level_req': 3,
+                        'recipe': {'magic_powder': 2, 'ore': 1},
+                        'skill': 'magic_engineering', 'skill_req': 3,
                         'desc': 'Огонь 20 урона по области 3×3. Мана: 7.'},
     'scroll_freeze': {'ch': '&', 'name': 'Свиток заморозки', 'type': 'scroll',
                       'effect': 'freeze', 'value': 3, 'color': (120, 180, 255),
                       'tier': 3, 'sell': 18, 'shop_price': 100, 'mana_cost': 8,
-                      'recipe': {'ore': 2, 'berry': 2},
-                      'skill': 'engineering', 'skill_req': 8,
+                      'category': 'magic_engineering', 'level_req': 5,
+                      'recipe': {'mana_crystal_small': 1, 'magic_powder': 2},
+                      'skill': 'magic_engineering', 'skill_req': 5,
                       'desc': 'Замедляет врагов в радиусе 5 на 3 хода. Мана: 8.'},
+    'rune_fire': {'ch': '¤', 'name': 'Руна огня', 'type': 'rune',
+                  'effect': 'fireball', 'value': 30, 'color': (255, 130, 60),
+                  'tier': 3, 'sell': 26, 'shop_price': 120, 'mana_cost': 5,
+                  'category': 'magic_engineering', 'level_req': 4,
+                  'recipe': {'magic_powder': 3, 'mana_crystal_small': 1},
+                  'skill': 'magic_engineering', 'skill_req': 4,
+                  'desc': 'Высекает огонь: 30 урона по области. Мана: 5.'},
+    'rune_frost': {'ch': '¤', 'name': 'Руна льда', 'type': 'rune',
+                   'effect': 'freeze', 'value': 4, 'color': (130, 190, 255),
+                   'tier': 3, 'sell': 26, 'shop_price': 120, 'mana_cost': 6,
+                   'category': 'magic_engineering', 'level_req': 4,
+                   'recipe': {'magic_powder': 2, 'mana_crystal': 1},
+                   'skill': 'magic_engineering', 'skill_req': 4,
+                   'desc': 'Замедляет врагов в радиусе 5 на 4 хода. Мана: 6.'},
+    'rune_heal': {'ch': '¤', 'name': 'Руна лечения', 'type': 'rune',
+                  'effect': 'heal', 'value': 45, 'color': (130, 245, 150),
+                  'tier': 3, 'sell': 24, 'shop_price': 110, 'mana_cost': 10,
+                  'category': 'magic_engineering', 'level_req': 3,
+                  'recipe': {'magic_powder': 2, 'mushroom': 2},
+                  'skill': 'magic_engineering', 'skill_req': 3,
+                  'desc': 'Восстанавливает 45 HP. Мана: 10.'},
+    # ── Дополнительные руны и свитки ──
     'rune_flame': {'ch': '&', 'name': 'Руна пламени', 'type': 'scroll',
                    'effect': 'fireball', 'value': 14, 'color': (255, 160, 80),
                    'tier': 1, 'sell': 8, 'mana_cost': 5,
+                   'category': 'magic_engineering', 'level_req': 2,
                    'recipe': {'stone': 1, 'berry': 1},
-                   'skill': 'engineering', 'skill_req': 2,
+                   'skill': 'magic_engineering', 'skill_req': 2,
                    'desc': 'Огонь 14 урона по области 3×3. Мана: 5.'},
     'rune_ward': {'ch': '&', 'name': 'Руна защиты', 'type': 'scroll',
                   'effect': 'ward', 'value': 3, 'color': (200, 200, 160),
                   'tier': 2, 'sell': 14, 'mana_cost': 6,
+                  'category': 'magic_engineering', 'level_req': 5,
                   'recipe': {'stone': 2, 'bone': 1},
-                  'skill': 'engineering', 'skill_req': 10,
+                  'skill': 'magic_engineering', 'skill_req': 10,
                   'desc': 'Каменная кожа на 20 ходов. Мана: 6.'},
     'scroll_lightning': {'ch': '&', 'name': 'Свиток молнии', 'type': 'scroll',
                          'effect': 'lightning', 'value': 30, 'color': (240, 230, 110),
                          'tier': 3, 'sell': 22, 'mana_cost': 9,
+                         'category': 'magic_engineering', 'level_req': 8,
                          'recipe': {'ore': 3, 'golem_core': 1},
-                         'skill': 'engineering', 'skill_req': 14,
+                         'skill': 'magic_engineering', 'skill_req': 14,
                          'desc': '30 урона и замедление. Мана: 9.'},
     'scroll_inferno': {'ch': '&', 'name': 'Свиток инферно', 'type': 'scroll',
                        'effect': 'fireball', 'value': 45, 'color': (255, 90, 40),
                        'tier': 3, 'sell': 40, 'mana_cost': 12,
+                       'category': 'magic_engineering', 'level_req': 12,
                        'recipe': {'demon_scale': 2, 'ore': 3, 'stone': 2},
-                       'skill': 'engineering', 'skill_req': 20,
+                       'skill': 'magic_engineering', 'skill_req': 20,
                        'desc': 'Огонь 45 урона по области 3×3. Мана: 12.'},
     'rune_guardian': {'ch': '&', 'name': 'Руна стража', 'type': 'scroll',
                       'effect': 'heal', 'value': 60, 'color': (150, 240, 180),
                       'tier': 3, 'sell': 34, 'mana_cost': 10,
+                      'category': 'magic_engineering', 'level_req': 12,
                       'recipe': {'golem_core': 1, 'wraith_essence': 2},
-                      'skill': 'engineering', 'skill_req': 22,
+                      'skill': 'magic_engineering', 'skill_req': 22,
                       'desc': 'Восстанавливает 60 HP. Мана: 10.'},
     'orb_arcane': {'ch': 'o', 'name': 'Тайная сфера', 'type': 'weapon',
                    'value': 4, 'level_req': 12, 'color': (170, 140, 240),
                    'tier': 3, 'sell': 50, 'wtype': 'book', 'crit_bonus': 0.05,
+                   'category': 'magic_engineering',
                    'recipe': {'golem_core': 2, 'wraith_essence': 2},
-                   'skill': 'engineering', 'skill_req': 25,
+                   'skill': 'magic_engineering', 'skill_req': 25,
                    'desc': '+4 ATK, +5% крит.'},
 }
 MATERIAL_KEYS = ('bone', 'ogre_leather', 'goblin_ear', 'rat_tail', 'orc_tusk',
                  'demon_scale', 'vampire_fang', 'dragon_scale',
-                 'golem_core', 'wraith_essence')
+                 'golem_core', 'wraith_essence',
+                 # материалы новых лесных мобов
+                 'venison', 'wolf_pelt', 'bear_pelt', 'bear_claw',
+                 'slime_gel', 'boar_tusk',
+                 # кристаллы, порошок и слитки
+                 'mana_crystal_small', 'mana_crystal', 'mana_crystal_large',
+                 'magic_powder', 'iron_ingot', 'steel_ingot', 'mithril_ingot')
+
+# ════════════════════ НАВЫКИ КРАФТА ════════════════════
+SKILLS = {
+    'blacksmith': {
+        'name': 'Кузнечное дело',
+        'desc': 'Слитки, оружие и броня.',
+    },
+    'alchemy': {
+        'name': 'Алхимия',
+        'desc': 'Зелья и магический порошок.',
+    },
+    'magic_engineering': {
+        'name': 'Магическая инженерия',
+        'desc': 'Свитки и руны.',
+    },
+}
+SKILL_ORDER = ('blacksmith', 'alchemy', 'magic_engineering')
+
+# Вкладки окна крафта. Ключ совпадает с категорией предмета.
+CRAFT_TABS = (('all', 'Все крафты'),) + tuple(
+    (key, SKILLS[key]['name']) for key in SKILL_ORDER)
+
+
+def item_category(item_key, default='blacksmith'):
+    """Категория предмета — она же вкладка крафта и навык за крафт."""
+    item = item_key if isinstance(item_key, dict) else ITEMS.get(item_key, {})
+    cat = item.get('category')
+    if cat in SKILLS:
+        return cat
+    kind = item.get('type')
+    if kind in ('weapon', 'armor', 'head', 'legs', 'material'):
+        return 'blacksmith'
+    if kind == 'heal':
+        return 'alchemy'
+    if kind in ('scroll', 'rune'):
+        return 'magic_engineering'
+    return default
+
+
+def item_recipes(item_key):
+    """[(материалы, сколько_получится)] для предмета.
+
+    Поддерживает как старый ``recipe``, так и новый ``recipes`` —
+    несколько вариантов одного и того же предмета (например, порошок
+    из кристаллов разного размера).
+    """
+    item = item_key if isinstance(item_key, dict) else ITEMS.get(item_key, {})
+    variants = item.get('recipes')
+    out = []
+    if variants:
+        for variant in variants:
+            mats = variant.get('materials') or variant.get('recipe') or {}
+            if mats:
+                out.append((dict(mats), max(1, int(variant.get('count', 1)))))
+    if not out and item.get('recipe'):
+        out.append((dict(item['recipe']), 1))
+    return out
+
+
+def select_recipe(item_key, inventory, recipe_index=None):
+    """(материалы, сколько_получится, индекс_варианта).
+
+    Без явного индекса выбирается первый доступный вариант, иначе —
+    первый вариант (чтобы окно крафта показывало хоть что-то).
+    """
+    variants = item_recipes(item_key)
+    if not variants:
+        return None, 0, -1
+    if recipe_index is not None and 0 <= recipe_index < len(variants):
+        mats, count = variants[recipe_index]
+        return mats, count, recipe_index
+    for i, (mats, count) in enumerate(variants):
+        if all(inventory.get(mat, 0) >= cnt for mat, cnt in mats.items()):
+            return mats, count, i
+    mats, count = variants[0]
+    return mats, count, 0
+
+
+def skill_xp_to_next(level):
+    """Опыт навыка для перехода с ``level`` на ``level + 1``."""
+    return max(10, int(45 * (max(1, level) ** 1.35)))
+
+
+def default_skills():
+    return {key: {'level': 1, 'xp': 0} for key in SKILL_ORDER}
+
+
+def craft_skill_reward(item_key, count=1):
+    """Сколько опыта навыка даёт крафт предмета."""
+    item = ITEMS.get(item_key, {})
+    tier = item.get('tier', 1)
+    req = item.get('level_req', 1)
+    return max(1, int((3 + tier * 2 + req) * max(1, count)))
+
+
+# ── Кристаллы маны ──
+MANA_CRYSTAL_CHANCE = 0.08
+MANA_CRYSTAL_BY_SIZE = {
+    'small': 'mana_crystal_small',
+    'normal': 'mana_crystal',
+    'large': 'mana_crystal_large',
+}
+MANA_POWDER_BY_CRYSTAL = {
+    'mana_crystal_small': 1,
+    'mana_crystal': 2,
+    'mana_crystal_large': 4,
+}
+
+
+def mana_crystal_for(monster):
+    """Размер кристалла зависит от силы моба."""
+    hp = max(1, getattr(monster, 'max_hp', 10) or 10)
+    if getattr(monster, 'boss', False) or hp >= 60:
+        return MANA_CRYSTAL_BY_SIZE['large']
+    if hp >= 18:
+        return MANA_CRYSTAL_BY_SIZE['normal']
+    return MANA_CRYSTAL_BY_SIZE['small']
+
+
+def roll_mana_crystal(monster, chance=MANA_CRYSTAL_CHANCE):
+    """Небольшой шанс выпадения кристалла маны с любого моба."""
+    if random.random() >= chance:
+        return None
+    return mana_crystal_for(monster)
+
+
+def mana_crystal_powder(crystal_key):
+    return MANA_POWDER_BY_CRYSTAL.get(crystal_key, 0)
 
 # ════════════════════ СТАТУС-ЭФФЕКТЫ ════════════════════
 STATUSES = {
@@ -1127,10 +1412,17 @@ def make_shop_stock(depth):
                    3: ['greatsword', 'warhammer']}[tier]
     armor_pool = {1: ['padded', 'leather'], 2: ['chain', 'scale'],
                   3: ['plate', 'mithril']}[tier]
-    helm_pool = {1: ['leather_cap'], 2: ['iron_helm'],
-                 3: ['steel_helm']}[tier]
-    legs_pool = {1: ['leather_legs'], 2: ['chain_legs'],
-                 3: ['plate_legs']}[tier]
+    head_pool = {1: ['leather_cap'],
+                 2: ['leather_cap', 'iron_helm'],
+                 3: ['iron_helm', 'steel_helm', 'crown']}[tier]
+    legs_pool = {1: ['cloth_pants', 'leather_boots'],
+                 2: ['leather_boots', 'leather_legs', 'chain_legs',
+                     'plate_greaves'],
+                 3: ['plate_greaves', 'plate_legs']}[tier]
+    if random.random() < 0.45:
+        add(random.choice(head_pool), 10 * tier)
+    if random.random() < 0.45:
+        add(random.choice(legs_pool),  8 * tier)
 
     add(potion_key, 5 * tier)
     add(potion_key, 5 * tier)
@@ -1142,28 +1434,38 @@ def make_shop_stock(depth):
     ar = roll_rarity()
     add(make_loot_key(wk, wr), 15 * tier + wr * 10)
     add(make_loot_key(ak, ar), 12 * tier + ar * 10)
-    add(helm_pool[0], 8 * tier)
+    add(head_pool[0], 8 * tier)
     add(legs_pool[0], 8 * tier)
     return stock
 
 
 # ════════════════════ ДРОП ════════════════════
+# Только материалы/трофеи. Золото начисляется отдельно в
+# rules.roll_kill_reward и только разумным монстрам: животные (крыса,
+# олень, волк, медведь, слайм, кабан) монет не носят.
 MONSTER_DROPS = {
-    'r': [('gold_small', 0.60), ('mushroom', 0.25), ('rat_tail', 0.30),
-          ('hide', 0.35)],
-    'g': [('gold_small', 0.70), ('wood', 0.25), ('goblin_ear', 0.25),
+    'r': [('rat_tail', 0.50), ('mushroom', 0.10), ('hide', 0.30)],
+    'g': [('goblin_ear', 0.50), ('wood', 0.15), ('hide', 0.30)],
+    'a': [('goblin_ear', 0.45), ('wood', 0.20), ('hide', 0.25)],
+    's': [('bone', 0.70), ('stone', 0.15)],
+    'S': [('goblin_ear', 0.45), ('mushroom', 0.25)],
+    'O': [('orc_tusk', 0.50), ('ore', 0.15)],
+    'T': [('ogre_leather', 0.50), ('wood', 0.30), ('stone', 0.20),
           ('hide', 0.30)],
-    'a': [('gold_small', 0.55), ('wood', 0.25), ('goblin_ear', 0.30),
+    'D': [('demon_scale', 0.50), ('ore', 0.20)],
+    'v': [('vampire_fang', 0.50), ('bone', 0.10)],
+    'd': [('dragon_scale', 0.45), ('ore', 0.20)],
+    'Y': [('golem_core', 0.35), ('stone', 0.70), ('ore', 0.20)],
+    'W': [('wraith_essence', 0.50), ('bone', 0.15)],
+    # ── Лесные обитатели ──
+    'e': [('venison', 0.70), ('bone', 0.20)],
+    'w': [('wolf_pelt', 0.60), ('venison', 0.20), ('bone', 0.15),
           ('hide', 0.25)],
-    's': [('gold_medium', 0.45), ('stone', 0.30), ('bone', 0.45)],
-    'S': [('gold_medium', 0.40), ('mushroom', 0.30), ('goblin_ear', 0.35)],
-    'O': [('gold_medium', 0.55), ('ore', 0.20), ('orc_tusk', 0.25)],
-    'T': [('gold_medium', 0.60), ('wood', 0.40), ('ogre_leather', 0.35)],
-    'D': [('gold_large', 0.30), ('ore', 0.35), ('demon_scale', 0.30)],
-    'v': [('gold_large', 0.30), ('ore', 0.25), ('vampire_fang', 0.30)],
-    'd': [('gold_large', 0.40), ('ore', 0.35), ('dragon_scale', 0.25)],
-    'Y': [('gold_large', 0.35), ('stone', 0.70), ('golem_core', 0.30)],
-    'W': [('gold_large', 0.30), ('ore', 0.20), ('wraith_essence', 0.30)],
+    'b': [('bear_pelt', 0.60), ('bear_claw', 0.50), ('venison', 0.25),
+          ('hide', 0.30)],
+    'j': [('slime_gel', 0.80), ('mushroom', 0.15)],
+    'p': [('boar_tusk', 0.55), ('venison', 0.55), ('bone', 0.10),
+          ('hide', 0.20)],
 }
 
 BOSS_DROPS = {
@@ -1179,7 +1481,8 @@ def roll_monster_drops(monster_ch):
 
 
 def get_craftable_items():
-    return sorted([(k, v) for k, v in ITEMS.items() if 'recipe' in v],
+    return sorted([(k, v) for k, v in ITEMS.items()
+                   if 'recipe' in v or 'recipes' in v],
                   key=lambda kv: (kv[1].get('level_req', 99), kv[0]))
 
 # ════════════════════ ПЕРКИ ════════════════════
@@ -1286,3 +1589,102 @@ class ItemInstance:
     def from_key(cls, full_key):
         base, rarity = parse_item_key(full_key)
         return cls(base or '', rarity)
+
+
+# ════════════════════ ДОСКА ПОРУЧЕНИЙ ════════════════════
+BOARD_BOSS_FLOORS = {5: 'G', 10: 'L', 15: 'V', 20: 'A'}
+
+
+def _board_monsters_for(dmin, dmax):
+    res = [k for k, m in MONSTERS.items()
+           if dmin <= m['min_depth'] <= dmax
+           and not m.get('overworld_only')]
+    if not res and dmax > 0:
+        res = [k for k, m in MONSTERS.items()
+               if m['min_depth'] <= dmax and not m.get('overworld_only')]
+    return res
+
+
+def _board_collect_targets(dmin, dmax):
+    chars = {MONSTERS[k]['ch'] for k in _board_monsters_for(dmin, dmax)
+             if k in MONSTERS}
+    targets = set()
+    for ch in chars:
+        for item_key, _ in MONSTER_DROPS.get(ch, []):
+            base = item_key.split('+')[0]
+            if ITEMS.get(base, {}).get('type') == 'material':
+                targets.add(base)
+    return sorted(targets)
+
+
+def _make_board_quest(dmin, dmax, seed):
+    r = random.Random(seed)
+
+    # Boss-охота
+    for bd, bch in BOARD_BOSS_FLOORS.items():
+        if dmin <= bd <= dmax and r.random() < 0.30:
+            boss = BOSSES[bd]
+            return {
+                'id': f"gen_boss_{bch}_{bd}_{seed}", 'type': 'kill',
+                'target': bch, 'count': 1,
+                'depth_min': dmin, 'depth_max': dmax,
+                'name': f"Охота: {boss['name']}",
+                'desc': f"Победить {boss['name']} (глубина {bd}).",
+                'reward_gold': 150 + bd * 12, 'reward_xp': 100 + bd * 10,
+            }
+
+    monsters = _board_monsters_for(dmin, dmax)
+    roll = r.random()
+
+    if roll < 0.55 and monsters:                     # kill
+        tgt = r.choice(monsters); m = MONSTERS[tgt]
+        count = r.randint(3, 7)
+        return {
+            'id': f"gen_kill_{tgt}_{dmin}_{seed}", 'type': 'kill',
+            'target': m['ch'], 'count': count,
+            'depth_min': dmin, 'depth_max': dmax,
+            'name': f"Уничтожить: {m['name']}",
+            'desc': f"Убить {count} × {m['name']}.",
+            'reward_gold': 25 + count * 6 + dmin * 3,
+            'reward_xp': 15 + count * 4 + dmin * 2,
+        }
+
+    if roll < 0.80:                                  # collect
+        targets = _board_collect_targets(dmin, dmax)
+        if targets:
+            tgt = r.choice(targets); it = ITEMS[tgt]
+            count = r.randint(2, 5)
+            return {
+                'id': f"gen_collect_{tgt}_{dmin}_{seed}", 'type': 'collect',
+                'target': tgt, 'count': count,
+                'depth_min': dmin, 'depth_max': dmax,
+                'name': f"Принести: {it['name']}",
+                'desc': f"Собрать {count} × {it['name']}.",
+                'reward_gold': 30 + count * 8 + dmin * 3,
+                'reward_xp': 20 + count * 5 + dmin * 2,
+            }
+
+    # reach (fallback)
+    target_depth = max(dmax, dmin + 1)
+    return {
+        'id': f"gen_reach_{target_depth}_{dmin}_{seed}", 'type': 'reach',
+        'target': target_depth, 'count': 1,
+        'depth_min': dmin, 'depth_max': dmax,
+        'name': "Спуститься в глубину",
+        'desc': f"Достичь глубины {target_depth}.",
+        'reward_gold': 40 + target_depth * 6,
+        'reward_xp': 30 + target_depth * 5,
+    }
+
+
+def generate_board_quests(dmin, dmax, count=3, base_seed=0):
+    dmin = max(0, dmin); dmax = min(20, dmax)
+    out, seen = [], set()
+    for i in range(count * 4):
+        if len(out) >= count:
+            break
+        q = _make_board_quest(dmin, dmax, base_seed + i * 7919)
+        if q['id'] in seen:
+            continue
+        out.append(q); seen.add(q['id'])
+    return out

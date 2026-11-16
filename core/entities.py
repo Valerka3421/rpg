@@ -1,8 +1,9 @@
 """Сущности мира."""
 from dataclasses import dataclass
-from core.config import COL_PLAYER, COL_TEXT, Tile, PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN
+from core.config import (COL_PLAYER, COL_TEXT, Tile,
+                         PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN)
 from core.data import (ITEMS, CLASSES, class_data, class_stats, parse_item_key,
-                       xp_to_next, STATUS_MODS)
+                      xp_to_next, STATUS_MODS, default_skills)
 
 
 class Entity:
@@ -50,7 +51,7 @@ class Player(Entity):
     # Единая формула статов — используется и в recalc, и в UI превью класса.
     @staticmethod
     def preview_stats(data):
-        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/helmet/leggings,
+        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs,
         effects (пассивные бонусы класса и навыков), level."""
         str_   = data.get('str', 5)
         agi    = data.get('agi', 5)
@@ -59,14 +60,16 @@ class Player(Entity):
         df_st  = data.get('df_stat', 5)
         level  = int(data.get('level', 1) or 1)
         effects = data.get('effects') or {}
+        head = data.get('head', data.get('helmet'))
+        legs = data.get('legs', data.get('leggings'))
 
         wb = ab = hp_extra = 0
         w_crit = w_dodge = a_dodge = 0.0
         w_df = 0
         mana_extra = 0
-        for slot, stat in (('weapon', 'atk'), ('armor', 'df'),
-                           ('helmet', 'df'), ('leggings', 'df')):
-            key = data.get(slot)
+        for slot, key in (('weapon', data.get('weapon')),
+                          ('armor', data.get('armor')),
+                          ('head', head), ('legs', legs)):
             if not key:
                 continue
             base, lvl = parse_item_key(key)
@@ -128,8 +131,8 @@ class Player(Entity):
         self.df_stat = stats.get('df_stat', 5)
         self.weapon = cls.get('start_weapon')
         self.armor = cls.get('start_armor')
-        self.helmet = None
-        self.leggings = None
+        self.head = None
+        self.legs = None
         self.inventory = {}
         for k, v in cls.get('start_items', {}).items():
             self.inventory[k] = self.inventory.get(k, 0) + v
@@ -140,6 +143,7 @@ class Player(Entity):
         self.thorns = False
         self.greedy = False
         self.step_counter = 0
+        self.skills = default_skills()   # {навык: {'level': 1, 'xp': 0}}
         self._w_crit_bonus = 0.0
         self._w_dodge_bonus = 0.0
         self._a_dodge_bonus = 0.0
@@ -147,14 +151,30 @@ class Player(Entity):
         self._skill_crit = 0.0
         # Навыки и классовый прогресс
         self.skill_points = 1
-        self.skills = {'smithing': 1, 'alchemy': 1, 'engineering': 1}
-        self.skill_xp = {'smithing': 0, 'alchemy': 0, 'engineering': 0}
+        self.skill_xp = {k: v['xp'] for k, v in self.skills.items()}
         self.skill_nodes = set()
         self.mana = 0
         self.max_mana = 0
         self._effects_cache = {}
         self.recalc()
         self.mana = self.max_mana
+
+    # ── Совместимость слотов: старые имена helmet/leggings ──
+    @property
+    def helmet(self):
+        return self.head
+
+    @helmet.setter
+    def helmet(self, value):
+        self.head = value
+
+    @property
+    def leggings(self):
+        return self.legs
+
+    @leggings.setter
+    def leggings(self, value):
+        self.legs = value
 
     # ── Бонусы класса и навыков ──
     def effects(self):
@@ -201,7 +221,7 @@ class Player(Entity):
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
             'luk': self.luk, 'df_stat': self.df_stat, 'level': self.level,
             'weapon': self.weapon, 'armor': self.armor,
-            'helmet': self.helmet, 'leggings': self.leggings,
+            'head': self.head, 'legs': self.legs,
             'effects': effects,
         })
         self.max_hp = stats['max_hp']
@@ -278,6 +298,16 @@ class Dungeon:
         self.monsters = []
         self.items = {}
         self.stairs_pos = None
+        # Переходы между локациями: (x, y) -> {'to': key, 'entry': (x, y)}
+        self.transitions = {}
+        # Добываемые ресурсы: (x, y) -> запись core.harvest
+        self.harvestables = {}
+        # Замурованные выходы арены босса: (x, y). После победы над боссом
+        # эти тайлы возвращаются в FLOOR и сет пустеет.
+        self.barrier_tiles = set()
+        # Босс-комплекс: центр казны и клетки запертой двери
+        self.treasury_pos = None
+        self.boss_door_cells = set()
 
 
 @dataclass

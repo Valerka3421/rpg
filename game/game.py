@@ -1,5 +1,5 @@
 """Ядро игры: состояние, движение, бой, предметы, save/load, маршрутизация input."""
-from core import config, rules
+from core import config, rules, overworld as ov, locations
 import os
 import random
 import json
@@ -17,7 +17,7 @@ from core.config import (
     COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
     COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
 )
-from core.data import BOSSES, parse_item_key, item_display_name
+from core.data import BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH, ITEMS
 from core.entities import Player, Entity, Message, FloatText
 from core.world import (generate_dungeon, generate_overworld, place_entry_tile,
                         has_los, compute_fov, bfs_toward_player)
@@ -109,13 +109,27 @@ class Game:
         self.dungeon_cache = {}
         self.world_mode = 'overworld'
         self.depth = 0
-        self.overworld = generate_overworld()
+        # Каждая локация — отдельная карта. Генерируются лениво и живут в
+        # self.locations; сейв сохраняет их целиком, поэтому карта не
+        # пересоздаётся при каждом визите.
+        self.locations = {}
+        self.location = 'village'
+        self.surface_return = 'village'
+        self.location_explored = {}
+        self.overworld = self.get_location('village')
         self.dungeon = self.overworld
-        self.player.x, self.player.y = MAP_W // 2, MAP_H // 2
+        sx, sy = ov.VILLAGE_CENTER
+        if self.overworld.tiles[sy][sx] == Tile.FLOOR:
+            self.player.x, self.player.y = sx, sy
+        else:
+            spot = rules.find_free_tile(self.overworld, sx, sy)
+            if spot:
+                self.player.x, self.player.y = spot
         self.shop.page = 0
 
         # Квесты — выдаём все доступные от обоих NPC
         self.quest_log = QuestLog()
+
 
         # Счётчики забега
         self.start_time = time.time()
@@ -127,55 +141,27 @@ class Game:
         self.total_potions_used = 0
         self.total_crafts = 0
         self.total_quests_turned_in = 0
-
-        # Старейшина рядом с входом в пещеру
-        # Старейшина рядом с входом в пещеру (безопасный спавн)
-        self.elder = None
-        ex, ey = self.overworld.stairs_pos
+        self.quest_board = None
 
         self._modal_close_rect = None
         self.pending_resolution = None
         self.pending_multiplayer = None
         self._modal_content_rect = (0, 0, 0, 0)
-
         self._ui_hits = {}
 
-        def _is_safe_floor(tx, ty):
-            if not (0 <= tx < MAP_W and 0 <= ty < MAP_H):
-                return False
-            if self.overworld.tiles[ty][tx] != Tile.FLOOR:
-                return False
-            if (tx, ty) == (self.player.x, self.player.y):
-                return False
-            # Хотя бы один сосед — FLOOR (чтобы не в «кармане» 1×1)
-            for ddx, ddy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                sx, sy = tx + ddx, ty + ddy
-                if (0 <= sx < MAP_W and 0 <= sy < MAP_H
-                        and self.overworld.tiles[sy][sx] == Tile.FLOOR):
-                    return True
-            return False
-
-        # Кольца поиска: ближе → дальше
-        candidates = []
-        for r in range(2, 7):
-            for dx in range(-r, r + 1):
-                for dy in range(-r, r + 1):
-                    if max(abs(dx), abs(dy)) != r:
-                        continue
-                    candidates.append((ex + dx, ey + dy))
-
-        for tx, ty in candidates:
-            if _is_safe_floor(tx, ty):
-                self.elder = Entity(tx, ty, 1, 1, 0, 0,
-                                    "Старейшина", "E", (240, 210, 100), 0)
-                self.elder.is_npc = True
-                self.elder.npc_type = 'elder'
-                break
-
-        if self.elder is None:
-            # Страховка: ищем любую свободную клетку рядом со входом
-            spot = rules.find_free_tile(self.overworld, ex + 1, ey + 1,
-                                        self.occupied_tiles())
+        # Старейшина живёт в деревне, на центральной площади
+        self.elder = None
+        ex, ey = ov.ELDER_POS
+        if (0 <= ex < MAP_W and 0 <= ey < MAP_H
+                and self.overworld.tiles[ey][ex] == Tile.FLOOR):
+            self.elder = Entity(ex, ey, 1, 1, 0, 0,
+                                "Старейшина", "E", (240, 210, 100), 0)
+            self.elder.is_npc = True
+            self.elder.npc_type = 'elder'
+        else:
+            spot = rules.find_free_tile(
+                self.overworld, ov.VILLAGE_CENTER[0], ov.VILLAGE_CENTER[1],
+                self.occupied_tiles())
             if spot:
                 tx, ty = spot
                 self.elder = Entity(tx, ty, 1, 1, 0, 0,
@@ -186,9 +172,12 @@ class Game:
         if self.elder is None:
             self.log("Старейшине не нашлось места — поговори с ним позже.", COL_DIM)
 
+        self.quest_board = self._spawn_quest_board()
         self.update_fov()
-        self.log("Добро пожаловать в Этельгард!", COL_TEXT)
-        self.log("Исследуй мир, собирай ресурсы, найди вход в подземелье.", COL_GOLD)
+        self.log("Добро пожаловать в деревню Этельгард!", COL_TEXT)
+        self.log("Восемь лесных краёв ждут исследователя. Ищи дороги.", COL_GOLD)
+        self.log("Вход в подземелье — на Каменном перевале (северо-восток).",
+                 COL_GOLD)
         self.log(f"Цель: победить Древнего дракона на глубине {MAX_DEPTH}.", COL_GOLD)
         # Real-time таймеры
         self.player_move_timer = 0.0
@@ -209,6 +198,96 @@ class Game:
                 occupied.add((npc.x, npc.y))
         return occupied
 
+    # ════════════════════════ ЛОКАЦИИ ════════════════════════
+    def get_location(self, key):
+        """Ленивая генерация карты локации с кэшированием."""
+        if not hasattr(self, 'locations'):
+            self.locations = {}
+        if key not in self.locations:
+            self.locations[key] = locations.generate_location(key)
+        return self.locations[key]
+
+    def _remember_location(self):
+        """Запомнить прогресс текущей карты поверхности."""
+        if self.world_mode == 'overworld' and getattr(self, 'locations', None):
+            self.location_explored[self.location] = set(self.explored)
+
+    def travel_to(self, key, entry=None):
+        """Переход на другую карту поверхности через врата."""
+        if key not in locations.LOCATIONS:
+            return False
+        self._remember_location()
+        target = self.get_location(key)
+        self.location = key
+        self.overworld = target
+        self.dungeon = target
+        self.world_mode = 'overworld'
+        self.depth = 0
+        self.explored = set(self.location_explored.get(key, set()))
+        self.merchant = None
+        self.shop_stock = []
+        self.quest_board = None
+
+        if entry is None:
+            entry = (target.w // 2, target.h - 8)
+        spot = rules.find_free_tile(target, entry[0], entry[1],
+                                    self.occupied_tiles())
+        if spot:
+            self.player.x, self.player.y = spot
+        else:
+            self.player.x, self.player.y = entry
+        self.update_fov()
+        self._last_fov_pos = (self.player.x, self.player.y)
+        self.quest_board = self._spawn_quest_board()
+        self.render_revision = getattr(self, 'render_revision', 0) + 1
+        self.player_move_timer = PLAYER_MOVE_COOLDOWN
+        rules.init_action_timers(target.monsters)
+        self.log(f"Ты прибыл: {locations.title(key)}.", COL_GOLD)
+        return True
+
+    def ground_kind(self, x, y):
+        return locations.ground_kind(self.location, x, y)
+
+    def wall_kind(self, x, y):
+        return locations.wall_kind(self.location, x, y)
+
+    def location_title(self):
+        return locations.title(self.location)
+
+    def _spawn_quest_board(self):
+        """Доска на текущей карте или None."""
+        if self.world_mode == 'overworld':
+            if self.location != 'village':
+                return None
+            bx, by = ov.QUEST_BOARD_VILLAGE_POS
+            if (0 <= bx < MAP_W and 0 <= by < MAP_H
+                    and self.overworld.tiles[by][bx] != Tile.WALL):
+                e = Entity(bx, by, 1, 1, 0, 0, "Доска поручений", "B",
+                           (206, 170, 96), 0)
+                e.is_npc = True;
+                e.npc_type = 'quest_board'
+                e.board_depth_min, e.board_depth_max = 0, 4
+                return e
+            return None
+        if self.depth not in (5, 10, 15, 20) or not self.dungeon.rooms:
+            return None
+        room = self.dungeon.rooms[0]
+        bx, by = room.center()
+        for dx, dy in ((0, 1), (1, 0), (-1, 0), (0, -1)):
+            tx, ty = bx + dx, by + dy
+            if (room.x <= tx < room.x + room.w
+                    and room.y <= ty < room.y + room.h
+                    and self.dungeon.tiles[ty][tx] == Tile.FLOOR
+                    and not any(m.x == tx and m.y == ty for m in self.dungeon.monsters)):
+                e = Entity(tx, ty, 1, 1, 0, 0, "Доска поручений", "B",
+                           (206, 170, 96), 0)
+                e.is_npc = True;
+                e.npc_type = 'quest_board'
+                e.board_depth_min = self.depth
+                e.board_depth_max = min(self.depth + 4, 20)
+                return e
+        return None
+
     def log(self, msg, color=COL_TEXT):
         self.messages.append(Message(msg, color))
         if len(self.messages) > 50:
@@ -226,28 +305,48 @@ class Game:
     def enter_dungeon(self):
         # Сохраняем память внешнего мира перед входом
         if self.world_mode == 'overworld':
+            self.surface_return = self.location
             self.overworld_explored = set(self.explored)
+            self._remember_location()
         self.world_mode = 'dungeon'
         self.depth = 0
         self.new_dungeon(1)
         self.log("Ты входишь в подземелье...", COL_DMG)
 
     def exit_to_overworld(self):
-        # Сохраняем explored текущей глубины в кэш, чтобы вернуться к ней
         if self.depth > 0 and self.depth in self.dungeon_cache:
             self.dungeon_cache[self.depth]['explored'] = set(self.explored)
 
         self.world_mode = 'overworld'
         self.depth = 0
+        # Выходим туда, откуда спускались: карта горы с входом в шахту
+        # или другой поверхности.
+        self.location = getattr(self, 'surface_return', 'village')
+        self.overworld = self.get_location(self.location)
         self.dungeon = self.overworld
-        # Восстанавливаем память внешнего мира
-        self.explored = set(self.overworld_explored)
+        self.explored = set(self.location_explored.get(
+            self.location, self.overworld_explored))
+        self.overworld_explored = set(self.explored)
         self.visible = set()
         self.merchant = None
         self.shop_stock = []
-        self.player.x, self.player.y = MAP_W // 2, MAP_H // 2
+
+        # Спавн рядом со входом в подземелье (если он на этой карте),
+        # иначе — в центре деревни / у врат локации.
+        if self.overworld.stairs_pos:
+            dx, dy = self.overworld.stairs_pos
+            spawn = (dx, dy + 1)
+        elif self.location == 'village':
+            spawn = ov.VILLAGE_CENTER
+        else:
+            spawn = (self.overworld.w // 2, self.overworld.h - 8)
+        spot = rules.find_free_tile(self.overworld, spawn[0], spawn[1],
+                                    self.occupied_tiles())
+        self.player.x, self.player.y = spot if spot else spawn
+
         self.update_fov()
         self._last_fov_pos = (self.player.x, self.player.y)
+        self.quest_board = self._spawn_quest_board()
         self.render_revision = getattr(self, 'render_revision', 0) + 1
         self.log("Ты возвращаешься на поверхность.", COL_HEAL)
 
@@ -346,9 +445,16 @@ class Game:
             self.save(silent=True)
 
     def update_fov(self):
-        radius = FOV_RADIUS + max(0, int(getattr(self.player, 'vision_bonus', 0)))
-        self.visible = compute_fov(self.dungeon, self.player.x,
-                                   self.player.y, radius)
+        if self.world_mode == 'overworld' and self.location != 'mine':
+            # На поверхности тумана войны нет: видно всю карту локации.
+            # Шахта — подземелье, там обзор остаётся ограниченным.
+            d = self.dungeon
+            self.visible = {(x, y) for y in range(d.h) for x in range(d.w)}
+        else:
+            radius = FOV_RADIUS + max(
+                0, int(getattr(self.player, 'vision_bonus', 0)))
+            self.visible = compute_fov(self.dungeon, self.player.x,
+                                       self.player.y, radius)
         self.explored |= self.visible
 
     # ════════════════════════ SAVE / LOAD ════════════════════════
@@ -368,10 +474,20 @@ class Game:
                 'shop_stock': self.shop_stock,
                 'explored': set(self.explored),
             }
+        else:
+            self.surface_return = self.location
+            self.location_explored[self.location] = set(self.explored)
         data = {
             'version': SAVE_VERSION,
             'world_mode': self.world_mode,
             'depth': self.depth,
+            'location': self.location,
+            'surface_return': self.surface_return,
+            'locations': {key: dungeon_to_dict(d)
+                          for key, d in self.locations.items()},
+            'location_explored': {
+                key: [list(p) for p in points]
+                for key, points in self.location_explored.items()},
             'explored': [list(p) for p in self.explored],
             'messages': [{'text': m.text, 'color': list(m.color)}
                          for m in self.messages],
@@ -428,7 +544,28 @@ class Game:
                 raise ValueError(f"сейв новее игры (v{version} > v{SAVE_VERSION})")
 
             self.player = player_from_dict(data['player'])
-            self.overworld = dungeon_from_dict(data['overworld'])
+            self.location = data.get('location', 'village')
+            self.surface_return = data.get('surface_return', self.location)
+            # Новый формат хранит все посещённые карты; старый — одну
+            # карту поверхности в ключе `overworld`.
+            self.locations = {}
+            if data.get('locations'):
+                self.locations = {
+                    key: dungeon_from_dict(raw, is_location=True)
+                    for key, raw in data['locations'].items()}
+            elif data.get('overworld'):
+                self.locations['village'] = dungeon_from_dict(
+                    data['overworld'], is_overworld=True)
+            self.location_explored = {
+                key: {tuple(p) for p in points}
+                for key, points in (data.get('location_explored') or {}).items()}
+            if self.location not in self.locations:
+                self.locations[self.location] = locations.generate_location(
+                    self.location)
+            if self.surface_return not in self.locations:
+                self.locations[self.surface_return] = locations.generate_location(
+                    self.surface_return)
+            self.overworld = self.locations[self.surface_return]
             self.world_mode = data.get('world_mode', 'overworld')
             self.depth = int(data.get('depth', 0))
             self.dungeon_cache = dungeon_cache_from_dict(
@@ -458,15 +595,19 @@ class Game:
                     'explored': set(self.explored),
                 }
             else:
+                self.overworld = self.locations[self.location]
+                self.surface_return = self.location
                 self.dungeon = self.overworld
+                self.explored = self.location_explored.get(
+                    self.location, self.explored)
                 self.merchant = None
                 self.shop_stock = []
                 self.overworld_explored = set(self.explored)
 
-            if self.elder is None and self.overworld.stairs_pos:
+            if self.elder is None:
                 spot = rules.find_free_tile(
-                    self.overworld, self.overworld.stairs_pos[0],
-                    self.overworld.stairs_pos[1], self.occupied_tiles())
+                    self.overworld, ov.VILLAGE_CENTER[0], ov.VILLAGE_CENTER[1],
+                    self.occupied_tiles())
                 if spot:
                     ex, ey = spot
                     self.elder = Entity(ex, ey, 1, 1, 0, 0,
@@ -516,11 +657,12 @@ class Game:
     # ════════════════════════ ДВИЖЕНИЕ ════════════════════════
     def move_player(self, dx, dy):
         nx, ny = self.player.x + dx, self.player.y + dy
-        if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
+        if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
             return False
         if self.merchant and nx == self.merchant.x and ny == self.merchant.y:
             return False
-        if (self.world_mode == 'overworld' and self.elder
+        if (self.world_mode == 'overworld' and self.location == 'village'
+                and self.elder
                 and nx == self.elder.x and ny == self.elder.y):
             return False
         target = next((m for m in self.dungeon.monsters
@@ -528,12 +670,23 @@ class Game:
         if target:
             self.attack(self.player, target)
             return True
-        if self.dungeon.tiles[ny][nx] == Tile.WALL:
+        # Ресурсы добываются только клавишей «E» — идти в клетку ресурса
+        # нельзя. Деревья/кусты/руда стоят на месте.
+        if (nx, ny) in self.dungeon.harvestables:
+            return False
+        tile = self.dungeon.tiles[ny][nx]
+        if tile in (Tile.WALL, Tile.LOCKED_DOOR, Tile.CHEST):
+            if tile == Tile.LOCKED_DOOR:
+                # Запертая дверь босс-комплекса: отпирается ключом босса.
+                return self._try_unlock_door(nx, ny)
             return False
         self.player.x, self.player.y = nx, ny
         if (nx, ny) in self.dungeon.items:
             self.pickup(nx, ny)
-        tile = self.dungeon.tiles[ny][nx]
+        trans = self.dungeon.transitions.get((nx, ny))
+        if trans:
+            self.travel_to(trans['to'], trans.get('entry'))
+            return False
         if tile == Tile.STAIRS:
             if self.world_mode == 'overworld':
                 self.enter_dungeon()
@@ -556,7 +709,7 @@ class Game:
         return True
 
     def player_attack(self):
-        """Атака по пробелу: ближайший моб в радиусе 1."""
+        """Атака по пробелу: ближайший моб, иначе — добываемый ресурс."""
         target = None
         best_dist = 999
         for m in self.dungeon.monsters:
@@ -568,6 +721,115 @@ class Game:
                 best_dist = dist
         if target:
             self.attack(self.player, target)
+            return
+        # Ресурсы добываются только клавишей «E» (harvest_adjacent):
+        # пробел бьёт только по монстрам.
+
+    def harvest_adjacent(self):
+        """Добыча ресурса или открытие сундука рядом с игроком («E»)."""
+        px, py = self.player.x, self.player.y
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tx, ty = px + dx, py + dy
+            if (0 <= tx < self.dungeon.w and 0 <= ty < self.dungeon.h
+                    and self.dungeon.tiles[ty][tx] == Tile.CHEST):
+                self._open_chest(tx, ty)
+                return True
+        if self.world_mode != 'overworld':
+            return False
+        best = None
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                if dx == 0 and dy == 0:
+                    continue
+                pos = (px + dx, py + dy)
+                if self.harvestable_kind_at(*pos) is None:
+                    continue
+                dist = max(abs(dx), abs(dy))
+                if best is None or dist < best[0]:
+                    best = (dist, pos)
+        if best:
+            return self.harvest_at(*best[1])
+        return False
+
+    def _open_chest(self, x, y):
+        """Сундук казны: золото + пара предметов по глубине."""
+        from audio import Audio
+        Audio.play('pickup')
+        depth = max(1, self.depth)
+        gold = 20 + depth * 8
+        self.player.gold += gold
+        self.total_gold_earned += gold
+        self.log(f"Сундук открыт: +{gold} золота", COL_GOLD)
+        self.add_float(x, y, f"+{gold}g", COL_GOLD)
+        tier = min(3, max(1, (depth + 1) // 3))
+        pool = [k for k, v in ITEMS.items()
+                if v.get('tier', 1) <= tier
+                and v.get('type') not in ('book', 'resource', 'key')]
+        for _ in range(random.randint(2, 3)):
+            self._place_drop(x, y, random.choice(pool))
+        self.dungeon.tiles[y][x] = Tile.FLOOR
+        self.render_revision = getattr(self, 'render_revision', 0) + 1
+
+    def _try_unlock_door(self, x, y):
+        """Запертая дверь: тратит ключ босса и открывается."""
+        if self.player.inventory.get('boss_key', 0) > 0:
+            rules.consume(self.player.inventory, 'boss_key')
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
+            self.log("Ключ босса отпирает дверь.", COL_GOLD)
+            return True
+        self.log("Дверь заперта: нужен ключ босса.", COL_DIM)
+        return False
+
+    def harvestable_kind_at(self, x, y):
+        """'bush'/'tree'/'ore' для клетки или None."""
+        from core import harvest as harvest_mod
+        record = self.dungeon.harvestables.get((x, y))
+        if record is not None:
+            return record.get('kind')
+        if not (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h):
+            return None
+        if self.dungeon.tiles[y][x] == Tile.WALL \
+                and locations.is_tree_wall(self.location, x, y):
+            return 'tree'
+        return None
+
+    def harvest_at(self, x, y):
+        """Удар по добываемому объекту (дерево/руда/куст)."""
+        from core import harvest as harvest_mod
+        record = self.dungeon.harvestables.get((x, y))
+        if record is None:
+            # Обычное дерево становится ресурсом при первом ударе.
+            if self.harvestable_kind_at(x, y) == 'tree':
+                record = harvest_mod.make_harvestable('tree')
+                self.dungeon.harvestables[(x, y)] = record
+            else:
+                return False
+        if not record.get('has', True):
+            self.log(f"{harvest_mod.HARVEST_NAMES.get(record['kind'], 'Ресурс')} "
+                     "ещё не восстановился.", COL_DIM)
+            return True
+        result = harvest_mod.hit(self.dungeon, self.player, x, y,
+                                 self.player.atk, time.time())
+        if result is None:
+            return True
+        self.render_revision = getattr(self, 'render_revision', 0) + 1
+        if not result['done']:
+            self.log(f"{result['name']}: {result['hp']}/{result['max_hp']}",
+                     COL_DIM)
+            self.add_float(x, y, str(result['hp']), COL_DIM)
+            return True
+        from core.data import item_display_name
+        names = []
+        for key, count in result['items']:
+            self.total_items_collected[key] = (
+                self.total_items_collected.get(key, 0) + count)
+            self.quest_log.update_collect(key, self.player.inventory)
+            names.append(f"{item_display_name(key)}×{count}")
+        text = ', '.join(names)
+        self.log(f"Добыто: {text}", COL_HEAL)
+        self.add_float(x, y, '+', COL_HEAL)
+        return True
 
     def pickup(self, x, y):
         from audio import Audio
@@ -681,10 +943,11 @@ class Game:
 
     def unequip_slot(self, slot):
         p = self.player
+        slot = {'helmet': 'head', 'leggings': 'legs'}.get(slot, slot)
         key = getattr(p, slot, None)
         if not key:
             names = {'weapon': 'Оружие', 'armor': 'Броня',
-                     'helmet': 'Шлем', 'leggings': 'Поножи'}
+                     'head': 'Шлем', 'legs': 'Поножи'}
             self.log(f"{names.get(slot, 'Слот')}: пусто.", COL_DIM)
             return
         setattr(p, slot, None)
@@ -699,10 +962,16 @@ class Game:
         self.unequip_slot('armor')
 
     def unequip_helmet(self):
-        self.unequip_slot('helmet')
+        self.unequip_slot('head')
 
     def unequip_leggings(self):
-        self.unequip_slot('leggings')
+        self.unequip_slot('legs')
+
+    def unequip_head(self):
+        self.unequip_slot('head')
+
+    def unequip_legs(self):
+        self.unequip_slot('legs')
 
     # ════════════════════════ БОЙ ════════════════════════
     def attack(self, a, b):
@@ -773,6 +1042,13 @@ class Game:
         self.add_float(monster.x, monster.y - 0.6, f"+{reward.gold}g", COL_GOLD)
         for item_key in reward.drops:
             self._place_drop(monster.x, monster.y, item_key)
+
+        if monster.boss:
+            # Погиб босс: замурованные выходы его арены открываются.
+            from core.world import clear_boss_barriers
+            if clear_boss_barriers(self.dungeon):
+                self.render_revision = getattr(self, 'render_revision', 0) + 1
+                self.log("Выходы арены открыты.", COL_WIN)
 
         if monster.boss and self.depth == MAX_DEPTH:
             self.victory = True
@@ -855,6 +1131,14 @@ class Game:
         dy = self.player.y - m.y
         dist = max(abs(dx), abs(dy))
 
+        # Мирные животные (олень): никогда не нападают. После первого
+        # полученного удара убегают от игрока.
+        profile = MONSTERS_BY_CH.get(m.ch, {})
+        if profile.get('passive'):
+            if m.hp < m.max_hp or dist <= 3:
+                self._flee_monster(m)
+            return
+
         if ability == 'healer':
             if self._healer_action(m):
                 return
@@ -881,6 +1165,29 @@ class Game:
                                     (self.player.x, self.player.y), blocked)
             if nxt:
                 m.x, m.y = nxt
+
+    def _flee_monster(self, m):
+        """Шаг в сторону, увеличивающую расстояние до игрока."""
+        options = []
+        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1),
+                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+            nx, ny = m.x + fx, m.y + fy
+            if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
+                continue
+            if self.dungeon.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST):
+                continue
+            if any(o is not m and o.hp > 0 and o.x == nx and o.y == ny
+                   for o in self.dungeon.monsters):
+                continue
+            score = (nx - self.player.x) ** 2 + (ny - self.player.y) ** 2
+            options.append((score, nx, ny))
+        if not options:
+            return False
+        best = max(s for s, _, _ in options)
+        candidates = [(x, y) for s, x, y in options if s == best]
+        nx, ny = random.choice(candidates)
+        return self.try_move(m, nx, ny)
 
     def _tick_player_statuses(self):
         """Игрок получает урон/лечение от статусов в начале хода монстров."""
@@ -943,11 +1250,13 @@ class Game:
         return True
 
     def try_move(self, m, x, y):
-        from core.config import MAP_W, MAP_H
         from core.config import Tile
-        if not (0 <= x < MAP_W and 0 <= y < MAP_H):
+        if not (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h):
             return False
-        if self.dungeon.tiles[y][x] == Tile.WALL:
+        if self.dungeon.tiles[y][x] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                        Tile.CHEST):
+            return False
+        if (x, y) in self.dungeon.harvestables:
             return False
         if x == self.player.x and y == self.player.y:
             return False
@@ -955,8 +1264,9 @@ class Game:
         if (self.world_mode == 'dungeon' and self.merchant
                 and x == self.merchant.x and y == self.merchant.y):
             return False
-        # Старейшина — только в открытом мире
-        if (self.world_mode == 'overworld' and self.elder
+        # Старейшина — только в деревне
+        if (self.world_mode == 'overworld' and self.location == 'village'
+                and self.elder
                 and x == self.elder.x and y == self.elder.y):
             return False
         # Другие мобы
@@ -1033,10 +1343,10 @@ class Game:
                 self.unequip_weapon()
             elif key == pygame.K_v:
                 self.unequip_armor()
+            elif key == pygame.K_h:
+                self.unequip_head()
             elif key == pygame.K_b:
-                self.unequip_helmet()
-            elif key == pygame.K_n:
-                self.unequip_leggings()
+                self.unequip_legs()
             elif key == pygame.K_q:
                 self.inv_prev_page()
             elif key == pygame.K_e:
@@ -1053,7 +1363,15 @@ class Game:
             self.inv_page = min(self.inv_page, self.inv_pages_count() - 1)
             return
         if key == pygame.K_t:
-            if (self.world_mode == 'overworld' and self.elder
+            if (self.quest_board
+                    and (self.world_mode == 'dungeon'
+                         or self.location == 'village')
+                    and max(abs(self.player.x - self.quest_board.x),
+                            abs(self.player.y - self.quest_board.y)) <= 1):
+                self.dialogue.open('quest_board')
+                return
+            if (self.world_mode == 'overworld' and self.location == 'village'
+                    and self.elder
                     and max(abs(self.player.x - self.elder.x),
                             abs(self.player.y - self.elder.y)) <= 1):
                 self.dialogue.open('elder')
@@ -1064,6 +1382,10 @@ class Game:
                 self.dialogue.open('merchant')
                 return
             self.log("Рядом нет NPC.", COL_DIM)
+            return
+        if key == pygame.K_e:
+            self.harvest_adjacent()
+            self.update_fov()
             return
         if key == pygame.K_l:
             self.quests.open();
@@ -1157,7 +1479,8 @@ class Game:
         tx = (mx - ox) // TILE + cam_x
         ty = (my - oy) // TILE + cam_y
 
-        if (self.world_mode == 'overworld' and self.elder
+        if (self.world_mode == 'overworld' and self.location == 'village'
+                and self.elder
                 and (tx, ty) == (self.elder.x, self.elder.y)
                 and (tx, ty) in self.visible):
             if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
@@ -1170,6 +1493,16 @@ class Game:
                 and (tx, ty) in self.visible):
             if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
                 self.dialogue.open('merchant')
+            else:
+                self.log("Подойди ближе.", COL_DIM)
+            return True
+
+        # Клик по доске поручений открывает её.
+        if (self.quest_board
+                and (tx, ty) == (self.quest_board.x, self.quest_board.y)
+                and (tx, ty) in self.visible):
+            if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
+                self.dialogue.open('quest_board')
             else:
                 self.log("Подойди ближе.", COL_DIM)
             return True
@@ -1212,13 +1545,19 @@ class Game:
         hits = self._ui_hits.get('craft', {})
         if self.craft.minigame_active:
             return self.craft.handle_click(pos)
-        for idx, rect in hits.get('hammer', []):
-            if self._hit(rect, pos):
-                self.craft.craft(idx)
-                return True
         for tab, rect in hits.get('tabs', []):
             if self._hit(rect, pos):
                 self.craft.set_tab(tab)
+                return True
+        if self._hit(hits.get('prev', (0, 0, 0, 0)), pos):
+            self.craft.prev_page()
+            return True
+        if self._hit(hits.get('next', (0, 0, 0, 0)), pos):
+            self.craft.next_page()
+            return True
+        for idx, rect in hits.get('hammer', []):
+            if self._hit(rect, pos):
+                self.craft.craft(idx)
                 return True
         return False
 
@@ -1365,6 +1704,16 @@ class Game:
 
     def craftable_list(self):
         return self.craft.list()
+
+    def craft_page_items(self):
+        return self.craft.page_items()
+
+    def craft_pages_count(self):
+        return self.craft.pages_count()
+
+    def craft_tabs(self):
+        return self.craft.tabs()
+
     def craft_item(self, idx):
         self.craft.craft(idx)
 
@@ -1426,6 +1775,11 @@ class Game:
         self.player_attack_timer = max(0.0, self.player_attack_timer - dt)
         self.status_tick_timer -= dt
         self.regen_timer -= dt
+
+        # Кусты ягод и деревья/руда восстанавливаются по реальному времени.
+        from core import harvest as harvest_mod
+        if harvest_mod.tick(self.dungeon, time.time()):
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
 
         # ── Защита: FOV пересчитывается сразу при смене позиции ──
         if (self.player.x, self.player.y) != self._last_fov_pos:

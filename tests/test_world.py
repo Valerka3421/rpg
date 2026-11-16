@@ -114,6 +114,101 @@ def test_overworld_has_resources():
     found = set(d.items.values())
     assert found & resource_keys
 
+
+def test_overworld_village_layout_walkable():
+    """Старт — в центре деревни, дома и колодец остаются препятствиями."""
+    from core.world import generate_overworld
+    from core import overworld as ov
+    d = generate_overworld()
+    sx, sy = ov.VILLAGE_CENTER
+    assert d.tiles[sy][sx] == Tile.FLOOR
+    assert ov.location_title(sx, sy) == ov.VILLAGE_TITLE
+    for hx, hy, hw, hh in ov.VILLAGE_HOUSES:
+        assert d.tiles[hy][hx] == Tile.WALL
+        assert d.tiles[hy + hh - 1][hx + hw - 1] == Tile.WALL
+    wx, wy = ov.WELL_POS
+    assert d.tiles[wy][wx] == Tile.WALL
+    ex, ey = ov.ELDER_POS
+    assert d.tiles[ey][ex] == Tile.FLOOR
+
+
+def test_overworld_dungeon_entrance_is_in_rock_biome():
+    from core.world import generate_overworld
+    from core import overworld as ov
+    d = generate_overworld()
+    assert ov.region_of(*ov.DUNGEON_POS) == ov.DUNGEON_REGION
+    assert ov.biome_at(*ov.DUNGEON_POS) == 'rock'
+    assert d.stairs_pos == ov.DUNGEON_POS
+    ex, ey = ov.DUNGEON_POS
+    assert d.tiles[ey][ex] == Tile.STAIRS
+
+
+def test_overworld_has_eight_distinct_biomes():
+    from core import overworld as ov
+    from render.tiles import BIOME_PALETTES
+    assert len(ov.BIOME_NAMES) == 8
+    names = set(ov.BIOME_NAMES.values())
+    assert len(names) == 8
+    assert names <= set(BIOME_PALETTES)
+
+
+def test_overworld_spawn_reaches_dungeon_and_all_regions():
+    from core.world import generate_overworld, _flood_fill_reachable
+    from core import overworld as ov
+    d = generate_overworld()
+    reachable = _flood_fill_reachable(d, ov.VILLAGE_CENTER)
+    assert ov.DUNGEON_POS in reachable
+    for region in ov.BIOME_NAMES:
+        x0, x1 = ov.REGION_X[region[0]], ov.REGION_X[region[0] + 1]
+        y0, y1 = ov.REGION_Y[region[1]], ov.REGION_Y[region[1] + 1]
+        assert any((x, y) in reachable
+                   for y in range(y0, y1) for x in range(x0, x1))
+
+
+def test_overworld_roads_are_always_walkable():
+    from core.world import generate_overworld
+    from core import overworld as ov
+    d = generate_overworld()
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            if ov.is_road(x, y):
+                assert d.tiles[y][x] != Tile.WALL, (x, y)
+
+
+def test_overworld_dungeon_area_has_ruins_texture():
+    from core.world import generate_overworld
+    from core import overworld as ov
+    from render.tiles import _VARIANTS
+    d = generate_overworld()
+    assert ov.ground_kind(*ov.DUNGEON_POS) == 'dungeon_ruins'
+    assert 'dungeon_ruins' in _VARIANTS
+    assert 'ruins_pillar' in _VARIANTS
+    dx, dy = ov.DUNGEON_POS
+    r = ov.DUNGEON_RUINS_RADIUS
+    for y in range(max(0, dy - r), min(MAP_H, dy + r + 1)):
+        for x in range(max(0, dx - r), min(MAP_W, dx + r + 1)):
+            if (x - dx) ** 2 + (y - dy) ** 2 > r * r:
+                continue
+            if ov.is_ruins_pillar(x, y):
+                assert d.tiles[y][x] == Tile.WALL
+            else:
+                assert d.tiles[y][x] != Tile.WALL, (x, y)
+
+
+def test_overworld_tile_kinds_are_registered_for_rendering():
+    from core.world import generate_overworld
+    from core import overworld as ov
+    from render.tiles import _VARIANTS
+    d = generate_overworld()
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            if d.tiles[y][x] == Tile.WALL:
+                kind = ov.wall_kind(x, y)
+            else:
+                kind = ov.ground_kind(x, y)
+            assert kind in _VARIANTS, (x, y, kind)
+
+
 def test_fov_blocks_wall_gap():
     """Игрок в (5,5), стена в форме угла, моб за углом — невидим."""
     from core.entities import Dungeon

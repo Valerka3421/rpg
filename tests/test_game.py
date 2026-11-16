@@ -11,6 +11,12 @@ from core.entities import Entity
 from render import Renderer
 
 
+def caught_bone(game, base_key):
+    """Сколько предметов с учётом качества («+N») лежит в рюкзаке."""
+    return sum(count for key, count in game.player.inventory.items()
+               if key == base_key or key.startswith(base_key + '+'))
+
+
 def test_new_game_state(make_game):
     g = make_game()
     assert g.world_mode == 'overworld'
@@ -95,9 +101,13 @@ def test_start_in_overworld(make_game):
 
 def test_overworld_has_entrance(make_game):
     g = make_game()
-    assert g.overworld.stairs_pos is not None
-    ex, ey = g.overworld.stairs_pos
-    assert g.overworld.tiles[ey][ex] == Tile.STAIRS
+    # Вход в главное подземелье — на кладбище; на скалах только шахта
+    graveyard = g.get_location('graveyard')
+    assert graveyard.stairs_pos is not None
+    ex, ey = graveyard.stairs_pos
+    assert graveyard.tiles[ey][ex] == Tile.STAIRS
+    rock = g.get_location('rock')
+    assert any(t.get('to') == 'mine' for t in rock.transitions.values())
 
 
 def test_enter_dungeon(make_game):
@@ -523,23 +533,16 @@ def test_reroll_not_enough_gold(make_game):
 
 def test_inventory_pagination(make_game):
     g = make_game()
-    g.player.inventory = {
-        'potion_s': 1, 'potion_m': 1, 'potion_l': 1,
-        'dagger': 1, 'shortsword': 1, 'sword': 1,
-        'axe': 1, 'greatsword': 1, 'warhammer': 1,
-        'padded': 1, 'leather': 1, 'chain': 1,
-        'scale': 1, 'plate': 1, 'mithril': 1,
-    }
-    assert len(g.player.inventory) == 15
+    g.player.inventory = {f'item_{i}': 1 for i in range(30)}
     assert g.inv_pages_count() == 2
     g.inv_page = 0
-    g.inv_next_page()
+    g.inv_next_page();
     assert g.inv_page == 1
-    g.inv_next_page()
+    g.inv_next_page();
     assert g.inv_page == 1
-    g.inv_prev_page()
+    g.inv_prev_page();
     assert g.inv_page == 0
-    g.inv_prev_page()
+    g.inv_prev_page();
     assert g.inv_page == 0
 
 
@@ -579,8 +582,8 @@ def test_sell_on_second_page(make_game):
     assert g.player.gold > gold_before
 
 
-def test_inventory_page_size_is_9():
-    assert INVENTORY_PAGE_SIZE == 9
+def test_inventory_page_size_is_25():
+    assert INVENTORY_PAGE_SIZE == 25
 
 
 def test_craft_screen_opens(make_game):
@@ -622,7 +625,7 @@ def test_craft_bone_sword(make_game):
     assert bone_idx is not None
     assert craftable[bone_idx][3] is True
     g.craft_item(bone_idx)
-    assert g.player.inventory.get('bone_sword') == 1
+    assert caught_bone(g, 'bone_sword') == 1
     assert 'bone' not in g.player.inventory
     assert 'wood' not in g.player.inventory
 
@@ -665,7 +668,7 @@ def test_craft_via_click(make_game):
         (bone_idx, (100, 100, HAMMER_SIZE, HAMMER_SIZE))
     ]}}
     g.handle_mouse_click((110, 110))
-    assert g.player.inventory.get('bone_sword') == 1
+    assert caught_bone(g, 'bone_sword') == 1
 
 
 def test_craft_missing_materials_keeps_inventory(make_game):
@@ -1482,6 +1485,23 @@ def test_elder_exists_in_overworld(make_game):
     g = make_game()
     assert g.elder is not None
     assert g.elder.npc_type == 'elder'
+
+
+def test_new_game_spawns_in_village(make_game):
+    from core import overworld as ov
+    g = make_game()
+    assert (g.player.x, g.player.y) == ov.VILLAGE_CENTER
+    assert ov.in_village(g.player.x, g.player.y)
+    assert g.overworld.tiles[g.player.y][g.player.x] == Tile.FLOOR
+
+
+def test_elder_and_quest_board_live_in_village(make_game):
+    from core import overworld as ov
+    g = make_game()
+    assert (g.elder.x, g.elder.y) == ov.ELDER_POS
+    assert ov.in_village(g.elder.x, g.elder.y)
+    assert g.quest_board is not None
+    assert ov.in_village(g.quest_board.x, g.quest_board.y)
 
 
 def test_elder_blocks_movement(make_game):

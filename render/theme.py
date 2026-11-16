@@ -103,7 +103,7 @@ class Theme:
 
     @staticmethod
     def shade(color, factor):
-        return tuple(max(0, min(255, int(c * factor))) for c in color)
+        return tuple(max(0, min(255, int(c * factor))) for c in color[:3])
 
     @staticmethod
     def tint(color, x, y, seed=0, amount=0.10):

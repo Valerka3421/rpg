@@ -18,8 +18,7 @@ class QuestController:
         ql = self.game.quest_log
         result = []
         for key in QUESTS:
-            if key in ql.turned_in:
-                continue
+            if key in ql.turned_in: continue
             if key in ql.available:
                 state = 'available'
             elif key in ql.active:
@@ -29,28 +28,32 @@ class QuestController:
             else:
                 continue
             result.append((key, state))
+        for key, data in ql.active.items():
+            if data.get('generated'):
+                state = 'completed' if data['progress'] >= data['count'] else 'active'
+                result.append((key, state))
         return result
 
     def activate(self, idx):
         items = self.visible_quests()
-        if idx < 0 or idx >= len(items):
-            return
+        if idx < 0 or idx >= len(items): return
         key, state = items[idx]
-        if state == 'available':
-            self.game.quest_log.accept(key, QUESTS[key]['count'],
-                                       self.game.player.inventory)
-            self.game.log(f"Квест взят: {QUESTS[key]['name']}",
-                          (240, 220, 120))
-        elif state == 'completed':
-            if self.game.quest_log.turn_in(key, self.game.player, self.game):
-                from audio import Audio
-                Audio.play('level_up')  # звук сдачи
-                q = QUESTS[key]
-                self.game.log(
-                    f"Квест сдан: {q['name']} (+{q['reward_gold']} з., "
-                    f"+{q['reward_xp']} XP)", (120, 240, 120))
-                self.game.total_quests_turned_in += 1
-            self.selection = min(self.selection, len(self.visible_quests()) - 1)
+        g = self.game
+        if key in QUESTS:
+            q = QUESTS[key]
+            if state == 'available':
+                g.quest_log.accept(key, q['count'], g.player.inventory)
+                g.log(f"Квест взят: {q['name']}", (240, 220, 120))
+            elif state == 'completed' and g.quest_log.turn_in(key, g.player, g):
+                g.log(f"Сдан: {q['name']} (+{q['reward_gold']} з.)", (120, 240, 120))
+                g.total_quests_turned_in += 1
+        else:
+            data = g.quest_log.active.get(key, {})
+            if state == 'completed' and g.quest_log.turn_in_generated(key, g.player, g):
+                g.log(f"Сдано: {data.get('name', '?')} (+{data.get('reward_gold', 0)} з.)",
+                      (120, 240, 120))
+                g.total_quests_turned_in += 1
+        self.selection = min(self.selection, len(self.visible_quests()) - 1)
 
     def handle_key(self, key, scancode=0):
         g = self.game

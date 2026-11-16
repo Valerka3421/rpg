@@ -7,6 +7,9 @@ MONSTER_SPRITES = {
     'G': 'bosses/goblin_king', 'L': 'bosses/lich',
     'V': 'bosses/vampire_lord', 'A': 'bosses/dragon',
     'a': 'monsters/archer', 'S': 'monsters/shaman',
+    'e': 'monsters/deer', 'b': 'monsters/bear',
+    'j': 'monsters/slime', 'w': 'monsters/wolf',
+    'p': 'monsters/boar',
 }
 
 MONSTER_CH_TO_KEY = {
@@ -17,4 +20,6 @@ MONSTER_CH_TO_KEY = {
     'G': 'goblin_king', 'L': 'lich',
     'V': 'vampire_lord', 'A': 'dragon',
     'a': 'archer', 'S': 'shaman',
+    'e': 'deer', 'b': 'bear', 'j': 'slime',
+    'w': 'wolf', 'p': 'boar',
 }

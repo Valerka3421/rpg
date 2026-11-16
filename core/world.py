@@ -2,12 +2,83 @@
 import random
 from collections import deque
 
-from core.config import MAP_W, MAP_H, FOV_RADIUS, Tile, OVERWORLD_MONSTERS
+from core.config import MAP_W, MAP_H, FOV_RADIUS, Tile
 from core.data import MONSTERS, BOSSES, ITEMS, scale_stats, scale_boss_stats
 from core.entities import Entity, Room, Dungeon
+from core import overworld as ov
 
 
-OVERWORLD_RESOURCES = ('mushroom', 'berry', 'wood', 'stone', 'ore')
+OVERWORLD_RESOURCES = ('mushroom', 'wood', 'stone', 'ore')
+
+# Ягоды больше не лежат предметом на земле: их собирают с кустов
+# (core.harvest). Константы для генерации.
+BUSH_COUNT_MIN = 36
+TREE_HARVEST_COUNT = 70
+
+# В лесу могут встретиться только эти обитатели. Гоблины и скелеты
+# убраны из лесного спавна: гоблины живут в своей деревне, скелеты —
+# в подземелье.
+FOREST_MONSTERS = ('deer', 'wolf', 'bear', 'slime', 'boar', 'rat')
+
+# Кто водится в каждом лесном крае. Ключи должны быть в MONSTERS.
+BIOME_MONSTERS = {
+    'pine':   ('deer', 'wolf', 'rat'),
+    'birch':  ('deer', 'slime', 'rat'),
+    'rock':   ('wolf', 'bear'),
+    'autumn': ('deer', 'boar', 'wolf'),
+    'swamp':  ('slime', 'rat', 'boar'),
+    'dark':   ('wolf', 'bear', 'slime'),
+    'meadow': ('deer', 'boar', 'rat'),
+    'dead':   ('wolf', 'bear', 'rat'),
+}
+
+# Спавн в Деревне гоблинов: все виды гоблинов, кабаны и волки.
+GOBLIN_VILLAGE_MONSTERS = ('goblin', 'archer', 'shaman', 'boar', 'wolf')
+
+# Сколько рощ и какого размера сеять в каждом крае.
+BIOME_FORESTS = {
+    'pine':   (55, 3),
+    'birch':  (42, 2),
+    'rock':   (30, 3),
+    'autumn': (46, 3),
+    'swamp':  (36, 2),
+    'dark':   (66, 3),
+    'meadow': (20, 2),
+    'dead':   (40, 2),
+}
+
+
+def _scatter_harvestables(d, reachable):
+    """Деревья для рубки и кусты ягод на поверхности."""
+    from core.harvest import make_harvestable
+    # Деревья: выбираем существующие лесные стены, чтобы текстура и
+    # проходимость остались прежними.
+    tree_spots = []
+    for (x, y) in reachable:
+        for nx, ny in ((x + 1, y), (x - 1, y), (x, y + 1), (x, y - 1)):
+            if not (0 <= nx < d.w and 0 <= ny < d.h):
+                continue
+            if d.tiles[ny][nx] != Tile.WALL:
+                continue
+            kind = ov.wall_kind(nx, ny)
+            if kind.startswith('tree') or kind == 'rock':
+                tree_spots.append((nx, ny))
+    random.shuffle(tree_spots)
+    for pos in tree_spots[:TREE_HARVEST_COUNT]:
+        if pos not in d.harvestables:
+            d.harvestables[pos] = make_harvestable(
+                'tree' if not ov.in_dungeon_ruins(*pos) else 'ore')
+
+    # Кусты ягод — на открытой траве, подальше от деревень и дорог.
+    bush_spots = [p for p in reachable
+                  if d.tiles[p[1]][p[0]] == Tile.FLOOR
+                  and not ov.in_village(*p) and not ov.in_goblin_village(*p)
+                  and not ov.is_road(*p) and not ov.in_dungeon_ruins(*p)
+                  and p not in d.items and p != ov.DUNGEON_POS
+                  and p not in d.harvestables]
+    random.shuffle(bush_spots)
+    for pos in bush_spots[:BUSH_COUNT_MIN]:
+        d.harvestables[pos] = make_harvestable('bush')
 
 
 def _flood_fill_reachable(d, start):
@@ -21,99 +92,207 @@ def _flood_fill_reachable(d, start):
                 continue
             if (nx, ny) in seen:
                 continue
-            if d.tiles[ny][nx] == Tile.WALL:
+            if d.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR):
                 continue
             seen.add((nx, ny))
             q.append((nx, ny))
     return seen
 
 
+def _carve_road(d, x0, y0, x1, y1, half_width=None):
+    """Прорубить прямую дорогу в лесу (лес уже расставлен)."""
+    half = ov.ROAD_HALF_WIDTH if half_width is None else half_width
+    if y0 == y1:
+        for x in range(min(x0, x1), max(x0, x1) + 1):
+            for y in range(y0 - half, y0 + half + 1):
+                if 0 <= x < d.w and 0 <= y < d.h:
+                    d.tiles[y][x] = Tile.FLOOR
+    elif x0 == x1:
+        for y in range(min(y0, y1), max(y0, y1) + 1):
+            for x in range(x0 - half, x0 + half + 1):
+                if 0 <= x < d.w and 0 <= y < d.h:
+                    d.tiles[y][x] = Tile.FLOOR
+
+
+def _clear_circle(d, center, radius):
+    cx, cy = center
+    for y in range(max(0, cy - radius), min(d.h, cy + radius + 1)):
+        for x in range(max(0, cx - radius), min(d.w, cx + radius + 1)):
+            if (x - cx) ** 2 + (y - cy) ** 2 <= radius * radius:
+                d.tiles[y][x] = Tile.FLOOR
+
+
+def _plant_forests(d):
+    """Насыпать рощи в восьми внешних регионах, не заходя в деревню."""
+    for rx in range(3):
+        for ry in range(3):
+            biome = ov.BIOME_NAMES.get((rx, ry))
+            if biome is None:                 # центр — деревня
+                continue
+            cluster_count, max_radius = BIOME_FORESTS[biome]
+            x0, x1 = ov.REGION_X[rx], ov.REGION_X[rx + 1]
+            y0, y1 = ov.REGION_Y[ry], ov.REGION_Y[ry + 1]
+            for _ in range(cluster_count):
+                cx = random.randint(x0 + 1, x1 - 2)
+                cy = random.randint(y0 + 1, y1 - 2)
+                r = random.randint(1, max_radius)
+                for yy in range(cy - r, cy + r + 1):
+                    for xx in range(cx - r, cx + r + 1):
+                        if not (0 <= yy < MAP_H and 0 <= xx < MAP_W):
+                            continue
+                        if (xx - cx) ** 2 + (yy - cy) ** 2 > r * r:
+                            continue
+                        if ov.in_village(xx, yy) or ov.is_road(xx, yy):
+                            continue
+                        if ov.in_dungeon_clearing(xx, yy):
+                            continue
+                        if random.random() < 0.58:
+                            d.tiles[yy][xx] = Tile.WALL
+
+
+def _plant_goblin_wilds(d):
+    """Лес вокруг Деревни гоблинов — только восточная часть карты."""
+    for _ in range(85):
+        cx = random.randint(ov.LEGACY_MAP_W + 1, MAP_W - 2)
+        cy = random.randint(1, MAP_H - 2)
+        r = random.randint(1, 3)
+        for yy in range(cy - r, cy + r + 1):
+            for xx in range(cx - r, cx + r + 1):
+                if not (0 <= yy < MAP_H and 0 <= xx < MAP_W):
+                    continue
+                if (xx - cx) ** 2 + (yy - cy) ** 2 > r * r:
+                    continue
+                if ov.in_goblin_village(xx, yy) or ov.is_road(xx, yy):
+                    continue
+                if random.random() < 0.52:
+                    d.tiles[yy][xx] = Tile.WALL
+
+
+def _build_village(d):
+    for hx, hy, hw, hh in ov.VILLAGE_HOUSES:
+        for yy in range(hy, hy + hh):
+            for xx in range(hx, hx + hw):
+                d.tiles[yy][xx] = Tile.WALL
+    wx, wy = ov.WELL_POS
+    d.tiles[wy][wx] = Tile.WALL
+    for sx, sy in ov.VILLAGE_STALLS:      d.tiles[sy][sx] = Tile.WALL
+    for sx, sy in ov.VILLAGE_STATUES:     d.tiles[sy][sx] = Tile.WALL
+    for tx, ty in ov.VILLAGE_TORCHES:     d.tiles[ty][tx] = Tile.WALL
+
+
+def _build_goblin_village(d):
+    """Хижины, тотемы и костёр гоблинов. Дороги прорубаются после."""
+    for hx, hy, hw, hh in ov.GOBLIN_HOUSES:
+        for yy in range(hy, hy + hh):
+            for xx in range(hx, hx + hw):
+                if 0 <= yy < d.h and 0 <= xx < d.w:
+                    d.tiles[yy][xx] = Tile.WALL
+    cx, cy = ov.GOBLIN_CAMPFIRE
+    d.tiles[cy][cx] = Tile.WALL
+    for tx, ty in ov.GOBLIN_TOTEMS:
+        d.tiles[ty][tx] = Tile.WALL
+
+
 def generate_overworld():
-    """Открытый мир: поляна с рощами, ресурсы, мобы, вход в пещеру."""
+    """Поверхность: деревня в центре, 8 биомов и вход в подземелье."""
     d = Dungeon(MAP_W, MAP_H)
     for y in range(MAP_H):
         for x in range(MAP_W):
             d.tiles[y][x] = Tile.FLOOR
 
-    # Рощи (35 кластеров)
-    for _ in range(35):
-        cx = random.randint(5, MAP_W - 6)
-        cy = random.randint(5, MAP_H - 6)
-        r = random.randint(1, 3)
-        for yy in range(cy - r, cy + r + 1):
-            for xx in range(cx - r, cx + r + 1):
-                if 0 <= yy < MAP_H and 0 <= xx < MAP_W:
-                    if random.random() < 0.55:
-                        d.tiles[yy][xx] = Tile.WALL
+    # 1. Леса по краям карты и в новых восточных землях
+    _plant_forests(d)
+    _plant_goblin_wilds(d)
 
-    # Центральная поляна 7×7
-    px, py = MAP_W // 2, MAP_H // 2
-    for yy in range(py - 3, py + 4):
-        for xx in range(px - 3, px + 4):
-            if 0 <= yy < MAP_H and 0 <= xx < MAP_W:
-                d.tiles[yy][xx] = Tile.FLOOR
+    # 2. Деревни: люди в центре, гоблины на востоке
+    _build_village(d)
+    _build_goblin_village(d)
 
-    # Вход в пещеру
-    entrance = None
-    for _ in range(200):
-        ex = px + random.randint(-12, 12)
-        ey = py + random.randint(-12, 12)
-        if (0 <= ex < MAP_W and 0 <= ey < MAP_H
-                and d.tiles[ey][ex] == Tile.FLOOR):
-            d.tiles[ey][ex] = Tile.STAIRS
-            d.stairs_pos = (ex, ey)
-            entrance = (ex, ey)
-            break
-    if entrance is None:
-        ex, ey = min(px + 5, MAP_W - 2), py
-        d.tiles[ey][ex] = Tile.STAIRS
-        d.stairs_pos = (ex, ey)
-        entrance = (ex, ey)
+    # 3. Дороги — после леса, поэтому они всегда проходимы
+    for x0, y0, x1, y1 in ov.ROAD_SEGMENTS:
+        _carve_road(d, x0, y0, x1, y1)
 
-    # Гарантировать достижимость
-    reachable = _flood_fill_reachable(d, (px, py))
-    if entrance not in reachable:
-        bx, by = entrance
-        for xx in range(min(px, bx), max(px, bx) + 1):
-            if d.tiles[py][xx] == Tile.WALL:
-                d.tiles[py][xx] = Tile.FLOOR
-        for yy in range(min(py, by), max(py, by) + 1):
-            if d.tiles[yy][bx] == Tile.WALL:
-                d.tiles[yy][bx] = Tile.FLOOR
-        reachable = _flood_fill_reachable(d, (px, py))
+    # 4. Каменистая поляна и вход в подземелье на северо-востоке
+    _clear_circle(d, ov.DUNGEON_POS, ov.DUNGEON_RUINS_RADIUS)
+    for px, py in ov.RUINS_PILLARS:
+        if 0 <= px < MAP_W and 0 <= py < MAP_H:
+            d.tiles[py][px] = Tile.WALL
+    ex, ey = ov.DUNGEON_POS
+    d.tiles[ey][ex] = Tile.STAIRS
+    d.stairs_pos = (ex, ey)
 
-    # Ресурсы (60)
-    placed = 0
-    for _ in range(2000):
-        if placed >= 60:
-            break
-        rx = random.randint(1, MAP_W - 2)
-        ry = random.randint(1, MAP_H - 2)
-        if (rx, ry) in reachable and (rx, ry) != entrance:
-            if (rx, ry) not in d.items:
-                d.items[(rx, ry)] = random.choice(OVERWORLD_RESOURCES)
-                placed += 1
+    # 5. Гарантировать достижимость входа из деревни
+    spawn = ov.VILLAGE_CENTER
+    reachable = _flood_fill_reachable(d, spawn)
+    if (ex, ey) not in reachable:
+        _carve_road(d, spawn[0], spawn[1], ex, spawn[1])
+        _carve_road(d, ex, spawn[1], ex, ey)
+        reachable = _flood_fill_reachable(d, spawn)
 
-    # Мобы (20)
-    placed = 0
-    for _ in range(2000):
-        if placed >= 20:
-            break
-        pool = [k for k in OVERWORLD_MONSTERS if k in MONSTERS]
-        m = MONSTERS[random.choice(pool)]
-        mx = random.randint(2, MAP_W - 3)
-        my = random.randint(2, MAP_H - 3)
-        if (mx, my) not in reachable or (mx, my) == entrance:
+    # 6. Ресурсы по всем краям, кроме деревни
+    spots = [p for p in reachable
+             if not ov.in_village(*p) and not ov.in_goblin_village(*p)
+             and p != (ex, ey)]
+    random.shuffle(spots)
+    for rx, ry in spots[:96]:
+        if (rx, ry) not in d.items:
+            d.items[(rx, ry)] = random.choice(OVERWORLD_RESOURCES)
+
+    # Кусты ягод и деревья для рубки.
+    _scatter_harvestables(d, reachable)
+
+    def spawn_monster(x, y, key):
+        m = MONSTERS[key]
+        d.monsters.append(Entity(
+            x, y, m['hp'], m['hp'], m['atk'], m['df'],
+            m['name'], m['ch'], m['color'], m['xp'],
+            ability=m.get('ability')))
+
+    # 7. Лесные мобы. Деревни остаются безопасными зонами.
+    monster_spots = []
+    for p in spots:
+        if any(o.x == p[0] and o.y == p[1] for o in d.monsters):
             continue
-        if any(o.x == mx and o.y == my for o in d.monsters):
+        if (p[0] - spawn[0]) ** 2 + (p[1] - spawn[1]) ** 2 < 100:
             continue
-        e = Entity(mx, my, m['hp'], m['hp'], m['atk'], m['df'],
-                   m['name'], m['ch'], m['color'], m['xp'],
-                   ability=m.get('ability'))           # ← ability
-        d.monsters.append(e)
-        placed += 1
+        if (p[0] - ex) ** 2 + (p[1] - ey) ** 2 <= 9:
+            continue
+        monster_spots.append(p)
+    random.shuffle(monster_spots)
+    for mx, my in monster_spots:
+        if len(d.monsters) >= 40:
+            break
+        biome = ov.biome_at(mx, my)
+        pool = [k for k in BIOME_MONSTERS.get(biome, FOREST_MONSTERS)
+                if k in MONSTERS and k in FOREST_MONSTERS]
+        if not pool:
+            pool = [k for k in FOREST_MONSTERS if k in MONSTERS]
+        spawn_monster(mx, my, random.choice(pool))
 
-    d.rooms = [Room(entrance[0], entrance[1], 1, 1)]
+    # 8. Деревня гоблинов: все виды гоблинов, кабаны и волки.
+    gx, gy = ov.GOBLIN_VILLAGE_CENTER
+    goblin_spots = [p for p in reachable
+                    if ov.in_goblin_village(*p)
+                    and p != (ex, ey)
+                    and not any(o.x == p[0] and o.y == p[1]
+                                for o in d.monsters)
+                    and (p[0] - gx) ** 2 + (p[1] - gy) ** 2 > 4
+                    and not ov.is_goblin_totem(*p)
+                    and not ov.is_goblin_campfire(*p)]
+    random.shuffle(goblin_spots)
+    # Сначала гарантируем по одному гоблину каждого вида.
+    guaranteed = [k for k in ('goblin', 'archer', 'shaman')
+                  if k in MONSTERS]
+    for i, (mx, my) in enumerate(goblin_spots[:14]):
+        if i < len(guaranteed):
+            key = guaranteed[i]
+        else:
+            pool = [k for k in GOBLIN_VILLAGE_MONSTERS if k in MONSTERS]
+            key = random.choice(pool)
+        spawn_monster(mx, my, key)
+
+    # Комната появления = центр деревни (её использует и мультиплеер)
+    d.rooms = [Room(spawn[0] - 1, spawn[1] - 1, 3, 3)]
     return d
 
 
@@ -145,15 +324,118 @@ def place_entry_tile(d, depth):
     return None
 
 
+# ════════════════════════ БОСС-КОМПЛЕКС ════════════════════════
+def _carve_treasury(d, rooms, arena, cx_max, cy_max):
+    """Казначейская комната 5×5: свободное место рядом с ареной босса.
+
+    Возвращает Room казны. Место ищется в центральной зоне подземелья
+    (вне всех комнат), ближайшее к арене — тогда коридор короткий.
+    """
+    candidates = []
+    for y in range(2, cy_max - 6):
+        for x in range(2, cx_max - 6):
+            treasury = Room(x, y, 5, 5)
+            if treasury.intersects(arena, pad=2):
+                continue
+            if any(treasury.intersects(r, pad=2) for r in rooms):
+                continue
+            ax, ay = arena.center()
+            tx, ty = treasury.center()
+            candidates.append(((ax - tx) ** 2 + (ay - ty) ** 2, treasury))
+    if not candidates:
+        # Фолбэк: казна прямо под ареной, даже если что-то пересечётся.
+        treasury = Room(arena.x, min(d.h - 6, arena.y + arena.h + 2), 5, 5)
+        candidates.append((0, treasury))
+    candidates.sort(key=lambda pair: pair[0])
+    treasury = candidates[0][1]
+    for yy in range(treasury.y, treasury.y + treasury.h):
+        for xx in range(treasury.x, treasury.x + treasury.w):
+            d.tiles[yy][xx] = Tile.FLOOR
+    return treasury
+
+
+def _wall_arena_exits(d, arena, treasury):
+    """Замуровать все выходы из арены (Tile.WALL) и запомнить их."""
+    for y in range(max(0, arena.y - 1), min(d.h, arena.y + arena.h + 1)):
+        for x in range(max(0, arena.x - 1), min(d.w, arena.x + arena.w + 1)):
+            inside = (arena.x <= x < arena.x + arena.w
+                      and arena.y <= y < arena.y + arena.h)
+            if inside or (x, y) in d.barrier_tiles:
+                continue
+            if d.tiles[y][x] != Tile.WALL:
+                d.tiles[y][x] = Tile.WALL
+                d.barrier_tiles.add((x, y))
+
+
+def _carve_treasury_corridor(d, arena, treasury):
+    """Коридор арена→казна шириной 2 + дверь перед входом в казну.
+
+    Дверь (Tile.LOCKED_DOOR) ставится на клетки коридора, примыкающие к
+    казне снаружи. Возвращает координаты двери.
+    """
+    ax, ay = arena.center()
+    tx, ty = treasury.center()
+    door_cells = []
+    # Горизонтальный участок коридора от арены до казны
+    for xx in range(min(ax, tx), max(ax, tx) + 1):
+        if 0 <= xx < d.w:
+            d.tiles[ay][xx] = Tile.FLOOR
+            if ay + 1 < d.h:
+                d.tiles[ay + 1][xx] = Tile.FLOOR
+    # Вертикальный участок
+    for yy in range(min(ay, ty), max(ay, ty) + 1):
+        if 0 <= yy < d.h:
+            d.tiles[yy][tx] = Tile.FLOOR
+            if tx + 1 < d.w:
+                d.tiles[yy][tx + 1] = Tile.FLOOR
+
+    # Дверь: клетки снаружи казны, через которые в неё входят
+    for y in range(treasury.y - 1, treasury.y + treasury.h + 1):
+        for x in range(treasury.x - 1, treasury.x + treasury.w + 1):
+            inside = (treasury.x <= x < treasury.x + treasury.w
+                      and treasury.y <= y < treasury.y + treasury.h)
+            if inside or not (0 <= x < d.w and 0 <= y < d.h):
+                continue
+            if d.tiles[y][x] == Tile.WALL:
+                continue
+            touches = any(
+                treasury.x <= x + dx < treasury.x + treasury.w
+                and treasury.y <= y + dy < treasury.y + treasury.h
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            if touches:
+                d.tiles[y][x] = Tile.LOCKED_DOOR
+                door_cells.append((x, y))
+    return door_cells
+
+
+def clear_boss_barriers(d):
+    """После победы над боссом: открыть замурованные выходы арены.
+
+    Возвращает True, если тайлы изменились (для перерисовки карты).
+    """
+    barrier = getattr(d, 'barrier_tiles', None)
+    if not barrier:
+        return False
+    changed = False
+    for (x, y) in list(barrier):
+        if 0 <= x < d.w and 0 <= y < d.h and d.tiles[y][x] == Tile.WALL:
+            d.tiles[y][x] = Tile.FLOOR
+            changed = True
+    d.barrier_tiles = set()
+    return changed
+
+
 def generate_dungeon(depth, _attempt=0):
     """Комнаты в центральной зоне 60×40, подключение к ближайшей."""
     d = Dungeon(MAP_W, MAP_H)
     rooms = []
 
-    margin_x = max(1, (MAP_W - 60) // 2)
-    margin_y = max(1, (MAP_H - 40) // 2)
-    cx_min, cx_max = margin_x, MAP_W - margin_x
-    cy_min, cy_max = margin_y, MAP_H - margin_y
+    margin_x = max(1, (ov.LEGACY_MAP_W - 60) // 2)
+    margin_y = max(1, (ov.LEGACY_MAP_H - 40) // 2)
+    # Подземелья остаются в исторической части карты 100×70: расширение
+    # мира предназначено для поверхности, а не для этажей.
+    cx_min, cx_max = margin_x, ov.LEGACY_MAP_W - margin_x
+    cy_min, cy_max = margin_y, ov.LEGACY_MAP_H - margin_y
 
     for _ in range(400):
         if len(rooms) >= 14:
@@ -202,9 +484,22 @@ def generate_dungeon(depth, _attempt=0):
         return generate_dungeon(depth, _attempt + 1)
 
     d.rooms = rooms
-    sx, sy = rooms[-1].center()
-    d.tiles[sy][sx] = Tile.STAIRS
-    d.stairs_pos = (sx, sy)
+    arena = rooms[-1]
+
+    # ── Босс-комплекс ──
+    # Арена = последняя комната: входы замуровываются, пока босс жив.
+    # Казна (сундук + лестница вниз) стоит рядом и отпирается ключом,
+    # который босс роняет со 100% шансом.
+    treasury = _carve_treasury(d, rooms, arena, cx_max, cy_max)
+    _wall_arena_exits(d, arena, treasury)
+    door_cells = _carve_treasury_corridor(d, arena, treasury)
+
+    ax, ay = arena.center()
+    tx, ty = treasury.center()
+    d.tiles[ty][tx] = Tile.STAIRS
+    d.stairs_pos = (tx, ty)
+    d.treasury_pos = (tx, ty)
+    d.boss_door_cells = set(door_cells)
     # Лестница назад: на глубине 1 — выход на поверхность, глубже — вверх.
     place_entry_tile(d, depth)
 
@@ -217,12 +512,13 @@ def generate_dungeon(depth, _attempt=0):
             continue
         n = max(1, (room.w * room.h) // 22)
         for _ in range(n):
-            pool = [k for k, v in MONSTERS.items() if v['min_depth'] <= depth]
+            pool = [k for k, v in MONSTERS.items()
+                    if v['min_depth'] <= depth and not v.get('overworld_only')]
             m = MONSTERS[random.choice(pool)]
             hp, atk, df = scale_stats(m['hp'], m['atk'], m['df'], depth)
             mx = random.randint(room.x, room.x + room.w - 1)
             my = random.randint(room.y, room.y + room.h - 1)
-            if (mx, my) == (sx, sy):
+            if (mx, my) == (ax, ay) or (mx, my) == (tx, ty):
                 continue
             if any(o.x == mx and o.y == my for o in d.monsters):
                 continue
@@ -231,11 +527,11 @@ def generate_dungeon(depth, _attempt=0):
                        ability=m.get('ability'))       # ← ability
             d.monsters.append(e)
 
-    # Босс
+    # Босс — в центре арены
     if boss_here:
         hp, atk, df = scale_boss_stats(boss_data['hp'], boss_data['atk'],
                                        boss_data['df'], depth)
-        d.monsters.append(Entity(sx, sy, hp, hp, atk, df,
+        d.monsters.append(Entity(ax, ay, hp, hp, atk, df,
                                  boss_data['name'], boss_data['ch'],
                                  boss_data['color'], boss_data['xp'], boss=True))
 
@@ -250,9 +546,18 @@ def generate_dungeon(depth, _attempt=0):
                     and v['type'] != 'resource']
             ix = random.randint(room.x, room.x + room.w - 1)
             iy = random.randint(room.y, room.y + room.h - 1)
-            if (ix, iy) == (sx, sy):
+            if (ix, iy) in ((ax, ay), (tx, ty)):
                 continue
             d.items[(ix, iy)] = random.choice(pool)
+
+    # Казна: сундук рядом с лестницей вниз
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        cx, cy = tx + dx, ty + dy
+        if (0 <= cx < d.w and 0 <= cy < d.h
+                and d.tiles[cy][cx] == Tile.FLOOR
+                and (cx, cy) not in d.items):
+            d.tiles[cy][cx] = Tile.CHEST
+            break
 
     return d
 
@@ -317,7 +622,7 @@ def bfs_toward_player(d, start, player_pos, blocked):
                 continue
             if (nx, ny) in came:
                 continue
-            if d.tiles[ny][nx] == Tile.WALL:
+            if d.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR):
                 continue
             if (nx, ny) in blocked:
                 continue

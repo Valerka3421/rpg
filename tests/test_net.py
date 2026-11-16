@@ -68,6 +68,18 @@ def test_descend_and_ascend():
     assert core.dungeon is core.overworld
 
 
+def test_ascend_returns_players_near_entrance():
+    from core import overworld as ov
+    core = _core(players=3)
+    core._descend()
+    core.depth = 1
+    core._ascend()
+    ex, ey = ov.DUNGEON_POS
+    for p in core.players.values():
+        assert max(abs(p.x - ex), abs(p.y - ey)) <= 4
+        assert core.overworld.tiles[p.y][p.x] != Tile.WALL
+
+
 def test_descent_cached_floor_preserved():
     core = _core()
     core._descend()
@@ -81,7 +93,7 @@ def test_descent_cached_floor_preserved():
 def test_attack_kills_monster_and_rewards():
     core = _core()
     p = core.players[0]
-    monster = Entity(p.x + 1, p.y, 3, 3, 0, 0, "Крыса", "r", (170, 150, 130),
+    monster = Entity(p.x + 1, p.y, 3, 3, 0, 0, "Гоблин", "g", (170, 150, 130),
                      5)
     core.dungeon.monsters = [monster]
     gold_before = p.gold
@@ -91,17 +103,32 @@ def test_attack_kills_monster_and_rewards():
             break
     assert not core.dungeon.monsters
     assert p.gold > gold_before
-    assert p.xp >= 5
+    # Убийца получает 70% опыта (остальных делит между союзниками)
+    assert p.xp == int(5 * 0.7)
 
 
 def test_kill_gives_level_up():
     core = _core()
     p = core.players[0]
+    # 70% опыта должно превысить xp_to_next(1)
     monster = Entity(p.x + 1, p.y, 1, 1, 0, 0, "Крыса", "r", (170, 150, 130),
-                     xp_to_next(1))
+                     xp_to_next(1) * 10 // 7 + 1)
     core.dungeon.monsters = [monster]
     core.player_attack(0)
     assert p.level == 2 and p.free_points == 5
+
+
+def test_kill_xp_shared_with_allies():
+    core = _core(players=2)
+    killer, ally = core.players[0], core.players[1]
+    monster = Entity(killer.x + 1, killer.y, 3, 3, 0, 0, "Гоблин", "g",
+                     (170, 150, 130), 10)
+    core.dungeon.monsters = [monster]
+    core.player_attack(0)
+    killer_xp = int(10 * 0.7)
+    share = (10 - killer_xp) // 1
+    assert killer.xp == killer_xp
+    assert ally.xp == share
 
 
 def test_monster_attacks_player():
@@ -137,7 +164,7 @@ def test_monster_status_ticks_and_kills():
     for _ in range(4):
         core._tick_statuses()
     assert not core.dungeon.monsters
-    assert p.xp >= 5
+    assert p.xp == int(5 * 0.7)
 
 
 def test_slow_monster_skips_turn():
