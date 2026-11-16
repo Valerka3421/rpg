@@ -609,10 +609,10 @@ def _generate_goblin_village():
     _scatter_bushes(d, 'goblin_village', 18, avoid=avoid)
     _spawn_monsters(d, ('goblin', 'archer', 'shaman', 'boar', 'wolf'), 20,
                     avoid=avoid, min_dist=LOCAL_GOBLIN_CENTER)
-    # Гарантируем все три вида гоблинов.
+    # Гарантируем все три вида гоблинов (севернее дороги, в центре площади).
     for i, key in enumerate(('goblin', 'archer', 'shaman')):
         m = MONSTERS[key]
-        pos = (cx - 1 + i, cy)
+        pos = (cx - 1 + i, cy - 2)
         d.tiles[pos[1]][pos[0]] = Tile.FLOOR
         if any(o.x == pos[0] and o.y == pos[1] for o in d.monsters):
             continue

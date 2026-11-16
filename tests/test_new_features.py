@@ -633,6 +633,38 @@ def test_gate_side_spawn_matches_side(make_game):
     assert entry in (locations.SIDE_ENTRY['e'], locations.VILLAGE_INWARD['pine'])
 
 
+def test_side_gate_walk_between_adjacent_locations(make_game):
+    g = make_game()
+    g.travel_to('pine')
+    gate = locations.BIOME_GATES['pine'][0][0]      # восточные врата → birch
+    assert g.dungeon.transitions[gate]['to'] == 'birch'
+    g.player.x, g.player.y = gate[0] - 1, gate[1]
+    g.move_player(1, 0)                      # шаг на врата = переход
+    assert g.location == 'birch'
+    # Вошли с запада — появились у западного края
+    assert g.player.x <= 4 and g.player.y == locations.SIDE_ENTRY['w'][1]
+
+
+def test_roads_have_no_items_harvestables_or_monsters(make_game):
+    g = make_game()
+    for key in ('pine', 'birch', 'dead', 'mine', 'village',
+                'goblin_village'):
+        loc = g.get_location(key)
+        roads = locations.road_cells(key)
+        assert not (set(loc.items) & roads), key
+        assert not (set(loc.harvestables) & roads), key
+        assert all((m.x, m.y) not in roads for m in loc.monsters), key
+
+
+def test_new_visual_tiles_registered():
+    from render import tiles
+    for kind in ('arrow_n', 'arrow_e', 'arrow_s', 'arrow_w',
+                 'mine_wall', 'mine_ground', 'locked_door', 'chest',
+                 'tombstone'):
+        assert kind in tiles._BUILDERS, kind
+        assert tiles._VARIANTS.get(kind, 0) >= 1, kind
+
+
 # ════════════════════ MP: обмен и общие квесты ════════════════════
 def _mp_core(players=2):
     from net.core import GameCore
