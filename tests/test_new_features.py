@@ -454,7 +454,8 @@ def test_inventory_count_badge_is_top_right(renderer):
 def test_back_button_exists_in_every_submenu(make_game):
     g = make_game()
     for mode in ('menu_saves', 'menu_settings', 'menu_controls',
-                 'class_select', 'menu_multiplayer', 'menu_mp_join'):
+                 'menu_credits', 'class_select', 'menu_multiplayer',
+                 'menu_mp_join'):
         g.screen_mode = mode
         assert g.menu.back_button_rect() is not None, mode
     # У главного меню родителя нет — кнопка «Назад» не нужна.
@@ -488,6 +489,9 @@ def test_back_button_returns_from_submenus(make_game, monkeypatch):
     assert click_back('menu_mp_join') is True
     assert g.screen_mode == 'menu_multiplayer'
 
+    assert click_back('menu_credits') is True
+    assert g.screen_mode == 'menu'
+
     assert click_back('class_select') is True
     assert g.screen_mode == 'menu'
     assert g.current_slot == 1
@@ -496,9 +500,32 @@ def test_back_button_returns_from_submenus(make_game, monkeypatch):
 def test_submenus_render_back_button_without_errors(make_game, renderer):
     g = make_game()
     for mode in ('menu_saves', 'menu_settings', 'menu_controls',
-                 'class_select', 'menu_multiplayer', 'menu_mp_join'):
+                 'menu_credits', 'class_select', 'menu_multiplayer',
+                 'menu_mp_join'):
         g.screen_mode = mode
         renderer.draw(g)
+
+
+def test_credits_tab_in_main_menu(make_game, renderer):
+    import pygame
+    g = make_game()
+    g.screen_mode = 'menu'
+    labels = g.menu.labels()
+    assert 'Создатели' in labels
+
+    idx = labels.index('Создатели')
+    g.screen_mode = 'menu'
+    g.menu.selection = idx
+    g.menu.activate()
+    assert g.screen_mode == 'menu_credits'
+
+    renderer.draw(g)
+    # Enter/Space/Esc возвращают в главное меню
+    g.menu.handle_key(pygame.K_ESCAPE)
+    assert g.screen_mode == 'menu'
+    g.screen_mode = 'menu_credits'
+    g.menu.handle_key(pygame.K_RETURN)
+    assert g.screen_mode == 'menu'
 
 
 # ── Полноэкранный режим мультиплеера не должен ронять игру ──

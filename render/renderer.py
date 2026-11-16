@@ -37,6 +37,8 @@ class Renderer:
             self.menu.draw_settings(game); return
         if game.screen_mode == 'menu_controls':
             self.menu.draw_controls(game); return
+        if game.screen_mode == 'menu_credits':
+            self.menu.draw_credits(game); return
         if game.screen_mode == 'menu_multiplayer':
             self.menu.draw_menu_multiplayer(game); return
         if game.screen_mode == 'menu_mp_join':

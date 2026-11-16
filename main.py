@@ -80,7 +80,8 @@ def _run_game_loop(game, screen, clock):
             # Автосейв, если игрок был в партии
             if game.screen_mode not in (
                 'menu', 'menu_saves', 'menu_settings', 'menu_controls',
-                'menu_multiplayer', 'menu_mp_join', 'class_select',
+                'menu_credits', 'menu_multiplayer', 'menu_mp_join',
+                'class_select',
             ):
                 try:
                     game.save(silent=True)

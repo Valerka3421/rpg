@@ -52,11 +52,13 @@ def _key_to_char(key):
 
 
 class MenuController:
-    MENU_START = ('start', 'load', 'multiplayer', 'settings', 'exit')
+    MENU_START = ('start', 'load', 'multiplayer', 'settings', 'credits',
+                  'exit')
     MENU_PAUSE = ('resume', 'save', 'load', 'settings', 'exit_to_menu')
     # Экраны, у которых есть родительское меню и кнопка «Назад».
     BACK_MODES = ('menu_saves', 'menu_settings', 'menu_controls',
-                  'class_select', 'menu_multiplayer', 'menu_mp_join')
+                  'menu_credits', 'class_select', 'menu_multiplayer',
+                  'menu_mp_join')
     BACK_RECT = (34, 28, 190, 48)
 
     def __init__(self, game):
@@ -79,7 +81,8 @@ class MenuController:
         if self.from_game:
             return ["Вернуться в игру", "Сохранить игру", "Загрузить игру",
                     "Настройки", "Выйти в главное меню"]
-        return ["Начать игру", "Загрузить игру", "Мультиплеер", "Настройки", "Выйти"]
+        return ["Начать игру", "Загрузить игру", "Мультиплеер", "Настройки",
+                "Создатели", "Выйти"]
 
     def open(self, from_game=False):
         self.game.screen_mode = 'menu'
@@ -153,6 +156,8 @@ class MenuController:
         elif choice == 'settings':
             self.game.screen_mode = 'menu_settings'
             self.selection_settings = 0
+        elif choice == 'credits':
+            self.game.screen_mode = 'menu_credits'
         elif choice == 'exit':
             self.exit_game()
         elif choice == 'exit_to_menu':
@@ -457,6 +462,11 @@ class MenuController:
         if m == 'menu_controls':
             if key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
                 self.game.screen_mode = 'menu_settings'
+            return
+
+        if m == 'menu_credits':
+            if key in (pygame.K_ESCAPE, pygame.K_RETURN, pygame.K_SPACE):
+                self.back()
             return
 
         if m == 'class_select':

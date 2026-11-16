@@ -1281,7 +1281,8 @@ class Game:
         # Меню и все его подэкраны
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             self.menu.handle_key(key, scancode, unicode, mods);
             return
         if self.screen_mode == 'shop':
@@ -1410,14 +1411,16 @@ class Game:
         self.mouse_pos = pos
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             self.menu.handle_mouse_motion(pos)
 
     def handle_mouse_click(self, pos):
         # Меню
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             return self.menu.handle_mouse_click(pos)
 
         # Крестик — ПЕРВЫМ, до любых других обработчиков

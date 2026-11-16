@@ -365,6 +365,38 @@ class MenuRenderer(BaseRenderer):
                   font=T.FONT_SMALL, center=True)
         self.draw_back_button(game)
 
+    # ════════════════════════ СОЗДАТЕЛИ ════════════════════════
+    def draw_credits(self, game):
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
+        cx = config.SCREEN_W // 2
+        title = T.render("СОЗДАТЕЛИ", (214, 178, 98), T.FONT_H1)
+        self.screen.blit(title, (cx - title.get_width() // 2, 56))
+
+        self.text("Игра разработана командой EVA", cx, 128,
+                  T.TEXT_DIM, font=T.FONT_BODY, center=True)
+
+        sections = [
+            ("Создатели", ["Dodik", "Don't talk to people", "Kariov"]),
+            ("Художник", ["Лизабет еБатори"]),
+        ]
+        y = 190
+        for cat, names in sections:
+            self.text(cat, cx, y, (214, 178, 98), font=T.FONT_H2, center=True)
+            y += 40
+            for name in names:
+                self.text(name, cx, y, T.TEXT, font=T.FONT_BODY, center=True)
+                y += 32
+            y += 16
+
+        self.text("Все права на изображения принадлежат ей", cx, y + 8,
+                  T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
+
+        self.text("от 11.2026", cx, config.SCREEN_H - 84, (206, 166, 82),
+                  font=T.FONT_BODY, center=True)
+        self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
+
     # ════════════════════════ ВЫБОР КЛАССА ════════════════════════
     def draw_class_select(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
