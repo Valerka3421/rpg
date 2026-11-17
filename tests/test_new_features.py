@@ -974,3 +974,232 @@ def test_skill_node_click_selects_then_learns(make_game, renderer):
     assert g._handle_skills_click(pos)
     assert 'warrior:0' in g.player.skill_nodes
     assert g.player.skill_points == 2
+
+
+# ════════════════════ INT, мана и магический урон ════════════════════
+def test_int_raises_mana_and_magic_damage():
+    from core.data import class_stats
+
+    base = {'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5,
+            'level': 1}
+    low = Player.preview_stats({**base, 'int': 3})
+    high = Player.preview_stats({**base, 'int': 12})
+    # +2 маны за каждое очко INT.
+    assert high['max_mana'] - low['max_mana'] == (12 - 3) * 2
+
+    assert rules.magic_damage(SimpleNamespace(int_stat=12), 20) == 32
+    assert rules.magic_damage(SimpleNamespace(int_stat=0), 20) == 20
+    assert rules.magic_damage(SimpleNamespace(int_stat=7), 0) >= 1
+
+    # У мага INT выше, чем у воина, а наследники берут базу предка.
+    assert class_stats('mage')['int'] > class_stats('warrior')['int']
+    assert 'int' in class_stats('knight')
+
+
+def test_int_survives_save_and_boosts_scroll_damage():
+    from core.data import ITEMS
+    from core.entities import Entity
+
+    item = ITEMS['scroll_fireball']
+    p = Player('mage')
+    p.int_stat = 12
+    p.recalc()
+    p.inventory = {'scroll_fireball': 1}
+    p.mana = p.max_mana
+    monster = Entity(0, 0, 100, 100, 0, 0, 'Цель', 'g', (1, 2, 3), 5)
+    p.x, p.y = 5, 5
+    monster.x, monster.y = 5, 6
+    result = rules.use_item(p, 'scroll_fireball', [monster])
+    assert result.ok, result.message
+    assert monster.hp == 100 - rules.magic_damage(p, item['value'])
+    assert monster.hp == 100 - (item['value'] + 12)
+    assert 'scroll_fireball' not in p.inventory
+    assert p.mana == p.max_mana - item['mana_cost']
+
+    restored = player_from_dict(player_to_dict(p))
+    assert restored.int_stat == 12
+
+    # Старые сейвы без поля INT получают нейтральное значение.
+    legacy = player_to_dict(p)
+    legacy.pop('int')
+    assert player_from_dict(legacy).int_stat == 5
+
+
+def test_mp_int_allocation_and_snapshot():
+    core = _mp_core(1)
+    p = core.players[0]
+    p.free_points = 1
+    mana_before = p.max_mana
+    core.allocate_stat(0, 'int')
+    assert p.int_stat == 4
+    assert p.max_mana == mana_before + 2
+    assert core.get_snapshot()['players']['0']['int'] == 4
+
+
+# ════════════════════ Наведение в древе навыков ════════════════════
+def _open_skills(game, tab='class', level=15, points=3, class_key='warrior'):
+    from core import skills
+    game.screen_mode = 'skills'
+    game.skills_ui.open()
+    game.skills_ui.set_tab(tab)
+    game.player.class_key = class_key
+    game.player.class_name = skills.class_data(class_key)['name']
+    game.player.class_tier = skills.class_data(class_key).get('tier', 1)
+    game.player.level = level
+    game.player.skill_points = points
+    game.player.recalc()
+    return game
+
+
+def test_class_node_tooltip_follows_hover(make_game, renderer):
+    from core import skills
+
+    g = _open_skills(make_game())
+    renderer.draw(g)
+    nodes = g.skills_ui.rows()
+    idx = 3
+    rect = dict(g._ui_hits['skills']['rows'])[idx]
+    g.mouse_pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+
+    shown = []
+    renderer.screens._draw_node_tooltip = \
+        lambda game, node, mouse: shown.append(node['name'])
+    renderer.draw(g)
+    assert shown == [nodes[idx]['name']]
+    # Наведение не тратит очки навыков.
+    assert g.player.skill_points == 3
+
+
+def test_promotion_nodes_live_inside_class_tree(make_game, renderer):
+    g = _open_skills(make_game(), level=5)
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    promo = hits['promotion']
+    options = g.skills_ui.promotion_options()
+    assert options
+    assert len(promo) == len(options)
+
+    cx0, cy0, cw, ch = g._modal_content_rect
+    rows = hits['rows']
+    tree_bottom = max(r[1] + r[3] for _i, r in rows)
+    for _i, rect in promo:
+        assert cx0 <= rect[0] and rect[0] + rect[2] <= cx0 + cw
+        assert cy0 <= rect[1] and rect[1] + rect[3] <= cy0 + ch
+        # Узлы смены класса — часть древа, ниже его ветвей.
+        assert rect[1] >= tree_bottom - 12
+
+    rect = promo[0][1]
+    pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    assert g._handle_skills_click(pos)
+    assert g.player.class_key == options[0]
+
+
+def test_craft_tabs_render_as_graph_with_tooltips(make_game, renderer):
+    from core import skills
+
+    g = _open_skills(make_game(), tab='blacksmith', level=1)
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    nodes = skills.craft_tree('blacksmith')
+    assert len(nodes) >= 8
+    assert len(hits['rows']) == len(nodes)
+    rects = [rect for _i, rect in hits['rows']]
+    ys = {rect[1] for rect in rects}
+    xs = sorted(rect[0] for rect in rects)
+    assert len(ys) >= 3
+    assert xs[-1] - xs[0] > g._modal_content_rect[2] // 2
+    for _i, rect in hits['rows']:
+        assert g._modal_content_rect[0] <= rect[0]
+        assert rect[0] + rect[2] <= g._modal_content_rect[0] + g._modal_content_rect[2]
+
+    idx = 2
+    rect = dict(hits['rows'])[idx]
+    g.mouse_pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    shown = []
+    renderer.screens._draw_tooltip = \
+        lambda game, title, lines, mouse: shown.append((title, lines))
+    renderer.draw(g)
+    assert shown and shown[0][0] == nodes[idx]['name']
+
+
+# ════════════════════ Трава под ресурсами и диагонали ════════════════════
+def test_harvest_sprites_have_transparent_background():
+    from render import tiles as tl
+
+    for kind in ('tree', 'stump', 'berry_bush', 'berry_bush_empty'):
+        surf = tl.Tiles.get(kind, 0, 1.0)
+        assert surf.get_flags() & pygame.SRCALPHA, kind
+        corners = [(0, 0), (tl.SIZE - 1, 0),
+                   (0, tl.SIZE - 1), (tl.SIZE - 1, tl.SIZE - 1)]
+        assert any(surf.get_at(pos)[3] == 0 for pos in corners), kind
+
+
+def _open_ground(dungeon, cx, cy, radius=3):
+    for gy in range(cy - radius, cy + radius + 1):
+        for gx in range(cx - radius, cx + radius + 1):
+            dungeon.tiles[gy][gx] = Tile.FLOOR
+            dungeon.harvestables.pop((gx, gy), None)
+
+
+def test_fleeing_monster_moves_orthogonally_in_mp():
+    from core.entities import Entity
+
+    core = _mp_core(1)
+    p = core.players[0]
+    p.x, p.y = 10, 10
+    _open_ground(core.dungeon, 12, 12)
+    m = Entity(12, 12, 10, 10, 0, 0, 'Олень', 'd', (1, 2, 3), 1)
+    m.hp = 4
+    core.dungeon.monsters = [m]
+    assert core._monster_flee(m, p)
+    # По диагонали от угрозы не уходим — только по осям.
+    assert m.x == 12 or m.y == 12
+
+
+def test_fleeing_monster_moves_orthogonally_in_sp(make_game):
+    from core.entities import Entity
+
+    g = make_game()
+    p = g.player
+    p.x, p.y = 10, 10
+    _open_ground(g.dungeon, 12, 12)
+    g.merchant = None
+    g.elder = None
+    g.location = 'field'
+    m = Entity(12, 12, 10, 10, 0, 0, 'Олень', 'd', (1, 2, 3), 1)
+    m.hp = 4
+    g.dungeon.monsters = [m]
+    assert g._flee_monster(m)
+    assert m.x == 12 or m.y == 12
+
+
+# ════════════════════ HUD у панели логов ════════════════════
+def test_hud_text_does_not_overlap(make_game, renderer):
+    from render.theme import Theme as T
+
+    g = make_game()
+    g.player.free_points = 0
+    g.player.skill_points = 0
+
+    calls = []
+
+    def record(s, x, y, color, font=None, center=False, align_right=False):
+        f = font or T.FONT_BODY
+        w, h = f.size(s)
+        if center:
+            x -= w // 2
+        elif align_right:
+            x -= w
+        calls.append((s, pygame.Rect(int(x), int(y), w, h)))
+
+    renderer.game.text = record
+    renderer.game._draw_stats_column(g, 100, 100)
+    assert len(calls) >= 8
+
+    for i in range(len(calls)):
+        for j in range(i + 1, len(calls)):
+            si, ri = calls[i]
+            sj, rj = calls[j]
+            assert not ri.colliderect(rj), (si, ri, sj, rj)

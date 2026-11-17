@@ -129,6 +129,7 @@ class BaseRenderer:
         base = {
             'str': p.str, 'agi': p.agi, 'vit': p.vit,
             'luk': p.luk, 'df_stat': p.df_stat,
+            'int': getattr(p, 'int_stat', 5),
             'level': p.level, 'effects': p.effects(),
         }
         cur = Player.preview_stats({**base, **equipped})

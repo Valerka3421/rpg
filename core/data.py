@@ -820,7 +820,8 @@ CLASSES = {
         'Крепкий боец. Больше всего STR — сильнейший удар.',
         (220, 130, 100),
         next=('squire', 'mercenary', 'fighter'),
-        stats={'str': 8, 'agi': 3, 'vit': 7, 'luk': 3, 'df_stat': 7},
+        stats={'str': 8, 'agi': 3, 'vit': 7, 'luk': 3, 'df_stat': 7,
+               'int': 3},
         weapons=('sword', 'axe', 'mace', 'hammer', 'shield', 'spear',
                  'halberd', 'greatsword', 'dagger'),
         armor=('heavy', 'medium', 'light'),
@@ -832,7 +833,8 @@ CLASSES = {
         'Повелитель стихий. Много маны и критический удар посохом.',
         (120, 160, 240),
         next=('elements', 'nature', 'light', 'dark'),
-        stats={'str': 2, 'agi': 5, 'vit': 4, 'luk': 6, 'df_stat': 4},
+        stats={'str': 2, 'agi': 5, 'vit': 4, 'luk': 6, 'df_stat': 4,
+               'int': 10},
         weapons=('staff', 'book', 'dagger'),
         armor=('robe',),
         effects={'mana': 10},
@@ -844,7 +846,8 @@ CLASSES = {
         'Быстрый и ловкий. Максимальное уклонение.',
         (140, 200, 130),
         next=('killer', 'archer', 'pickpocket', 'tracker'),
-        stats={'str': 5, 'agi': 9, 'vit': 4, 'luk': 7, 'df_stat': 3},
+        stats={'str': 5, 'agi': 9, 'vit': 4, 'luk': 7, 'df_stat': 3,
+               'int': 4},
         weapons=('dagger', 'knife', 'sword', 'rapier', 'bow',
                  'crossbow', 'katana'),
         armor=('light', 'medium'),
@@ -856,7 +859,8 @@ CLASSES = {
         'Мастер на все руки. Быстрее всех прокачивает навыки создания.',
         (214, 184, 120),
         next=('apprentice', 'potionmaker'),
-        stats={'str': 4, 'agi': 5, 'vit': 6, 'luk': 5, 'df_stat': 5},
+        stats={'str': 4, 'agi': 5, 'vit': 6, 'luk': 5, 'df_stat': 5,
+               'int': 6},
         weapons=('hammer', 'mace', 'knife', 'dagger', 'staff'),
         armor=('light', 'medium'),
         effects={'craft_xp': 0.1},
@@ -867,7 +871,8 @@ CLASSES = {
         'Приключенец', 1, 'default',
         'Универсальный. 5/5/5/5/5.',
         (200, 200, 200),
-        stats={'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5},
+        stats={'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5,
+               'int': 5},
         weapons=('sword', 'axe', 'dagger', 'staff', 'bow'),
         armor=('light', 'medium', 'heavy', 'robe'),
         perk='Не имеет ограничений по снаряжению.',
@@ -1249,10 +1254,16 @@ def class_stats(class_key):
     """Полные характеристики класса (для превью в меню)."""
     cls = class_data(class_key)
     if cls.get('stats'):
-        return dict(cls['stats'])
+        stats = dict(cls['stats'])
+        base = CLASSES.get(cls.get('base', 'default')) or CLASSES['default']
+        for key, value in (base.get('stats') or {}).items():
+            stats.setdefault(key, value)
+        stats.setdefault('int', 5)
+        return stats
     base = CLASSES.get(cls.get('base', 'default')) or CLASSES['default']
     stats = dict(base.get('stats') or {'str': 5, 'agi': 5, 'vit': 5,
-                                       'luk': 5, 'df_stat': 5})
+                                       'luk': 5, 'df_stat': 5, 'int': 5})
+    stats.setdefault('int', 5)
     for name, value in (cls.get('bonus') or {}).items():
         stats[name] = stats.get(name, 0) + value
     return stats

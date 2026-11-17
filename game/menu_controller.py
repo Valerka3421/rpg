@@ -318,29 +318,37 @@ class MenuController:
             return ['Продолжить игру', 'Начать новую игру', 'Присоединиться']
         return ['Создать игру', 'Присоединиться к игре']
 
+    def _mp_default_port(self):
+        import os
+        try:
+            return int(os.environ.get('ETHELGARD_PORT', 9000) or 9000)
+        except (TypeError, ValueError):
+            return 9000
+
     def _activate_mp(self):
         items = self._mp_items()
         if self.mp_selection >= len(items):
             self.mp_selection = 0
             return
         choice = items[self.mp_selection]
+        port = self._mp_default_port()
 
         if choice == 'continue':
             self.game.pending_multiplayer = {
                 'mode': 'mp_host',
-                'port': 9000,
+                'port': port,
                 'skip_class': True,       # класс восстанавливается из сейва
             }
         elif choice == 'create':
             self.game.pending_multiplayer = {
                 'mode': 'mp_host',
-                'port': 9000,
+                'port': port,
                 'skip_class': False,
             }
         elif choice == 'new':
             self.game.pending_multiplayer = {
                 'mode': 'mp_host',
-                'port': 9000,
+                'port': port,
                 'fresh_start': True,
                 'skip_class': False,
             }
@@ -360,11 +368,18 @@ class MenuController:
         self.mp_ip = (self.mp_ip + cleaned[:room])[:40]
 
     def _connect_mp(self):
+        import os
         host = self.mp_ip.strip() or 'localhost'
+        default_port = int(os.environ.get('ETHELGARD_PORT', 9000) or 9000)
+        port = default_port
+        if host.count(':') == 1:
+            addr, _, raw_port = host.partition(':')
+            if raw_port.isdigit() and 0 < int(raw_port) < 65536:
+                host, port = addr, int(raw_port)
         self.game.pending_multiplayer = {
             'mode': 'mp_join',
             'host': host,
-            'port': 9000,
+            'port': port,
         }
 
     # ── Input ──

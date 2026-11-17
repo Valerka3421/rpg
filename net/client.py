@@ -225,7 +225,7 @@ class Client:
 
     def _class_select_screen(self, screen, sw, sh):
         """Экран выбора класса. Возвращает class_key или None (отмена)."""
-        from core.data import CLASSES, CLASS_ORDER
+        from core.data import CLASSES, CLASS_ORDER, class_stats
         from core.entities import Player
 
         font_big = pygame.font.SysFont('consolas', 32, bold=True)
@@ -259,13 +259,14 @@ class Client:
                 screen.blit(name, (bx + 20, y + 12))
 
                 stats = Player.preview_stats({
-                    'str': cls['str'], 'agi': cls['agi'], 'vit': cls['vit'],
-                    'luk': cls['luk'], 'df_stat': cls['df_stat'],
+                    **class_stats(key),
                     'weapon': cls.get('start_weapon'),
                     'armor': cls.get('start_armor'),
+                    'effects': cls.get('effects', {}),
                 })
                 line = (f"ATK {stats['atk']}  DEF {stats['df']}  "
-                        f"HP {stats['max_hp']}  Укл {int(stats['dodge'] * 100)}%  "
+                        f"HP {stats['max_hp']}  MP {stats['max_mana']}  "
+                        f"Укл {int(stats['dodge'] * 100)}%  "
                         f"Крит {int(stats['crit'] * 100)}%")
                 screen.blit(font_sm.render(line, True, (222, 214, 198)),
                             (bx + 20, y + 42))

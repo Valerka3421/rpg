@@ -448,3 +448,35 @@ def test_server_rejects_fifth_player(tmp_path):
             s.close()
         server.stop()
         time.sleep(0.2)
+
+
+# ── Автоподбор порта ──
+def test_bind_socket_skips_busy_port():
+    """Если 9000 занят, сервер берёт следующий свободный порт."""
+    server = Server(host='127.0.0.1', port=9100, max_players=1)
+    attempts = []
+
+    class FakeSock:
+        def bind(self, addr):
+            attempts.append(addr[1])
+            if addr[1] == 9100:
+                raise OSError('address already in use')
+
+        def listen(self, _backlog):
+            attempts.append('listen')
+
+    assert server._bind_socket(FakeSock()) is True
+    assert attempts[0] == 9100
+    assert server.bound_port == 9101
+    assert server.port == 9101
+
+
+def test_bind_socket_reports_failure_when_all_ports_busy():
+    server = Server(host='127.0.0.1', port=9200, max_players=1)
+
+    class DeadSock:
+        def bind(self, addr):
+            raise OSError('address already in use')
+
+    assert server._bind_socket(DeadSock()) is False
+    assert server.bound_port is None

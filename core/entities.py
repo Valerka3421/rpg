@@ -58,6 +58,7 @@ class Player(Entity):
         vit    = data.get('vit', 5)
         luk    = data.get('luk', 5)
         df_st  = data.get('df_stat', 5)
+        int_   = data.get('int', 5)
         level  = int(data.get('level', 1) or 1)
         effects = data.get('effects') or {}
         head = data.get('head', data.get('helmet'))
@@ -101,7 +102,8 @@ class Player(Entity):
             'df': df_st // 2 + ab + w_df + int(effects.get('df', 0)),
             'dodge': dodge_total,
             'crit': crit_total,
-            'max_mana': 10 + level * 2 + mana_extra + int(effects.get('mana', 0)),
+            'max_mana': (10 + level * 2 + int_ * 2 + mana_extra
+                         + int(effects.get('mana', 0))),
             '_w_crit_bonus': w_crit,
             '_w_dodge_bonus': w_dodge,
             '_a_dodge_bonus': a_dodge,
@@ -129,6 +131,7 @@ class Player(Entity):
         self.vit = stats.get('vit', 5)
         self.luk = stats.get('luk', 5)
         self.df_stat = stats.get('df_stat', 5)
+        self.int_stat = stats.get('int', 5)
         self.weapon = cls.get('start_weapon')
         self.armor = cls.get('start_armor')
         self.head = None
@@ -220,6 +223,7 @@ class Player(Entity):
         stats = Player.preview_stats({
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
             'luk': self.luk, 'df_stat': self.df_stat, 'level': self.level,
+            'int': self.int_stat,
             'weapon': self.weapon, 'armor': self.armor,
             'head': self.head, 'legs': self.legs,
             'effects': effects,

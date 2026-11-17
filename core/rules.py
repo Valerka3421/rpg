@@ -649,6 +649,17 @@ def use_item(player, key, monsters=None, on_hit=None):
     return UseResult(False, 'no_use', f"{item['name']} нельзя использовать.")
 
 
+def magic_damage(player, base):
+    """Урон магического умения: база предмета + вклад INT.
+
+    Интеллект усиливает свитки и руны — по +1 урона за каждое очко.
+    """
+    int_stat = getattr(player, 'int_stat', 5)
+    if int_stat is None:
+        int_stat = 5
+    return max(1, int(round(base)) + max(0, int(int_stat)))
+
+
 def _use_scroll(player, key, item, monsters, on_hit):
     inventory = player.inventory
     effect = item.get('effect')
@@ -683,7 +694,7 @@ def _use_scroll(player, key, item, monsters, on_hit):
         target = _nearest_monster(monsters, player.x, player.y, 8)
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для молнии.')
-        damage = item.get('value', 0)
+        damage = magic_damage(player, item.get('value', 0))
         target.hp -= damage
         target.add_status('slow', 2)
         if on_hit:
@@ -698,15 +709,16 @@ def _use_scroll(player, key, item, monsters, on_hit):
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для огня.')
         victims = []
+        damage = magic_damage(player, item.get('value', 0))
         for monster in list(monsters):
             if monster.hp <= 0:
                 continue
             if abs(monster.x - target.x) <= 1 and abs(monster.y - target.y) <= 1:
-                monster.hp -= item.get('value', 0)
+                monster.hp -= damage
                 monster.add_status('burning', 3)
-                victims.append((monster, item.get('value', 0)))
+                victims.append((monster, damage))
                 if on_hit:
-                    on_hit(monster, item.get('value', 0))
+                    on_hit(monster, damage)
         return finish(UseResult(True, 'fireball',
                                 f"Огненный шар: {len(victims)} целей.",
                                 len(victims), (255, 120, 50), victims))
@@ -737,7 +749,7 @@ def _learn_book(player, key, item):
         consume(inventory, key)
         return UseResult(True, 'book', f"Изучено: {item['name']}!", 0,
                          (240, 210, 90))
-    if stat in ('str', 'agi', 'vit', 'luk', 'df_stat'):
+    if stat in ('str', 'agi', 'vit', 'luk', 'df_stat', 'int'):
         setattr(player, stat, getattr(player, stat) + item['value'])
         player.recalc()
         consume(inventory, key)

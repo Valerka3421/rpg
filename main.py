@@ -143,7 +143,11 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
         from net.server import Server
         server = Server(host='', port=port, max_players=4)
         threading.Thread(target=server.start, daemon=True).start()
-        time.sleep(0.5)          # дать серверу bind-нуться
+        # Ждём bind: при занятом порте сервер выберет следующий свободный.
+        if not server.ready.wait(5.0) or not server.running:
+            print(f"[MP] не удалось запустить сервер на порту {port}")
+            return
+        port = server.bound_port or port
         host_addr = 'localhost'
         print(f"[MP] Host started on port {port}, connecting as localhost")
 
@@ -154,7 +158,9 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
                         skip_class_select=skip_class_select)
         client.start()
     except Exception as e:
+        import traceback
         print(f"[MP] error: {e}")
+        traceback.print_exc()
         time.sleep(2)
     finally:
         if server:

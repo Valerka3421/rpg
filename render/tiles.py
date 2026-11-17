@@ -562,7 +562,9 @@ def _tree(variant, palette=None):
     tree_base = p.get('tree', TREE_BASE)
     tree_dark = p.get('tree_dark', TREE_DARK)
     trunk = p.get('trunk', TRUNK)
-    s = _grass(variant + 2, palette)
+    # Фон прозрачный: пол под деревом рисует карта по ground_kind, иначе
+    # после рубки трава под пеньком отличалась бы от соседних клеток.
+    s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     rng = textures.rng_for(variant, 6, seed=43)
     # тень под кроной
     shadow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
@@ -1059,8 +1061,8 @@ def _quest_board(variant=0):
 
 # ════════════════════════ ДОБЫВАЕМЫЕ РЕСУРСЫ ════════════════════════
 def _stump(variant=0):
-    """Спиленное дерево: пенёк с годовыми кольцами."""
-    s = _grass(variant + 2)
+    """Спиленное дерево: пенёк с годовыми кольцами (фон прозрачный)."""
+    s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     rng = textures.rng_for(variant, 73, seed=211)
     shadow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, (0, 0, 0, 105), (10, 40, 46, 15))
@@ -1085,8 +1087,8 @@ def _stump(variant=0):
 
 
 def _berry_bush(variant=0, berries=True):
-    """Куст ягод. Пустой куст — то же растение без ягод."""
-    s = _grass(variant + 1)
+    """Куст ягод. Пустой куст — то же растение без ягод (фон прозрачный)."""
+    s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     rng = textures.rng_for(variant, 79, seed=223 + (0 if berries else 7))
     shadow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     pygame.draw.ellipse(shadow, (0, 0, 0, 110), (8, 42, 50, 16))

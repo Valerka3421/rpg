@@ -543,6 +543,7 @@ class ClientView:
         p.vit = pd.get('vit', 5)
         p.luk = pd.get('luk', 5)
         p.df_stat = pd.get('df_stat', 5)
+        p.int_stat = pd.get('int', 5)
         p.weapon = pd.get('weapon')
         p.armor = pd.get('armor')
         p.head = pd.get('head', pd.get('helmet'))

@@ -44,7 +44,7 @@ def player_to_dict(p):
         'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
         'free_points': p.free_points,
         'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
-        'df_stat': p.df_stat,
+        'df_stat': p.df_stat, 'int': getattr(p, 'int_stat', 5),
         'weapon': p.weapon, 'armor': p.armor,
         'head': getattr(p, 'head', None),
         'legs': getattr(p, 'legs', None),
@@ -78,6 +78,7 @@ def player_from_dict(d):
     p.free_points = d['free_points']
     p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
     p.df_stat = d.get('df_stat', 5)
+    p.int_stat = d.get('int', 5)
     p.weapon, p.armor = d['weapon'], d['armor']
     p.head = d.get('head', d.get('helmet'))
     p.legs = d.get('legs', d.get('leggings'))

@@ -35,7 +35,7 @@ from game.skills_controller import SkillsController
 
 
 # Порядок характеристик для цифровых клавиш в окне статов
-STAT_ORDER = ('str', 'agi', 'vit', 'luk', 'df_stat')
+STAT_ORDER = ('str', 'agi', 'vit', 'luk', 'df_stat', 'int')
 
 
 class Game:
@@ -968,11 +968,14 @@ class Game:
         p = self.player
         if p.free_points <= 0:
             self.log("Нет свободных очков.", COL_DIM); return
-        setattr(p, name, getattr(p, name) + 1)
+        if name == 'int':
+            p.int_stat += 1
+        else:
+            setattr(p, name, getattr(p, name) + 1)
         p.free_points -= 1
         p.recalc()
         names = {'str': 'Сила', 'agi': 'Ловкость', 'vit': 'Выносливость',
-                 'luk': 'Удача', 'df_stat': 'Защита'}
+                 'luk': 'Удача', 'df_stat': 'Защита', 'int': 'Интеллект'}
         self.log(f"{names[name]} +1 ({p.free_points} очков)", COL_GOLD)
 
     def unequip_slot(self, slot):
@@ -1203,8 +1206,9 @@ class Game:
     def _flee_monster(self, m):
         """Шаг в сторону, увеличивающую расстояние до игрока."""
         options = []
-        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1),
-                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        # Только ортогональные шаги: персонаж не ходит по диагонали и не
+        # должен видеть, как монстры «срезают» между стенами.
+        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
                 continue
@@ -1366,7 +1370,7 @@ class Game:
                 self.screen_mode = 'game'
             elif key == pygame.K_i:
                 self.screen_mode = 'inventory'
-            elif pygame.K_1 <= key <= pygame.K_5:
+            elif pygame.K_1 <= key <= pygame.K_6:
                 self.allocate_stat(STAT_ORDER[key - pygame.K_1])
             return
         if self.screen_mode == 'inventory':

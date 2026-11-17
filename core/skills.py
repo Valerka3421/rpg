@@ -222,6 +222,8 @@ def _profile_effects(stats):
         out['dodge'] = 0.02
     if stats.get('luk', 5) >= 6:
         out['crit'] = 0.02
+    if stats.get('int', 5) >= 6:
+        out['mana'] = 4
     return out
 
 

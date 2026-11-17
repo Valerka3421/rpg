@@ -79,13 +79,15 @@ class ScreensRenderer(BaseRenderer):
         y += 32
         y = T.section(self.screen, cx0, y, cw, "Характеристики")
 
-        STAT_FIELDS = ['str', 'agi', 'vit', 'luk', 'df_stat']
+        STAT_FIELDS = ['str', 'agi', 'vit', 'luk', 'df_stat', 'int']
         rows = [
             ('Сила', 'STR', p.str, '+1 ATK за 2 очка', self._d_atk(p)),
             ('Ловкость', 'AGI', p.agi, '+1.5% уклонение', self._d_dodge(p)),
             ('Выносливость', 'VIT', p.vit, '+2 HP за очко', self._d_hp(p)),
             ('Удача', 'LUK', p.luk, '+2% крит', self._d_crit(p)),
             ('Защита', 'DEF', p.df_stat, '+1 DEF за 2 очка', self._d_def(p)),
+            ('Интеллект', 'INT', p.int_stat,
+             '+2 маны и +1 урон магией', self._d_int(p)),
         ]
         for i, (name, abbr, val, gain, detail) in enumerate(rows):
             # ── Кнопка-значение слева ──
@@ -109,9 +111,9 @@ class ScreensRenderer(BaseRenderer):
             text_x = cx0 + btn_size + 16
             self.text(f"{name} ({abbr})", text_x, y, T.TEXT)
             self.text(gain, text_x + 240, y, (134, 180, 116), font=T.FONT_SMALL)
-            y += 22
+            y += 20
             self.text(f"  └ {detail}", text_x, y, T.TEXT_MUTED, font=T.FONT_TINY)
-            y += 26
+            y += 20
 
         y += 8
         y = T.section(self.screen, cx0, y, cw, "Перки")
@@ -207,6 +209,12 @@ class ScreensRenderer(BaseRenderer):
                 b, l = parse_item_key(key)
                 total += ITEMS.get(b, {}).get('value', 0) + l
         return f"DEF = {df_part} (df_stat) + {total - df_part} (экип.) = {total}"
+
+    def _d_int(self, p):
+        from core.rules import magic_damage
+        int_stat = getattr(p, 'int_stat', 5)
+        return (f"Мана = 10 + {p.level * 2} (ур.) + {int_stat * 2} (INT) "
+                f"= {p.max_mana} · свиток огня 20 → {magic_damage(p, 20)}")
 
     # ════════════════════════ ИНВЕНТАРЬ ════════════════════════
     @staticmethod
@@ -651,7 +659,8 @@ class ScreensRenderer(BaseRenderer):
         else:
             self._draw_craft_tab(game, cx0, y, cw, ch, ctrl, sk)
 
-        hints = "↑/↓ — выбор · Enter — изучить · Q/E — вкладки · N/Esc — закрыть"
+        hints = ("↑/↓ — выбор · Enter — изучить · наведение — описание · "
+                 "Q/E — вкладки · N/Esc — закрыть")
         self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 
@@ -890,12 +899,156 @@ class ScreensRenderer(BaseRenderer):
 
         game._ui_hits['skills']['rows'] = []
         mouse = getattr(game, 'mouse_pos', (-1, -1))
+        hovered = None
         for i, node in enumerate(nodes):
             nx, ny = pos[i]
             rect = self._draw_skill_node(int(nx), int(ny), r, node,
                                          i == ctrl.selection, mouse)
             game._ui_hits['skills']['rows'].append((i, rect))
+            if self._in_rect(rect, mouse):
+                hovered = node
         self._draw_class_hub(cls, cx, cy, r + 12, learned_count, len(nodes))
+
+        # Смена класса — такие же узлы древа, связанные с центром.
+        promo_y = min(tree_bottom - 52, cy + dy * 1.62)
+        promo_hover = self._draw_promotion_nodes(
+            game, ctrl, cx, promo_y, cw, r, mouse)
+        if promo_hover is not None:
+            key = promo_hover
+            from core.data import class_data as _class_data
+            target = _class_data(key)
+            req = ctrl.change_class_requirement()
+            ready = req is not None and game.player.level >= req
+            lines = [(target.get('desc', ''), T.TEXT_DIM, T.FONT_SMALL)]
+            if target.get('perk'):
+                lines.append((target['perk'], (200, 180, 130), T.FONT_TINY))
+            lines.append(("Клик — сменить класс; ветка прежнего класса "
+                          "сбросится с возвратом очков.",
+                          T.TEXT_MUTED, T.FONT_TINY))
+            if not ready:
+                lines.insert(0, (f"Нужен {req} уровень.", T.HP_CRIT,
+                                 T.FONT_SMALL))
+            else:
+                lines.insert(0, ("Доступно для смены класса.", (240, 210, 96),
+                                 T.FONT_SMALL))
+            self._draw_tooltip(game, target.get('name', key), lines, mouse)
+        elif hovered is not None:
+            self._draw_node_tooltip(game, hovered, mouse)
+
+    def _promotion_positions(self, ctrl, cx, cw, cy):
+        options = ctrl.promotion_options()
+        if not options:
+            return []
+        spacing = min(160, max(104, int(cw / (len(options) + 1))))
+        total = spacing * (len(options) - 1)
+        left = cx - total / 2
+        return [(left + i * spacing, cy) for i in range(len(options))]
+
+    def _draw_promotion_nodes(self, game, ctrl, cx, cy, cw, r, mouse):
+        """Узлы повышения класса вокруг центрального узла древа."""
+        from core import skills as sk
+        from core.data import class_data
+        options = ctrl.promotion_options()
+        if not options:
+            return None
+        req = ctrl.change_class_requirement()
+        ready = req is not None and game.player.level >= req
+        positions = self._promotion_positions(ctrl, cx, cw, cy)
+        pr = max(16, r - 6)
+        hovered = None
+        for i, (key, (nx, ny)) in enumerate(zip(options, positions)):
+            cls = class_data(key)
+            rect = (nx - (positions[1][0] - positions[0][0]) // 2 + 3
+                    if len(positions) > 1 else nx - 60,
+                    ny - pr - 8,
+                    (positions[1][0] - positions[0][0]) - 6
+                    if len(positions) > 1 else 120,
+                    pr * 2 + 36)
+            hover = self._in_rect(rect, mouse)
+            if hover:
+                hovered = key
+            # Связь с центром древа: золотая, если смена доступна.
+            if ready:
+                pygame.draw.line(self.screen, (198, 162, 74),
+                                 (cx, ny - pr - 8), (nx, ny - pr - 2), 2)
+            else:
+                self._dotted_line((cx, ny - pr - 8), (nx, ny - pr - 2),
+                                  (92, 79, 56), 1, 5, 5)
+            border = T.GOLD if ready else (92, 82, 64)
+            if hover:
+                border = (252, 232, 172)
+            pygame.draw.polygon(self.screen, (10, 9, 8),
+                                self._hex_points(nx, ny, pr + 4))
+            pygame.draw.polygon(self.screen, (30, 27, 21),
+                                self._hex_points(nx, ny, pr))
+            pygame.draw.polygon(self.screen, border,
+                                self._hex_points(nx, ny, pr + 2), 2)
+            self._draw_skill_glyph(cls.get('effects') or {'hp': 1},
+                                   nx, ny, pr * 0.72,
+                                   tuple(cls.get('color', (200, 200, 200))),
+                                   1.0 if ready else 0.6)
+            label = self.fit_text(cls.get('name', key),
+                                  rect[2] - 8, T.FONT_TINY)
+            self.text(label, nx, ny + pr + 5,
+                      T.GOLD if ready else T.TEXT_MUTED,
+                      font=T.FONT_TINY, center=True)
+            if not ready and req is not None:
+                self.text(f"с {req} ур.", nx, ny + pr + 19,
+                          T.HP_CRIT, font=T.FONT_TINY, center=True)
+            game._ui_hits['skills']['promotion'].append((i, rect))
+        return hovered
+
+    def _node_status(self, node):
+        state = node.get('state')
+        need = node.get('level')
+        return {
+            'learned': ("✓ Изучено", (120, 208, 120)),
+            'available': ("Доступно · Enter или повторный клик — изучить",
+                          (240, 210, 96)),
+            'level': (f"Откроется на {need} уровне", (176, 162, 132)),
+            'points': ("Нет очков навыков", (212, 158, 112)),
+        }.get(state, ("", T.TEXT_DIM))
+
+    def _draw_node_tooltip(self, game, node, mouse):
+        """Подсказка узла при наведении — без выбора и клика."""
+        from core import skills as sk
+        status, status_color = self._node_status(node)
+        need = node.get('level', 1)
+        p = game.player
+        effects = sk.describe_effects(node.get('effects', {}))
+        lines = [
+            (f"Уровень {need}", T.GOLD if p.level >= need else T.HP_CRIT,
+             T.FONT_SMALL),
+            (effects or "Пассивных бонусов нет.", T.TEXT, T.FONT_SMALL),
+        ]
+        if status:
+            lines.append((status, status_color, T.FONT_TINY))
+        self._draw_tooltip(game, node.get('name', 'Узел'), lines, mouse)
+
+    def _draw_tooltip(self, game, title, lines, mouse):
+        """Небольшая панель у курсора, прижатая к границам окна."""
+        pad = 10
+        inner = 320
+        w = T.FONT_H2.size(title)[0]
+        for text, _color, font in lines:
+            w = max(w, min(inner, font.size(text)[0]))
+        w = min(360, w + pad * 2)
+        line_h = 18
+        h = 30 + len(lines) * line_h + pad
+        cx0, cy0, cw, ch = game._modal_content_rect
+        mx, my = mouse
+        x = mx + 18
+        y = my + 16
+        x = max(cx0 + 4, min(x, cx0 + cw - w - 4))
+        y = max(cy0 + 4, min(y, cy0 + ch - h - 4))
+        T.rounded_rect(self.screen, (18, 16, 13), (x, y, w, h), radius=8,
+                       border_color=T.TITLE)
+        self.text(self.fit_text(title, w - pad * 2, T.FONT_H2),
+                  x + pad, y + 7, T.TITLE_LIGHT, font=T.FONT_H2)
+        T.divider(self.screen, x + pad, y + 27, x + w - pad)
+        for i, (text, color, font) in enumerate(lines):
+            self.text(self.fit_text(text, w - pad * 2, font),
+                      x + pad, y + 33 + i * line_h, color, font=font)
 
     def _draw_selected_node_panel(self, sk, nodes, ctrl, x, y, cw, ch, p):
         panel = (x, y, cw, ch)
@@ -935,35 +1088,6 @@ class ScreensRenderer(BaseRenderer):
                       (200, 180, 130), font=T.FONT_SMALL)
             y += 24
 
-        # ── Смена класса ──
-        options = ctrl.promotion_options()
-        req = ctrl.change_class_requirement()
-        if options:
-            ready = req is not None and p.level >= req
-            label = "Смена класса"
-            if req is not None and not ready:
-                label += f" (с {req} ур.)"
-            self.text(label, x, y + 5, T.TITLE if ready else T.TEXT_MUTED,
-                      font=T.FONT_SMALL)
-            bx = x + T.FONT_SMALL.size(label)[0] + 14
-            for i, key in enumerate(options):
-                name = class_data(key).get('name', key)
-                text = f"{i + 1}. {name}"
-                w = max(92, T.FONT_SMALL.size(text)[0] + 18)
-                rect = (bx, y, w, 26)
-                hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
-                T.rounded_rect(self.screen, T.ROW_HOVER if hover else
-                               (32, 28, 22), rect, radius=6,
-                               border_color=T.TITLE if ready else
-                               T.PANEL_BORDER_DARK)
-                self.text(self.fit_text(text, w - 12, T.FONT_SMALL),
-                          bx + 7, y + 4,
-                          T.TITLE_LIGHT if ready else T.TEXT_MUTED,
-                          font=T.FONT_SMALL)
-                game._ui_hits['skills']['promotion'].append((i, rect))
-                bx += w + 8
-            y += 34
-
         nodes = ctrl.rows()
         panel_h = 84
         panel_y = bottom - panel_h - 30
@@ -990,34 +1114,155 @@ class ScreensRenderer(BaseRenderer):
             y += 22
 
         nodes = sk.craft_tree(tab)
-        row_h = 40
+        bottom = game._modal_content_rect[1] + ch
+        panel_h = 104
+        panel_y = bottom - panel_h - 30
+        hovered = self._draw_craft_tree(game, nodes, ctrl, tab, level,
+                                        x, y + 2, cw, panel_y - 6)
+        self._draw_craft_node_panel(sk, tab, nodes, ctrl, level,
+                                    hovered, x, panel_y, cw, panel_h)
+
+    # Цвет и значок по умолчанию для ремесленных веток.
+    _CRAFT_GLYPH = {
+        'blacksmith': ({'craft_quality': 1}, (224, 188, 126)),
+        'alchemy': ({'mana': 1}, (120, 190, 150)),
+        'magic_engineering': ({'attack_speed': 1}, (170, 190, 240)),
+    }
+
+    def _draw_craft_hub(self, tab, cx, cy, r, level):
+        effects, color = self._CRAFT_GLYPH.get(
+            tab, ({'craft_quality': 1}, T.GOLD))
+        pygame.draw.polygon(self.screen, (9, 8, 7),
+                            self._hex_points(cx, cy, r + 8))
+        pygame.draw.polygon(self.screen, (38, 32, 22),
+                            self._hex_points(cx, cy, r + 3))
+        pygame.draw.polygon(self.screen, (26, 23, 18),
+                            self._hex_points(cx, cy, r))
+        pygame.draw.polygon(self.screen, T.GOLD,
+                            self._hex_points(cx, cy, r + 3), 3)
+        self._draw_skill_glyph(effects, cx, cy - 2, r * 0.6, color)
+        self._draw_node_counter(cx, cy + r + 8, level, 25, True)
+
+    def _craft_tree_positions(self, cx, cy, cw, tree_h, count):
+        r = max(20, min(28, int(tree_h * 0.075)))
+        dx = min(150, int(cw * 0.12))
+        dy = min(88, int(tree_h * 0.24))
+        left = [
+            (cx - dx * 0.85, cy + dy * 0.85),
+            (cx - dx * 1.55, cy + dy * 0.20),
+            (cx - dx * 2.10, cy - dy * 0.55),
+            (cx - dx * 2.45, cy - dy * 1.35),
+        ]
+        right = [(2 * cx - px, py) for px, py in left]
+        pos = (left + right)[:count]
+        return pos, r
+
+    def _draw_craft_tree(self, game, nodes, ctrl, tab, level,
+                         x, y, cw, tree_bottom):
+        """Ремесленная ветка в том же шестиугольном формате, что и класс."""
+        top = y
+        tree_h = max(200, tree_bottom - top)
+        cx = x + cw // 2
+        cy = top + int(tree_h * 0.55)
+        pos, r = self._craft_tree_positions(cx, cy, cw, tree_h, len(nodes))
+        if not pos:
+            return None
+        self._draw_craft_hub(tab, cx, cy, r + 12, level)
+
+        # Связи: центр → первые узлы крыльев, затем цепочка в каждом крыле.
+        pairs = [(None, 0), (None, 4)]
+        for a, b in ((0, 1), (1, 2), (2, 3), (4, 5), (5, 6), (6, 7)):
+            if b < len(nodes):
+                pairs.append((a, b))
+        for a, b in pairs:
+            if b >= len(pos) or (a is not None and a >= len(pos)):
+                continue
+            pa = (cx, cy) if a is None else pos[a]
+            pb = pos[b]
+            done = level >= nodes[b]['level'] and (
+                a is None or level >= nodes[a]['level'])
+            if done:
+                pygame.draw.line(self.screen, (198, 162, 74), pa, pb, 3)
+            else:
+                self._dotted_line(pa, pb, (92, 79, 56), 2, 6, 6)
+
+        effects, _color = self._CRAFT_GLYPH.get(
+            tab, ({'craft_quality': 1}, T.GOLD))
+        mouse = getattr(game, 'mouse_pos', (-1, -1))
+        hovered = None
+        game._ui_hits['skills']['rows'] = []
         for i, node in enumerate(nodes):
-            if y + row_h > ch + 30:
-                break
-            rect = (x, y, cw, row_h - 6)
-            selected = i == ctrl.selection
-            if selected:
-                T.rounded_rect(self.screen, T.ROW_HOVER, rect, radius=6,
-                               border_color=T.ROW_BORDER)
+            nx, ny = pos[i]
             unlocked = level >= node['level']
-            mark = '✓' if unlocked else '×'
-            color = (120, 220, 120) if unlocked else T.TEXT_MUTED
-            self.text(f"{mark}  {node['name']}", x + 10, y + 4, color,
-                      font=T.FONT_BODY)
-            self.text(f"ур. {node['level']}", x + 300, y + 6,
-                      T.GOLD if unlocked else T.HP_CRIT, font=T.FONT_SMALL)
-            effects = sk.describe_effects(node.get('effects', {}))
-            if effects:
-                self.text(effects, x + 390, y + 6, T.TEXT_DIM,
-                          font=T.FONT_SMALL)
-            recipes = sk.recipes_for_level(tab, node['level'])
+            view = {
+                **node,
+                'state': 'learned' if unlocked else 'level',
+                'learned': unlocked,
+                'effects': node.get('effects') or effects,
+            }
+            rect = self._draw_skill_node(int(nx), int(ny), r, view,
+                                         i == ctrl.selection, mouse)
+            game._ui_hits['skills']['rows'].append((i, rect))
+            if self._in_rect(rect, mouse):
+                hovered = i
+        if hovered is not None:
+            node = nodes[hovered]
+            unlocked = level >= node['level']
+            need = node['level']
+            effects_text = None
+            from core import skills as _sk
+            effects_text = _sk.describe_effects(node.get('effects', {}))
+            recipes = _sk.recipes_for_level(tab, need)
+            lines = [
+                (f"Уровень {need}", T.GOLD if unlocked else T.HP_CRIT,
+                 T.FONT_SMALL),
+                (effects_text or "Новый уровень навыка.", T.TEXT,
+                 T.FONT_SMALL),
+            ]
             if recipes:
                 names = ', '.join(r[1].get('name', r[0]) for r in recipes)
-                self.text(self.fit_text("Рецепты: " + names, cw - 520,
-                                        T.FONT_TINY),
-                          x + 390, y + 20, T.TEXT_MUTED, font=T.FONT_TINY)
-            game._ui_hits['skills']['rows'].append((i, rect))
-            y += row_h
+                lines.append((self.fit_text("Рецепты: " + names, 300,
+                                            T.FONT_TINY),
+                              T.TEXT_MUTED, T.FONT_TINY))
+            lines.append(("Доступно" if unlocked
+                          else f"Откроется на {need} уровне",
+                          (120, 208, 120) if unlocked
+                          else (176, 162, 132), T.FONT_TINY))
+            self._draw_tooltip(game, node['name'], lines, mouse)
+        return hovered
+
+    def _draw_craft_node_panel(self, sk, tab, nodes, ctrl, level, hovered,
+                               x, y, cw, ch):
+        panel = (x, y, cw, ch)
+        T.rounded_rect(self.screen, (24, 21, 17), panel, radius=8,
+                       border_color=T.PANEL_BORDER)
+        index = hovered if hovered is not None else ctrl.selection
+        node = nodes[index] if nodes and 0 <= index < len(nodes) else None
+        if not node:
+            self.text("Нет узлов в этой ветке.", x + 16, y + 12,
+                      T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        need = node['level']
+        unlocked = level >= need
+        self.text(self.fit_text(node['name'], cw - 200, T.FONT_H2),
+                  x + 16, y + 8, T.TITLE_LIGHT, font=T.FONT_H2)
+        self.text(f"Уровень {need}", x + cw - 16, y + 12,
+                  T.GOLD if unlocked else T.HP_CRIT,
+                  font=T.FONT_SMALL, align_right=True)
+        effects = sk.describe_effects(node.get('effects', {}))
+        self.text(self.fit_text(effects or "Новый уровень навыка.",
+                                cw - 32, T.FONT_SMALL),
+                  x + 16, y + 37, T.TEXT, font=T.FONT_SMALL)
+        recipes = sk.recipes_for_level(tab, need)
+        if recipes:
+            names = ', '.join(r[1].get('name', r[0]) for r in recipes)
+            self.text(self.fit_text("Рецепты: " + names, cw - 32, T.FONT_TINY),
+                      x + 16, y + 58, T.TEXT_MUTED, font=T.FONT_TINY)
+        status = ("Доступно" if unlocked else
+                  f"Откроется на уровне навыка {need}")
+        self.text(status, x + 16, y + 78,
+                  (120, 208, 120) if unlocked else (176, 162, 132),
+                  font=T.FONT_SMALL)
 
     # ════════════════════════ КРАФТ ════════════════════════
     def _draw_tabs(self, game, tabs, active, x, y, cw, prefix):

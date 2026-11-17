@@ -443,7 +443,8 @@ class MenuRenderer(BaseRenderer):
         st = class_stats(class_key)
         self.text(f"STR {st.get('str', 5)}   AGI {st.get('agi', 5)}   "
                   f"VIT {st.get('vit', 5)}   "
-                  f"LUK {st.get('luk', 5)}   DEF {st.get('df_stat', 5)}",
+                  f"LUK {st.get('luk', 5)}   DEF {st.get('df_stat', 5)}   "
+                  f"INT {st.get('int', 5)}",
                   x + 24, y + 64, T.TEXT_MUTED, font=T.FONT_TINY)
 
         self.text(cls['desc'], x + w - 24, y + 14, T.TEXT_DIM,
@@ -469,6 +470,7 @@ class MenuRenderer(BaseRenderer):
             'str': st.get('str', 5), 'agi': st.get('agi', 5),
             'vit': st.get('vit', 5), 'luk': st.get('luk', 5),
             'df_stat': st.get('df_stat', 5), 'level': 1,
+            'int': st.get('int', 5),
             'weapon': cls.get('start_weapon'),
             'armor': cls.get('start_armor'),
             'effects': cls.get('effects', {}),

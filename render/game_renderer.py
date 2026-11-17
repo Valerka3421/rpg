@@ -179,8 +179,19 @@ class GameRenderer(BaseRenderer):
                         continue
                     if record and record.get('kind') == 'tree' \
                             and not record.get('has', True):
-                        self.screen.blit(Tiles.get('stump', 0, light), (px, py))
+                        # Пол под пеньком берём из ground_kind — тот же,
+                        # что у соседних клеток, иначе трава «менялась».
+                        self._draw_floor(px, py, mx, my, light)
+                        variant, _ = Tiles.variant('stump', mx, my)
+                        self.screen.blit(Tiles.get('stump', variant, light),
+                                         (px, py))
                         continue
+                    if self._is_overworld:
+                        fn = getattr(game, 'wall_kind', None)
+                        kind = fn(mx, my) if fn else ov.wall_kind(mx, my)
+                        if kind.startswith('tree'):
+                            # Кроны прозрачные — сперва настоящий пол.
+                            self._draw_floor(px, py, mx, my, light)
                     if self._draw_wall(px, py, mx, my, light) and vis:
                         torches.append((px, py))
                     continue
@@ -403,7 +414,8 @@ class GameRenderer(BaseRenderer):
             light = 1.0 if (mx, my) in game.visible else 0.72
             key = ('berry_bush' if record.get('has', True)
                    else 'berry_bush_empty')
-            self.screen.blit(Tiles.get(key, 0, light),
+            variant, _ = Tiles.variant('berry_bush', mx, my)
+            self.screen.blit(Tiles.get(key, variant, light),
                              ((mx - cam_x) * TILE, (my - cam_y) * TILE))
 
     def _draw_loot(self, game, cam_x, cam_y):
@@ -629,6 +641,7 @@ class GameRenderer(BaseRenderer):
 
     def _draw_stats_column(self, game, x, y):
         p = game.player
+        right = x + 376
         self.text("HP", x, y + 4, T.TEXT, font=T.FONT_SMALL)
         bar_rect = (x + 30, y, 180, 22)
         ratio = p.hp / max(1, p.max_hp)
@@ -636,7 +649,10 @@ class GameRenderer(BaseRenderer):
         surf = T.render(f"{p.hp}/{p.max_hp}", (255, 255, 255), T.FONT_SMALL)
         self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
                                 bar_rect[1] + 4))
-        self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
+        # Имя класса — в правой части первой строки, не наезжая на ману/XP.
+        class_name = getattr(p, 'class_name', 'Приключенец')
+        self.text(self.fit_text(class_name, 150, T.FONT_SMALL),
+                  right, y + 4, T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
 
         # Мана
         max_mana = max(1, getattr(p, 'max_mana', 0))
@@ -645,18 +661,20 @@ class GameRenderer(BaseRenderer):
         mana_rect = (x + 30, y + 27, 180, 12)
         T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
               bg_color=(20, 24, 48))
-        self.text(f"{mana}/{max_mana}", x + 214, y + 28, (140, 170, 255),
+        self.text(f"{mana}/{max_mana}", x + 218, y + 28, (140, 170, 255),
                   font=T.FONT_TINY)
-        self.text(getattr(p, 'class_name', 'Приключенец'), x + 250, y + 26,
-                  T.TEXT_DIM, font=T.FONT_SMALL)
+        self.text(f"${p.gold}", right, y + 27, T.GOLD, font=T.FONT_SMALL,
+                  align_right=True)
 
+        # Опыт
         self.text(f"Ур.{p.level}", x, y + 48, T.TEXT, font=T.FONT_BODY)
         xp_rect = (x + 70, y + 52, 160, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
-        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 32, T.XP, font=T.FONT_SMALL)
-        self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
-        self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
+        self.text(f"{p.xp}/{p.xp_next}", right, y + 48, T.XP,
+                  font=T.FONT_SMALL, align_right=True)
+        self.text(f"ATK {p.atk}", x, y + 66, T.TEXT, font=T.FONT_BODY)
+        self.text(f"DEF {p.df}", x + 100, y + 66, T.TEXT, font=T.FONT_BODY)
         if game.world_mode == 'overworld':
             fn = getattr(game, 'location_title', None)
             if fn:
@@ -667,8 +685,9 @@ class GameRenderer(BaseRenderer):
                 loc = ov.location_title(game.player.x, game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
-        badge_y = y + 86
+        self.text(self.fit_text(loc, 170, T.FONT_SMALL), right, y + 66,
+                  T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
+        badge_y = y + 90
         if p.free_points > 0:
             T.badge(self.screen, x, badge_y, f"● {p.free_points} очков (C)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
@@ -678,7 +697,8 @@ class GameRenderer(BaseRenderer):
                     f"● {p.skill_points} навыков (N)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
-                  x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
+                  right, y + 90, T.TEXT_MUTED, font=T.FONT_TINY,
+                  align_right=True)
 
     def _draw_log_panel(self, game, x, y, w, h):
         self.text("ЛОГ", x, y, T.TEXT_MUTED, font=T.FONT_TINY)

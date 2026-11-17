@@ -150,7 +150,7 @@ class GameCore:
             'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
             'free_points': p.free_points,
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
-            'df_stat': p.df_stat,
+            'df_stat': p.df_stat, 'int': getattr(p, 'int_stat', 5),
             'weapon': p.weapon, 'armor': p.armor,
             'head': p.head, 'legs': p.legs,
             'helmet': p.head, 'leggings': p.legs,
@@ -177,6 +177,7 @@ class GameCore:
         p.free_points = d['free_points']
         p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
         p.df_stat = d['df_stat']
+        p.int_stat = d.get('int', 5)
         p.weapon = d.get('weapon')
         p.armor = d.get('armor')
         p.head = d.get('head', d.get('helmet'))
@@ -383,9 +384,12 @@ class GameCore:
         p = self.players.get(pid)
         if p is None or p.free_points <= 0:
             return
-        if stat not in ('str', 'agi', 'vit', 'luk', 'df_stat'):
+        if stat not in ('str', 'agi', 'vit', 'luk', 'df_stat', 'int'):
             return
-        setattr(p, stat, getattr(p, stat) + 1)
+        if stat == 'int':
+            p.int_stat += 1
+        else:
+            setattr(p, stat, getattr(p, stat) + 1)
         p.free_points -= 1
         p.recalc()
 
@@ -1147,8 +1151,8 @@ class GameCore:
     def _monster_flee(self, m, threat):
         """Убегает от угрозы (олень после удара)."""
         options = []
-        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1),
-                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        # Ортогональные шаги — как у игрока, без срезания углов.
+        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
                 continue
@@ -1248,6 +1252,7 @@ class GameCore:
                 'statuses': dict(p.statuses),
                 'str': p.str, 'agi': p.agi, 'vit': p.vit,
                 'luk': p.luk, 'df_stat': p.df_stat,
+                'int': getattr(p, 'int_stat', 5),
                 'weapon': p.weapon, 'armor': p.armor,
                 'head': p.head, 'legs': p.legs,
                 'helmet': p.head, 'leggings': p.legs,

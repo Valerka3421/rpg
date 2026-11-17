@@ -12,6 +12,9 @@ from net.core import GameCore
 class Server:
     def __init__(self, host='0.0.0.0', port=9000, max_players=2):
         self.host, self.port = host, port
+        self.requested_port = port
+        self.bound_port = None
+        self.ready = threading.Event()
         self.max_players = max_players
         self.clients = {}          # {pid: socket}
         self.next_pid = 0
@@ -45,6 +48,23 @@ class Server:
         except Exception as e:
             print(f"[SERVER] save players: {e}")
 
+    def _bind_socket(self, sock):
+        """Занять порт, перебирая следующие, если запрошенный занят."""
+        last_error = None
+        for candidate in range(self.requested_port, self.requested_port + 20):
+            try:
+                sock.bind((self.host, candidate))
+                self.port = candidate
+                self.bound_port = candidate
+                sock.listen(5)
+                return True
+            except OSError as e:
+                last_error = e
+                continue
+        print(f"[SERVER] Не удалось занять порт "
+              f"{self.requested_port}-{self.requested_port + 19}: {last_error}")
+        return False
+
     def start(self):
         if os.path.exists(self.world_save_path):
             if self.core.load_world(self.world_save_path):
@@ -52,13 +72,15 @@ class Server:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            sock.bind((self.host, self.port))
-            sock.listen(5)
-        except OSError as e:
-            print(f"[SERVER] Не удалось занять порт {self.port}: {e}")
-            self.running = False
-            return
+            if not self._bind_socket(sock):
+                self.running = False
+                return
+        finally:
+            self.ready.set()
         self._sock = sock
+        if self.bound_port != self.requested_port:
+            print(f"[SERVER] порт {self.requested_port} занят — "
+                  f"использую {self.bound_port}")
         print(f"[SERVER] {self.host}:{self.port}  (max {self.max_players})")
 
         threading.Thread(target=self._tick_loop, daemon=True).start()
