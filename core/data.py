@@ -52,6 +52,34 @@ ITEMS = {
                  'category': 'alchemy', 'level_req': 6,
                  'recipe': {'potion_m': 1, 'magic_powder': 2},
                  'desc': 'Восстанавливает 40 HP.'},
+    # Зелья маны
+    'mana_potion_s': {'ch': '!', 'name': 'Малое зелье маны', 'type': 'mana',
+                      'value': 15, 'color': (120, 170, 255), 'tier': 1, 'sell': 3,
+                      'category': 'alchemy', 'level_req': 1,
+                      'recipe': {'mana_crystal_small': 1, 'berry': 2},
+                      'desc': 'Восстанавливает 15 маны.'},
+    'mana_potion_l': {'ch': '!', 'name': 'Большое зелье маны', 'type': 'mana',
+                      'value': 35, 'color': (150, 110, 255), 'tier': 2, 'sell': 7,
+                      'category': 'alchemy', 'level_req': 3,
+                      'recipe': {'mana_crystal': 1, 'magic_powder': 1},
+                      'desc': 'Восстанавливает 35 маны.'},
+    # Готовая еда трактирщика
+    'fried_mushrooms': {'ch': '%', 'name': 'Жареные грибы', 'type': 'food',
+                        'heal': 8, 'value': 6, 'sell': 2, 'color': (196, 150, 92),
+                        'tier': 1, 'desc': 'Сытно и просто. +8 HP.'},
+    'berry_compote': {'ch': '%', 'name': 'Компот из ягод', 'type': 'food',
+                      'heal': 6, 'mana': 6, 'value': 8, 'sell': 3,
+                      'color': (210, 90, 130), 'tier': 1,
+                      'desc': '+6 HP и +6 маны.'},
+    'roast_venison': {'ch': '%', 'name': 'Жареная оленина', 'type': 'food',
+                      'heal': 14, 'value': 12, 'sell': 5, 'color': (168, 92, 78),
+                      'tier': 1, 'desc': 'Нежное мясо. +14 HP.'},
+    'roast_boar': {'ch': '%', 'name': 'Жареная кабанина', 'type': 'food',
+                   'heal': 18, 'value': 16, 'sell': 7, 'color': (150, 84, 60),
+                   'tier': 2, 'desc': 'Плотное мясо. +18 HP.'},
+    'roast_bear': {'ch': '%', 'name': 'Жареная медвежатина', 'type': 'food',
+                   'heal': 24, 'value': 22, 'sell': 9, 'color': (120, 70, 48),
+                   'tier': 2, 'desc': 'Сытно и согревает. +24 HP.'},
     # Оружие
     'dagger':     {'ch': '/', 'name': 'Кинжал', 'type': 'weapon', 'value': 1,
                    'level_req': 1, 'color': (180, 200, 230), 'tier': 1, 'sell': 7,
@@ -287,42 +315,48 @@ ITEMS = {
                       'desc': 'Лёгкий и прочный металл.'},
     # ── Свитки ──
     'scroll_heal': {'ch': '&', 'name': 'Свиток лечения', 'type': 'scroll',
-                    'effect': 'heal', 'value': 30, 'color': (120, 240, 120),
+                    'effect': 'heal', 'value': 30, 'mana_cost': 4,
+                    'color': (120, 240, 120),
                     'tier': 2, 'sell': 12, 'shop_price': 60,
                     'category': 'magic_engineering', 'level_req': 1,
                     'recipe': {'magic_powder': 1, 'berry': 2},
-                    'desc': 'Восстанавливает 30 HP.'},
+                    'desc': 'Восстанавливает 30 HP. 4 маны.'},
     'scroll_fireball': {'ch': '&', 'name': 'Свиток огня', 'type': 'scroll',
-                        'effect': 'fireball', 'value': 20, 'color': (255, 120, 50),
+                        'effect': 'fireball', 'value': 20, 'mana_cost': 8,
+                        'color': (255, 120, 50),
                         'tier': 2, 'sell': 15, 'shop_price': 80,
                         'category': 'magic_engineering', 'level_req': 3,
                         'recipe': {'magic_powder': 2, 'ore': 1},
-                        'desc': 'Огонь 20 урона по области 3×3 вокруг ближайшего врага.'},
+                        'desc': 'Огонь 20 урона по области 3×3. 8 маны.'},
     'scroll_freeze': {'ch': '&', 'name': 'Свиток заморозки', 'type': 'scroll',
-                      'effect': 'freeze', 'value': 3, 'color': (120, 180, 255),
+                      'effect': 'freeze', 'value': 3, 'mana_cost': 10,
+                      'color': (120, 180, 255),
                       'tier': 3, 'sell': 18, 'shop_price': 100,
                       'category': 'magic_engineering', 'level_req': 5,
                       'recipe': {'mana_crystal_small': 1, 'magic_powder': 2},
-                      'desc': 'Замедляет всех врагов в радиусе 5 на 3 хода.'},
+                      'desc': 'Замедляет врагов в радиусе 5 на 3 хода. 10 маны.'},
     # ── Руны (магическая инженерия) ──
     'rune_fire': {'ch': '¤', 'name': 'Руна огня', 'type': 'rune',
-                  'effect': 'fireball', 'value': 30, 'color': (255, 130, 60),
+                  'effect': 'fireball', 'value': 30, 'mana_cost': 12,
+                  'color': (255, 130, 60),
                   'tier': 3, 'sell': 26, 'shop_price': 120,
                   'category': 'magic_engineering', 'level_req': 4,
                   'recipe': {'magic_powder': 3, 'mana_crystal_small': 1},
-                  'desc': 'Высекает огонь: 30 урона по области.'},
+                  'desc': 'Высекает огонь: 30 урона по области. 12 маны.'},
     'rune_frost': {'ch': '¤', 'name': 'Руна льда', 'type': 'rune',
-                   'effect': 'freeze', 'value': 4, 'color': (130, 190, 255),
+                   'effect': 'freeze', 'value': 4, 'mana_cost': 12,
+                   'color': (130, 190, 255),
                    'tier': 3, 'sell': 26, 'shop_price': 120,
                    'category': 'magic_engineering', 'level_req': 4,
                    'recipe': {'magic_powder': 2, 'mana_crystal': 1},
-                   'desc': 'Замедляет врагов в радиусе 5 на 4 хода.'},
+                   'desc': 'Замедляет врагов в радиусе 5 на 4 хода. 12 маны.'},
     'rune_heal': {'ch': '¤', 'name': 'Руна лечения', 'type': 'rune',
-                  'effect': 'heal', 'value': 45, 'color': (130, 245, 150),
+                  'effect': 'heal', 'value': 45, 'mana_cost': 8,
+                  'color': (130, 245, 150),
                   'tier': 3, 'sell': 24, 'shop_price': 110,
                   'category': 'magic_engineering', 'level_req': 3,
                   'recipe': {'magic_powder': 2, 'mushroom': 2},
-                  'desc': 'Восстанавливает 45 HP.'},
+                  'desc': 'Восстанавливает 45 HP. 8 маны.'},
 }
 
 MATERIAL_KEYS = ('bone', 'ogre_leather', 'goblin_ear', 'rat_tail', 'orc_tusk',
@@ -694,6 +728,65 @@ def make_shop_stock(depth):
     add(make_loot_key(wk, wr), 15 * tier + wr * 10)
     add(make_loot_key(ak, ar), 12 * tier + ar * 10)
     return stock
+
+
+# ════════════════════ ГОРОДСКИЕ ТОРГОВЦЫ ════════════════════
+# Ассортимент горожан фиксирован: цены и состав не зависят от глубины и
+# случайности, чтобы покупки в городе были предсказуемыми.
+CITY_SHOP_STOCK = {
+    'blacksmith': (
+        ('iron_ingot', 12), ('steel_ingot', 22), ('mithril_ingot', 40),
+        ('ore', 10), ('wood', 4), ('stone', 3),
+    ),
+    'alchemist': (
+        ('potion_s', 8), ('potion_m', 16), ('potion_l', 30),
+        ('mana_potion_s', 10), ('mana_potion_l', 22),
+        ('magic_powder', 18),
+    ),
+    'innkeeper': (
+        ('fried_mushrooms', 6), ('berry_compote', 8),
+        ('roast_venison', 12), ('roast_boar', 16), ('roast_bear', 22),
+    ),
+}
+
+
+def make_city_shop_stock(npc_type):
+    """Фиксированный ассортимент городского торговца.
+
+    Товары горожан не «продаются навсегда»: слитки, зелья и еду можно
+    покупать повторно — иначе после одной закупки лавка опустела бы,
+    а реролл для горожан отключён.
+    """
+    stock = []
+    for key, price in CITY_SHOP_STOCK.get(npc_type, ()):
+        stock.append({'key': key, 'price': price, 'sold': False,
+                      'infinite': True})
+    return stock
+
+
+CITY_NPC_NAMES = {
+    'guard': 'Стражник',
+    'blacksmith': 'Кузнец',
+    'alchemist': 'Алхимик',
+    'innkeeper': 'Трактирщик',
+}
+
+CITY_NPC_GLYPHS = {
+    'guard': ('G', (196, 200, 220)),
+    'blacksmith': ('K', (206, 152, 88)),
+    'alchemist': ('A', (156, 126, 224)),
+    'innkeeper': ('I', (214, 172, 112)),
+}
+
+CITY_NPC_SHOPS = {
+    'blacksmith': 'Кузнец',
+    'alchemist': 'Алхимик',
+    'innkeeper': 'Трактирщик',
+}
+
+
+def is_city_shop_npc(npc_type):
+    return npc_type in CITY_SHOP_STOCK
 
 
 # ════════════════════ ДРОП ════════════════════

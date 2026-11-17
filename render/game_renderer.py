@@ -110,6 +110,7 @@ class GameRenderer(BaseRenderer):
             self._draw_monsters(game, cam_x, cam_y)
             self._draw_merchant(game, cam_x, cam_y)
             self._draw_elder(game, cam_x, cam_y)
+            self._draw_city_npcs(game, cam_x, cam_y)
             self._draw_quest_board(game, cam_x, cam_y)
             self._draw_player(game, cam_x, cam_y)
             for remote in self.visible_remotes(game):
@@ -436,6 +437,25 @@ class GameRenderer(BaseRenderer):
         else:
             self.icons.draw_elder(px, int(py + bob), size=TILE)
 
+    def _draw_city_npcs(self, game, cam_x, cam_y):
+        """Горожане: стражник у ворот и торговцы на площади."""
+        if (game.world_mode != 'overworld'
+                or getattr(game, 'location', 'village') != 'village'):
+            return
+        for npc in getattr(game, 'city_npcs', ()) or ():
+            if (npc.x, npc.y) not in game.visible:
+                continue
+            px = (self._rx(npc) - cam_x) * TILE
+            py = (self._ry(npc) - cam_y) * TILE
+            bob = math.sin(npc.anim_time * 4.0) * 2
+            self.screen.blit(self._shadow_sm, (px, py))
+            img = Sprites.get(f'npc/{npc.npc_type}', (TILE, TILE), finish=True)
+            if img:
+                self.screen.blit(img, (px, int(py + bob)))
+            else:
+                self.icons.draw_city_npc(npc.npc_type, px, int(py + bob),
+                                         size=TILE)
+
     def _draw_merchant(self, game, cam_x, cam_y):
         if game.world_mode != 'dungeon':
             return
@@ -563,22 +583,34 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
                                 bar_rect[1] + 4))
         self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
-        self.text(f"Ур.{p.level}", x, y + 32, T.TEXT, font=T.FONT_BODY)
-        xp_rect = (x + 70, y + 36, 160, 10)
+
+        # Мана: ресурс свитков и рун.
+        max_mana = max(1, getattr(p, 'max_mana', 1))
+        mana = getattr(p, 'mana', 0)
+        self.text("MP", x, y + 30, (150, 180, 250), font=T.FONT_SMALL)
+        mana_rect = (x + 30, y + 26, 180, 16)
+        T.bar(self.screen, mana_rect, mana / max_mana, (96, 140, 236),
+              bg_color=(22, 26, 48))
+        msurf = T.render(f"{mana}/{max_mana}", (235, 242, 255), T.FONT_TINY)
+        self.screen.blit(msurf, (mana_rect[0] + (mana_rect[2] - msurf.get_width()) // 2,
+                                 mana_rect[1] + 2))
+
+        self.text(f"Ур.{p.level}", x, y + 50, T.TEXT, font=T.FONT_BODY)
+        xp_rect = (x + 70, y + 54, 160, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
-        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 32, T.XP, font=T.FONT_SMALL)
-        self.text(f"ATK {p.atk}", x, y + 62, T.TEXT, font=T.FONT_BODY)
-        self.text(f"DEF {p.df}", x + 100, y + 62, T.TEXT, font=T.FONT_BODY)
+        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 50, T.XP, font=T.FONT_SMALL)
+        self.text(f"ATK {p.atk}", x, y + 76, T.TEXT, font=T.FONT_BODY)
+        self.text(f"DEF {p.df}", x + 100, y + 76, T.TEXT, font=T.FONT_BODY)
         if game.world_mode == 'overworld':
             fn = getattr(game, 'location_title', None)
             loc = fn() if fn else ov.location_title(game.player.x,
                                                     game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
+        self.text(loc, x + 200, y + 76, T.TEXT_DIM, font=T.FONT_SMALL)
         if p.free_points > 0:
-            T.badge(self.screen, x, y + 94, f"● {p.free_points} очков (C)",
+            T.badge(self.screen, x, y + 104, f"● {p.free_points} очков (C)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
                   x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
@@ -694,6 +726,13 @@ class GameRenderer(BaseRenderer):
         if game.merchant:
             self._minimap_marker(pos_x, pos_y, game.merchant,
                                  (206, 170, 96), size=2)
+        # Горожане: стражник светлый, торговцы золотистые.
+        if (game.world_mode == 'overworld'
+                and getattr(game, 'location', 'village') == 'village'):
+            for npc in getattr(game, 'city_npcs', ()) or ():
+                color = ((186, 196, 224) if npc.npc_type == 'guard'
+                         else (222, 186, 108))
+                self._minimap_marker(pos_x, pos_y, npc, color, size=2)
         # Сокомандники видны на мини-карте всегда — это «радар» отряда
         my_id = getattr(game, 'my_id', None)
         my_player = getattr(game, 'player', None)

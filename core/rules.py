@@ -397,6 +397,22 @@ def best_heal_key(inventory):
     return potions[0][1]
 
 
+def best_mana_key(inventory):
+    """Самое слабое зелье маны в инвентаре."""
+    potions = []
+    for key, count in inventory.items():
+        if count <= 0:
+            continue
+        base, _ = parse_item_key(key)
+        data = ITEMS.get(base, {})
+        if data.get('type') == 'mana':
+            potions.append((data.get('value', 0), key))
+    if not potions:
+        return None
+    potions.sort()
+    return potions[0][1]
+
+
 def _nearest_monster(monsters, x, y, max_dist):
     candidates = [(m, abs(m.x - x) + abs(m.y - y))
                   for m in monsters if m.hp > 0]
@@ -442,6 +458,34 @@ def use_item(player, key, monsters=None, on_hit=None):
         consume(inventory, key)
         return UseResult(True, 'heal', f"{item['name']}: +{healed} HP", healed)
 
+    if kind == 'mana':
+        if player.mana >= player.max_mana:
+            return UseResult(False, 'full', 'Мана уже полная.')
+        restored = min(item.get('value', 0), player.max_mana - player.mana)
+        player.mana += restored
+        consume(inventory, key)
+        return UseResult(True, 'mana', f"{item['name']}: +{restored} маны",
+                         restored, item.get('color', (140, 170, 255)))
+
+    if kind == 'food':
+        heal = item.get('heal', 0)
+        mana = item.get('mana', 0)
+        healed = min(heal, max(0, player.max_hp - player.hp))
+        restored = min(mana, max(0, player.max_mana - player.mana))
+        if healed <= 0 and restored <= 0:
+            return UseResult(False, 'full', 'Ты уже сыт и полон сил.')
+        player.hp += healed
+        player.mana += restored
+        consume(inventory, key)
+        parts = []
+        if healed:
+            parts.append(f"+{healed} HP")
+        if restored:
+            parts.append(f"+{restored} маны")
+        return UseResult(True, 'food',
+                         f"{item['name']}: " + ' и '.join(parts),
+                         healed or restored, item.get('color', (210, 170, 110)))
+
     if kind in ('weapon', 'armor', 'head', 'legs'):
         slot = kind
         if getattr(player, slot) == key:
@@ -472,11 +516,16 @@ def use_item(player, key, monsters=None, on_hit=None):
 def _use_scroll(player, key, item, monsters, on_hit):
     inventory = player.inventory
     effect = item.get('effect')
+    cost = int(item.get('mana_cost', 0) or 0)
+    if getattr(player, 'mana', 0) < cost:
+        return UseResult(False, 'mana',
+                         f"Не хватает маны: нужно {cost}.")
     if effect == 'heal':
         if player.hp >= player.max_hp:
             return UseResult(False, 'full', 'HP уже полное.')
         healed = min(item.get('value', 0), player.max_hp - player.hp)
         player.hp += healed
+        player.mana -= cost
         consume(inventory, key)
         return UseResult(True, 'heal', f"{item['name']}: +{healed} HP", healed)
 
@@ -485,6 +534,7 @@ def _use_scroll(player, key, item, monsters, on_hit):
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для огня.')
         consume(inventory, key)
+        player.mana -= cost
         victims = []
         for monster in list(monsters):
             if monster.hp <= 0:
@@ -509,6 +559,7 @@ def _use_scroll(player, key, item, monsters, on_hit):
                 count += 1
         if count == 0:
             return UseResult(False, 'no_target', 'Рядом нет врагов.')
+        player.mana -= cost
         consume(inventory, key)
         return UseResult(True, 'freeze',
                          f"Заморозка: {count} врагов замедлены.", count,
@@ -547,7 +598,8 @@ def buy_from_stock(stock, index, player):
     if not (0 <= index < len(stock)):
         return False, 'index', 0
     entry = stock[index]
-    if entry.get('sold'):
+    infinite = bool(entry.get('infinite'))
+    if entry.get('sold') and not infinite:
         return False, 'sold', 0
     key, price = entry['key'], entry.get('price', 0)
     base, _ = parse_item_key(key)
@@ -557,7 +609,8 @@ def buy_from_stock(stock, index, player):
         return False, 'gold', price
     player.gold -= price
     player.inventory[key] = player.inventory.get(key, 0) + 1
-    entry['sold'] = True
+    if not infinite:
+        entry['sold'] = True
     return True, 'ok', price
 
 

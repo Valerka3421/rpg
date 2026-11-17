@@ -135,6 +135,7 @@ class GameCore:
     def _player_to_dict(self, p):
         return {
             'x': p.x, 'y': p.y, 'hp': p.hp,
+            'mana': getattr(p, 'mana', 0),
             'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
             'free_points': p.free_points,
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
@@ -180,6 +181,7 @@ class GameCore:
         p.statuses = dict(d.get('statuses', {}))
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
+        p.mana = min(int(d.get('mana', p.max_mana)), p.max_mana)
         p.anim_time = 0.0
         p.attack_anim = 0.0
         p.facing = (1, 0)

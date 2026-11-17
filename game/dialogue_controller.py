@@ -1,5 +1,6 @@
-"""Диалоги с NPC: Старейшина, Торговец."""
+"""Диалоги с NPC: Старейшина, Торговец, горожане."""
 from core import config
+from core.data import is_city_shop_npc
 import pygame
 
 
@@ -20,6 +21,34 @@ LORE_MERCHANT = [
     "Редкие предметы сверкают цветом. Красный — эпический!",
     "Продавай мне ненужное — я дам честную цену.",
 ]
+
+# Горожане
+LORE_CITY = {
+    'guard': [
+        "Ворота под присмотром. Ни один монстр не пройдёт.",
+        "Держись в пяти шагах — достану любого, кто сунется к стене.",
+        "Кузнец, алхимик и трактирщик — на площади. Заходи, не стесняйся.",
+        "За стеной лес, а в лесу зверьё. Не отходи далеко без оружия.",
+    ],
+    'blacksmith': [
+        "Железо, сталь, мифрил — всё, что нужно для доброго клинка.",
+        "Слитки дешевле руды: не трать время на плавку.",
+        "Принеси шкуру или клык — сделаю оружие под тебя.",
+        "Хороший молот бьёт один раз, но наверняка.",
+    ],
+    'alchemist': [
+        "Зелья лечения и маны — свежие, с самой башни.",
+        "Мана нужна свиткам и рунам. Без неё магия — просто бумага.",
+        "Компот из ягод и грибы тоже восстанавливают силы.",
+        "Не пей всё сразу: до дна бездны ещё дойти надо.",
+    ],
+    'innkeeper': [
+        "Горячее жаркое, компот и грибы — садись, отдохни.",
+        "Еда сытнее зелий и дешевле. Бери в дорогу.",
+        "Оленина, кабанина, медвежатина — мясо нынче свежее.",
+        "Странник без ужина — плохой странник.",
+    ],
+}
 
 
 class DialogueController:
@@ -56,6 +85,15 @@ class DialogueController:
                 self.options.append(('quests', 'Квесты'))
             self.options.append(('close', 'Уйти'))
             self.current_line = LORE_MERCHANT[0]
+        elif npc_type in LORE_CITY:
+            if is_city_shop_npc(npc_type):
+                self.options = [('shop', 'Торговля'),
+                                ('talk', 'Поговорить'),
+                                ('close', 'Уйти')]
+            else:
+                self.options = [('talk', 'Поговорить'),
+                                ('close', 'Уйти')]
+            self.current_line = LORE_CITY[npc_type][0]
         elif npc_type == 'quest_board':
             self.board_quests = []
             self._refresh_board()
@@ -70,7 +108,14 @@ class DialogueController:
         if choice == 'close':
             self.game.screen_mode = 'game'
         elif choice == 'shop':
-            self.game.shop.open()
+            if is_city_shop_npc(self.npc_type):
+                opener = getattr(self.game, 'open_city_shop', None)
+                if opener is not None:
+                    opener(self.npc_type)
+                else:
+                    self.game.shop.open(self.npc_type)
+            else:
+                self.game.shop.open()
         elif choice == 'quests':
             self.game.quests.open()
         elif choice == 'talk':
@@ -111,7 +156,9 @@ class DialogueController:
 
     def _talk_lore(self):
         """Прокрутить реплику в панели диалога."""
-        if self.npc_type == 'elder':
+        if self.npc_type in LORE_CITY:
+            lines = LORE_CITY[self.npc_type]
+        elif self.npc_type == 'elder':
             lines = LORE_ELDER
         else:
             lines = LORE_MERCHANT

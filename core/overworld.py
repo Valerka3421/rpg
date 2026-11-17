@@ -1,14 +1,14 @@
-"""Раскладка поверхности: деревня в центре, восемь лесных краёв вокруг
+"""Раскладка поверхности: город в центре, восемь лесных краёв вокруг
 и Деревня гоблинов на востоке.
 
 Исторический мир 100×70 делится на сетку 3×3. Центральная клетка —
-деревня Этельгард, восемь внешних — разные лесные/каменные биомы. В
+город Этельгард, восемь внешних — разные лесные/каменные биомы. В
 северо-восточном крае находится вход в подземелье. Карта расширена вправо
 до 140 клеток, но границы старых биомов зафиксированы, чтобы их
 координаты не «уезжали» при изменении MAP_W.
 
 Модуль не генерирует карту, а только описывает раскладку. Им пользуются
-и генератор мира, и рендерер — поэтому деревни, дороги и биомы выглядят
+и генератор мира, и рендерер — поэтому город, дороги и биомы выглядят
 одинаково в одиночной и мультиплеерной игре.
 """
 from core.config import MAP_H
@@ -30,12 +30,49 @@ VILLAGE_RECT = (REGION_X[1] + 1, REGION_Y[1] + 1,
 WELL_POS = (VILLAGE_CENTER[0], VILLAGE_CENTER[1] - 3)
 ELDER_POS = (VILLAGE_CENTER[0] + 2, VILLAGE_CENTER[1])
 
-# Дома деревни — сплошные стены-крыши. Двери не нужны: это декорации,
+# Дома города — сплошные стены-крыши. Двери не нужны: это декорации,
 # а не отдельные интерьеры.
 VILLAGE_HOUSES = (
     (36, 25, 5, 4), (43, 25, 6, 4), (53, 25, 6, 4), (61, 25, 4, 4),
     (36, 40, 5, 4), (44, 40, 6, 4), (54, 40, 6, 4), (61, 40, 4, 4),
 )
+
+# ── Городская стена ──
+# Каменное кольцо идёт по периметру VILLAGE_RECT. Ворота оставлены
+# строго на четырёх дорогах, иначе караванные пути упирались бы в кладку.
+CITY_GATE_WIDTH = 3
+
+
+def _city_wall_cells():
+    vx, vy, vw, vh = VILLAGE_RECT
+    cx, cy = VILLAGE_CENTER
+    half = CITY_GATE_WIDTH // 2
+    cells = set()
+    for x in range(vx, vx + vw):
+        if abs(x - cx) > half:
+            cells.add((x, vy))
+            cells.add((x, vy + vh - 1))
+    for y in range(vy, vy + vh):
+        if abs(y - cy) > half:
+            cells.add((vx, y))
+            cells.add((vx + vw - 1, y))
+    return frozenset(cells)
+
+
+CITY_WALL_CELLS = _city_wall_cells()
+
+# ── Горожане ──
+# Стражник стоит у южных ворот, ремесленники — на площади.
+GUARD_POS = (50, 41)
+BLACKSMITH_POS = (40, 32)
+ALCHEMIST_POS = (60, 32)
+INNKEEPER_POS = (48, 31)
+CITY_NPC_POS = {
+    'guard': GUARD_POS,
+    'blacksmith': BLACKSMITH_POS,
+    'alchemist': ALCHEMIST_POS,
+    'innkeeper': INNKEEPER_POS,
+}
 
 # Восемь внешних регионов, по часовой стрелке от северо-западного.
 BIOME_NAMES = {
@@ -55,7 +92,7 @@ BIOME_TITLES = {
     'dead':   'Мёртвый лес',
 }
 
-VILLAGE_TITLE = 'Деревня Этельгард'
+VILLAGE_TITLE = 'Город Этельгард'
 
 # ── Деревня гоблинов (восточное расширение карты) ──
 GOBLIN_VILLAGE_CENTER = (120, 35)
@@ -118,6 +155,7 @@ def is_torch(x, y):     return (x, y) in VILLAGE_TORCHES
 def is_ruins_pillar(x, y): return (x, y) in RUINS_PILLARS
 def is_goblin_totem(x, y): return (x, y) in GOBLIN_TOTEMS
 def is_goblin_campfire(x, y): return (x, y) == GOBLIN_CAMPFIRE
+def is_city_wall(x, y): return (x, y) in CITY_WALL_CELLS
 
 
 def region_of(x, y):
@@ -141,6 +179,17 @@ def in_village(x, y):
 def in_goblin_village(x, y):
     vx, vy, vw, vh = GOBLIN_VILLAGE_RECT
     return vx <= x < vx + vw and vy <= y < vy + vh
+
+
+def in_city_safe(x, y, margin=0):
+    """Клетка внутри городских стен или в ``margin`` клетках от них.
+
+    Мобы не должны появляться рядом с городом: там живут мирные горожане
+    и стражник, который сразу бьёт всё, что подходит к воротам.
+    """
+    vx, vy, vw, vh = VILLAGE_RECT
+    return (vx - margin <= x <= vx + vw - 1 + margin
+            and vy - margin <= y <= vy + vh - 1 + margin)
 
 
 def biome_at(x, y):
@@ -186,14 +235,30 @@ def is_well(x, y):
     return (x, y) == WELL_POS
 
 
-def village_ground_kind(x, y):
-    """Вид земли в деревне: площадь, дорога или трава."""
+def city_ground_kind(x, y):
+    """Вид земли в городе: площадь, мостовая или трава."""
     cx, cy = VILLAGE_CENTER
     if (x - cx) ** 2 + (y - (cy - 1)) ** 2 <= 16:
-        return 'village_plaza'
+        return 'city_plaza'
     if y in (34, 35, 36) or x in (49, 50, 51):
-        return 'village_path'
-    return 'village_grass'
+        return 'city_path'
+    return 'city_grass'
+
+
+# Историческое имя оставлено для старых сохранений и внешнего кода.
+def village_ground_kind(x, y):
+    return city_ground_kind(x, y)
+
+
+def city_wall_kind(x, y):
+    """Вид стены в городе."""
+    if is_well(x, y):     return 'city_well'
+    if is_statue(x, y):   return 'city_statue'
+    if is_stall(x, y):    return 'city_stall'
+    if is_torch(x, y):    return 'city_torch'
+    if is_city_wall(x, y): return 'city_wall'
+    if in_house(x, y):    return 'city_house'
+    return 'city_wall'
 
 
 def goblin_ground_kind(x, y):
@@ -210,7 +275,7 @@ def ground_kind(x, y):
     if in_goblin_village(x, y):
         return goblin_ground_kind(x, y)
     if in_village(x, y):
-        return village_ground_kind(x, y)
+        return city_ground_kind(x, y)
     if in_dungeon_ruins(x, y):
         return 'dungeon_ruins'          # «рунический пол»
     if is_road(x, y):
@@ -227,10 +292,7 @@ def wall_kind(x, y):
         if is_goblin_totem(x, y):    return 'goblin_totem'
         return 'goblin_hut'
     if in_village(x, y):
-        if is_statue(x, y): return 'village_statue'
-        if is_stall(x, y):  return 'village_stall'
-        if is_torch(x, y):  return 'village_torch_post'
-        return 'village_wall'
+        return city_wall_kind(x, y)
     if x >= LEGACY_MAP_W:
         return 'tree_dark'
     if is_ruins_pillar(x, y):

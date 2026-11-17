@@ -18,6 +18,7 @@ class Entity:
         self.is_npc = False
         self.npc_type = None
         self.ability = ability
+        self.immortal = False
         self.statuses = {}          # {status_key: remaining_turns}
         self.anim_time = 0.0  # накапливается в update
         self.attack_anim = 0.0  # 0..1, убывает после атаки
@@ -91,6 +92,7 @@ class Player(Entity):
 
         return {
             'max_hp': 15 + vit * 2 + hp_extra,
+            'max_mana': 12 + vit // 2 + luk * 2,
             'atk': 2 + str_ // 2 + wb,
             'df': df_st // 2 + ab + hb + lb,
             'dodge': dodge_total,
@@ -132,10 +134,15 @@ class Player(Entity):
         self._w_crit_bonus = 0.0
         self._w_dodge_bonus = 0.0
         self._a_dodge_bonus = 0.0
+        # Мана: ресурс для свитков и рун. Новый герой начинает с полным
+        # запасом, чтобы первый же свиток сработал.
+        self.mana = 0
+        self.max_mana = 0
         self.recalc()
 
     def recalc(self):
         old_max = self.max_hp
+        old_max_mana = self.max_mana
         stats = Player.preview_stats({
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
             'luk': self.luk, 'df_stat': self.df_stat,
@@ -143,6 +150,7 @@ class Player(Entity):
             'head': self.head, 'legs': self.legs,
         })
         self.max_hp = stats['max_hp']
+        self.max_mana = stats['max_mana']
         self.atk = stats['atk']
         self.df = stats['df']
         self._w_crit_bonus = stats['_w_crit_bonus']
@@ -151,6 +159,9 @@ class Player(Entity):
         if self.max_hp > old_max:
             self.hp += (self.max_hp - old_max)
         self.hp = min(self.hp, self.max_hp)
+        if self.max_mana > old_max_mana:
+            self.mana += (self.max_mana - old_max_mana)
+        self.mana = min(self.mana, self.max_mana)
 
     @property
     def dodge(self):

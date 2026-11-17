@@ -17,7 +17,8 @@ from core.config import (
     COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
     COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
 )
-from core.data import BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH
+from core.data import (BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH,
+                       CITY_NPC_NAMES, CITY_NPC_GLYPHS, is_city_shop_npc)
 from core.entities import Player, Entity, Message, FloatText
 from core.world import (generate_dungeon, generate_overworld, place_entry_tile,
                         has_los, compute_fov, bfs_toward_player)
@@ -145,7 +146,9 @@ class Game:
         self._modal_content_rect = (0, 0, 0, 0)
         self._ui_hits = {}
 
-        # Старейшина живёт в деревне, на центральной площади
+        # Старейшина живёт в городе, на центральной площади
+        self.city_npcs = []
+        self.active_shop_npc = None
         self.elder = None
         ex, ey = ov.ELDER_POS
         if (0 <= ex < MAP_W and 0 <= ey < MAP_H
@@ -169,8 +172,12 @@ class Game:
             self.log("Старейшине не нашлось места — поговори с ним позже.", COL_DIM)
 
         self.quest_board = self._spawn_quest_board()
+        self.city_npcs = self._spawn_city_npcs()
+        self._guard_timer = 0.0
         self.update_fov()
-        self.log("Добро пожаловать в деревню Этельгард!", COL_TEXT)
+        self.log("Добро пожаловать в город Этельгард!", COL_TEXT)
+        self.log("Кузнец, алхимик и трактирщик ждут покупателей на площади.",
+                 COL_GOLD)
         self.log("Восемь лесных краёв ждут исследователя. Ищи дороги.", COL_GOLD)
         self.log("Вход в подземелье — на Каменном перевале (северо-восток).",
                  COL_GOLD)
@@ -189,10 +196,38 @@ class Game:
         """Занятые клетки: игрок, NPC, мобы, торговец."""
         occupied = {(self.player.x, self.player.y)}
         occupied.update((m.x, m.y) for m in self.dungeon.monsters if m.hp > 0)
-        for npc in (self.merchant, self.elder):
-            if npc is not None:
-                occupied.add((npc.x, npc.y))
+        for npc in self._all_npcs():
+            occupied.add((npc.x, npc.y))
         return occupied
+
+    def _all_npcs(self):
+        npcs = []
+        if self.merchant is not None:
+            npcs.append(self.merchant)
+        if self.elder is not None:
+            npcs.append(self.elder)
+        # Горожане существуют только на карте города.
+        if (self.world_mode == 'overworld'
+                and getattr(self, 'location', 'village') == 'village'):
+            npcs.extend(getattr(self, 'city_npcs', ()) or ())
+        return npcs
+
+    def npc_blocking_at(self, x, y):
+        for npc in self._all_npcs():
+            if npc.x == x and npc.y == y:
+                return npc
+        return None
+
+    def nearby_city_npc(self):
+        """Горожанин на соседней клетке (для разговора по T)."""
+        if (self.world_mode != 'overworld'
+                or getattr(self, 'location', 'village') != 'village'):
+            return None
+        for npc in getattr(self, 'city_npcs', ()) or ():
+            if max(abs(self.player.x - npc.x),
+                   abs(self.player.y - npc.y)) <= 1:
+                return npc
+        return None
 
     # ════════════════════════ ЛОКАЦИИ ════════════════════════
     def get_location(self, key):
@@ -222,6 +257,7 @@ class Game:
         self.explored = set(self.location_explored.get(key, set()))
         self.merchant = None
         self.shop_stock = []
+        self.active_shop_npc = None
         self.quest_board = None
 
         if entry is None:
@@ -284,6 +320,33 @@ class Game:
                 return e
         return None
 
+    def _spawn_city_npcs(self):
+        """Расставляет горожан по площади и у ворот."""
+        npcs = []
+        occupied = set(self.occupied_tiles())
+        for npc_type, (nx, ny) in ov.CITY_NPC_POS.items():
+            name = CITY_NPC_NAMES.get(npc_type, npc_type)
+            ch, color = CITY_NPC_GLYPHS.get(npc_type, ('?', (200, 200, 200)))
+            tx, ty = nx, ny
+            tile_ok = (0 <= tx < self.overworld.w and 0 <= ty < self.overworld.h
+                       and self.overworld.tiles[ty][tx] == Tile.FLOOR)
+            if not tile_ok or (tx, ty) in occupied:
+                spot = rules.find_free_tile(self.overworld, nx, ny, occupied)
+                if not spot:
+                    continue
+                tx, ty = spot
+            atk = 3 if npc_type == 'guard' else 0
+            e = Entity(tx, ty, 1, 1, atk, 0, name, ch, color, 0)
+            e.is_npc = True
+            e.npc_type = npc_type
+            if npc_type == 'guard':
+                # Стражник бессмертен: мобы его не убивают, а урон низкий.
+                e.immortal = True
+                e.hp = e.max_hp = 9999
+            npcs.append(e)
+            occupied.add((tx, ty))
+        return npcs
+
     def log(self, msg, color=COL_TEXT):
         self.messages.append(Message(msg, color))
         if len(self.messages) > 50:
@@ -326,6 +389,7 @@ class Game:
         self.visible = set()
         self.merchant = None
         self.shop_stock = []
+        self.active_shop_npc = None
 
         # Спавн рядом со входом в подземелье (если он на этой карте),
         # иначе — в центре деревни / у врат локации.
@@ -508,6 +572,8 @@ class Game:
                 'boss_kills': self.boss_kills,
             },
             'elder': entity_to_dict(self.elder) if self.elder else None,
+            'city_npcs': [entity_to_dict(n)
+                          for n in getattr(self, 'city_npcs', [])],
         }
         tmp = path + '.tmp'
         try:
@@ -595,6 +661,7 @@ class Game:
                     self.location, self.explored)
                 self.merchant = None
                 self.shop_stock = []
+                self.active_shop_npc = None
                 self.overworld_explored = set(self.explored)
 
             if self.elder is None:
@@ -633,6 +700,18 @@ class Game:
             if data.get('elder'):
                 self.elder = entity_from_dict(data['elder'])
 
+            if data.get('city_npcs') is not None:
+                self.city_npcs = [entity_from_dict(n)
+                                  for n in data['city_npcs']]
+                for npc in self.city_npcs:
+                    if npc.npc_type == 'guard':
+                        npc.immortal = True
+                        npc.hp = npc.max_hp = 9999
+            else:
+                self.city_npcs = self._spawn_city_npcs()
+            self.active_shop_npc = None
+            self._guard_timer = 0.0
+
             self.player_move_timer = 0.0
             self.player_attack_timer = 0.0
             self.status_tick_timer = STATUS_TICK_INTERVAL
@@ -652,11 +731,7 @@ class Game:
         nx, ny = self.player.x + dx, self.player.y + dy
         if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
             return False
-        if self.merchant and nx == self.merchant.x and ny == self.merchant.y:
-            return False
-        if (self.world_mode == 'overworld' and self.location == 'village'
-                and self.elder
-                and nx == self.elder.x and ny == self.elder.y):
+        if self.npc_blocking_at(nx, ny):
             return False
         target = next((m for m in self.dungeon.monsters
                        if m.x == nx and m.y == ny and m.hp > 0), None)
@@ -818,6 +893,16 @@ class Game:
                 self.total_potions_used += 1
             self.log(result.message, COL_HEAL)
             self.add_float(self.player.x, self.player.y, f"+{result.amount}", COL_HEAL)
+        elif result.kind == 'mana':
+            Audio.play('heal')
+            self.log(result.message, (150, 190, 255))
+            self.add_float(self.player.x, self.player.y, f"+{result.amount}",
+                           (150, 190, 255))
+        elif result.kind == 'food':
+            Audio.play('heal')
+            self.log(result.message, result.color)
+            self.add_float(self.player.x, self.player.y, f"+{result.amount}",
+                           result.color)
         elif result.kind == 'equip':
             self.log(result.message, result.color)
         elif result.kind == 'book':
@@ -1011,6 +1096,39 @@ class Game:
         self.add_float(p.x, p.y - n * 0.8, f"LVL {level}", COL_GOLD)
 
     # ════════════════════════ AI ════════════════════════
+    def _update_city_guard(self, dt):
+        """Стражник у ворот бьёт мобов в радиусе 5 клеток. Без XP/лута."""
+        if (self.world_mode != 'overworld'
+                or getattr(self, 'location', 'village') != 'village'):
+            return
+        guard = next((n for n in getattr(self, 'city_npcs', ())
+                      if n.npc_type == 'guard'), None)
+        if guard is None:
+            return
+        self._guard_timer = max(0.0, getattr(self, '_guard_timer', 0.0) - dt)
+        if self._guard_timer > 0:
+            return
+        target, best = None, 99
+        for m in self.dungeon.monsters:
+            if m.hp <= 0:
+                continue
+            dist = max(abs(m.x - guard.x), abs(m.y - guard.y))
+            if dist <= 5 and dist < best:
+                target, best = m, dist
+        if target is None:
+            return
+        self._guard_timer = 0.8
+        guard.attack_anim = 1.0
+        rules.face_towards(guard, target)
+        damage = max(1, guard.atk)
+        target.hp -= damage
+        self.add_float(target.x, target.y, f"-{damage}", COL_DMG)
+        if target.hp <= 0:
+            if target in self.dungeon.monsters:
+                self.dungeon.monsters.remove(target)
+            self.log(f"Стражник сразил {target.name}.", COL_DIM)
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
+
     def monsters_turn(self):
         """Все мобы действуют (используется тестами и как «полный ход»)."""
         for m in list(self.dungeon.monsters):
@@ -1191,14 +1309,7 @@ class Game:
             return False
         if x == self.player.x and y == self.player.y:
             return False
-        # Торговец — только в подземелье
-        if (self.world_mode == 'dungeon' and self.merchant
-                and x == self.merchant.x and y == self.merchant.y):
-            return False
-        # Старейшина — только в деревне
-        if (self.world_mode == 'overworld' and self.location == 'village'
-                and self.elder
-                and x == self.elder.x and y == self.elder.y):
+        if self.npc_blocking_at(x, y):
             return False
         # Другие мобы
         for o in self.dungeon.monsters:
@@ -1300,6 +1411,10 @@ class Game:
                     and max(abs(self.player.x - self.elder.x),
                             abs(self.player.y - self.elder.y)) <= 1):
                 self.dialogue.open('elder')
+                return
+            city_npc = self.nearby_city_npc()
+            if city_npc is not None:
+                self.dialogue.open(city_npc.npc_type)
                 return
             if (self.world_mode == 'dungeon' and self.merchant
                     and max(abs(self.player.x - self.merchant.x),
@@ -1403,6 +1518,15 @@ class Game:
             else:
                 self.log("Подойди ближе.", COL_DIM)
             return True
+        if (self.world_mode == 'overworld' and self.location == 'village'):
+            clicked = next((n for n in getattr(self, 'city_npcs', ())
+                            if (n.x, n.y) == (tx, ty)), None)
+            if clicked is not None and (tx, ty) in self.visible:
+                if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
+                    self.dialogue.open(clicked.npc_type)
+                else:
+                    self.log("Подойди ближе.", COL_DIM)
+                return True
         if (self.world_mode == 'dungeon' and self.merchant
                 and (tx, ty) == (self.merchant.x, self.merchant.y)
                 and (tx, ty) in self.visible):
@@ -1579,6 +1703,25 @@ class Game:
             return
         self.shop.open()
 
+    def open_city_shop(self, npc_type=None):
+        """Открывает магазин горожанина (кузнец/алхимик/трактирщик)."""
+        if npc_type is None:
+            npc_type = getattr(self, 'active_shop_npc', None)
+        if not is_city_shop_npc(npc_type):
+            self.shop.open()
+            return
+        npc = next((n for n in getattr(self, 'city_npcs', ())
+                    if n.npc_type == npc_type), None)
+        if npc is None:
+            self.log("Торговца нет на месте.", COL_DIM)
+            return
+        if (self.world_mode != 'overworld' or self.location != 'village'
+                or max(abs(self.player.x - npc.x),
+                       abs(self.player.y - npc.y)) > 1):
+            self.log("Подойди ближе к торговцу.", COL_DIM)
+            return
+        self.shop.open(npc_type)
+
     def buy_item(self, idx):
         self.shop.buy(idx)
 
@@ -1639,6 +1782,10 @@ class Game:
             self.merchant.anim_time += dt
         if self.elder:
             self.elder.anim_time += dt
+        for npc in getattr(self, 'city_npcs', ()) or ():
+            npc.anim_time += dt
+            if npc.attack_anim > 0:
+                npc.attack_anim = max(0.0, npc.attack_anim - dt / 0.25)
         for m in self.dungeon.monsters:
             m.anim_time += dt
             if m.attack_anim > 0:
@@ -1691,6 +1838,10 @@ class Game:
 
         # Ходы мобов: у каждого свой таймер (без синхронного «залпа»)
         self.monsters_update(dt)
+        if self.dead:
+            return
+        # Стражник города бьёт мобов, подошедших к воротам.
+        self._update_city_guard(dt)
         if self.dead:
             return
         # FOV уже пересчитан выше при смене позиции игрока. Мобы и статусы

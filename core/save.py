@@ -37,6 +37,7 @@ def entity_from_dict(d):
 def player_to_dict(p):
     return {
         'x': p.x, 'y': p.y, 'hp': p.hp,
+        'mana': getattr(p, 'mana', 0),
         'class_key': getattr(p, 'class_key', 'default'),
         'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
         'free_points': p.free_points,
@@ -84,6 +85,8 @@ def player_from_dict(d):
     p.statuses = dict(d.get('statuses', {}))
     p.recalc()
     p.hp = min(d['hp'], p.max_hp)
+    # Мана появилась в v8. Старые сейвы получают полный запас.
+    p.mana = min(int(d.get('mana', p.max_mana)), p.max_mana)
     return p
 
 
