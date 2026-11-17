@@ -80,6 +80,8 @@ def face_towards(attacker, defender):
 
 def resolve_attack(attacker, defender):
     """Один удар. Меняет HP/статусы и возвращает факты о бое."""
+    god = isinstance(defender, Player) and getattr(defender, 'god_mode',
+                                                    False)
     if isinstance(defender, Player) and random.random() < defender.dodge:
         return AttackResult(dodged=True)
 
@@ -90,6 +92,9 @@ def resolve_attack(attacker, defender):
     damage = max(1, atk - defender.df + random.randint(-1, 1))
     if crit:
         damage = int(damage * 1.5)
+    # Консоль разработчика: режим бессмертия.
+    if god:
+        damage = 0
     defender.hp -= damage
 
     attacker.attack_anim = 1.0
@@ -203,6 +208,8 @@ def boss_breath_tick(boss, target, distance, dt):
         return 0
     boss.breath_timer = BOSS_BREATH_INTERVAL
     damage = max(1, int(boss.atk * BOSS_BREATH_POWER) - target.df)
+    if isinstance(target, Player) and getattr(target, 'god_mode', False):
+        damage = 0
     target.hp -= damage
     return damage
 
@@ -230,7 +237,8 @@ def tick_statuses(entity, heal=True):
             continue
         damage = 0
         healed = 0
-        if info['damage'] > 0:
+        god = isinstance(entity, Player) and getattr(entity, 'god_mode', False)
+        if info['damage'] > 0 and not god:
             damage = info['damage']
             entity.hp -= damage
         if heal and info['heal'] > 0:
