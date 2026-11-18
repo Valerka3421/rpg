@@ -197,7 +197,7 @@ def _build_goblin_village(d):
         d.tiles[ty][tx] = Tile.WALL
 
 
-def generate_overworld():
+def generate_overworld() -> Dungeon:
     """Поверхность: деревня в центре, 8 биомов и вход в подземелье."""
     d = Dungeon(MAP_W, MAP_H)
     for y in range(MAP_H):
@@ -483,7 +483,7 @@ def clear_boss_barriers(d):
     return changed
 
 
-def generate_dungeon(depth, _attempt=0):
+def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
     """Переписанная генерация подземелья.
 
     Изменения относительно старой версии:
@@ -711,7 +711,8 @@ def _all_rooms_connected(d, rooms):
 
 
 # ════════════════════ LOS / FOV / BFS ════════════════════
-def compute_fov(d, px, py, radius=FOV_RADIUS):
+def compute_fov(d: Dungeon, px: int, py: int,
+                 radius: int = FOV_RADIUS) -> set:
     """Per-cell Bresenham FOV с поддержкой отключения тумана войны.
 
     Если ``config.FOG_OF_WAR_ENABLED = False`` — возвращает все проходимые
@@ -749,7 +750,7 @@ def compute_fov(d, px, py, radius=FOV_RADIUS):
     return vis
 
 
-def has_los(d, x0, y0, x1, y1):
+def has_los(d: Dungeon, x0: int, y0: int, x1: int, y1: int) -> bool:
     """Bresenham — оставляем для прямой видимости (ИИ мобов)."""
     dx, dy = abs(x1 - x0), abs(y1 - y0)
     x, y = x0, y0

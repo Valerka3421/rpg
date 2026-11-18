@@ -16,13 +16,24 @@ pygame.init()
 pygame.font.init()
 
 from core import config
-config.set_resolution(1280, 720)
+# Важно: НЕ модифицируем глобальный config.SCREEN_W при импорте —
+# это портит другие тесты (например, test_promotion_nodes_live_inside_class_tree,
+# который зависит от дефолтного 1600x900). Вместо этого — fixture с teardown.
+_ORIG_W, _ORIG_H = config.SCREEN_W, config.SCREEN_H
 
 from core.entities import Player
 from core.world import generate_overworld, generate_dungeon, compute_fov
 from core.rules import resolve_attack
 from core.save import dungeon_to_dict, dungeon_from_dict
 import json
+
+
+@pytest.fixture(autouse=True)
+def _benchmark_resolution():
+    """На время benchmark-тестов ставим 1280×720, после — восстанавливаем."""
+    config.set_resolution(1280, 720)
+    yield
+    config.set_resolution(_ORIG_W, _ORIG_H)
 
 
 @pytest.fixture

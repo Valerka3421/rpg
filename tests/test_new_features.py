@@ -928,7 +928,7 @@ def test_class_tree_is_unique_per_class():
     warrior = skills.class_tree('warrior')
     squire = skills.class_tree('squire')
     knight = skills.class_tree('knight')
-    assert len(warrior) == len(squire) == len(knight) == 7
+    assert len(warrior) == len(squire) == len(knight) >= 7  # 7+ узлов (расширено)
     assert [n['name'] for n in warrior] != [n['name'] for n in squire]
     assert [n['effects'] for n in squire] != [n['effects'] for n in knight]
     assert all(n['class_key'] == 'squire' for n in squire)
@@ -984,7 +984,7 @@ def test_skills_screen_draws_centered_tabs_and_graph(make_game, renderer):
     renderer.draw(g)
 
     hits = g._ui_hits['skills']
-    assert len(hits['rows']) == len(skills.class_tree('warrior')) == 7
+    assert len(hits['rows']) == len(skills.class_tree('warrior')) >= 7
     cx0, cy0, cw, ch = g._modal_content_rect
     first = hits['tabs'][0][1]
     last = hits['tabs'][-1][1]

@@ -1199,12 +1199,17 @@ def test_ranged_monster_attacks_from_distance(make_game):
     for x in (px + 1, px + 2, px + 3):
         g.dungeon.tiles[py][x] = Tile.FLOOR
     archer = Entity(px + 3, py, 10, 10, 3, 0,
-                    "Р›СѓС‡РЅРёРє", "a", (150,200,100), 5, ability='ranged')
+                    "Лучник", "a", (150,200,100), 5, ability='ranged')
     g.dungeon.monsters = [archer]
     hp_before = g.player.hp
     with patch('game.game.random.random', return_value=0.5):
         g.monsters_turn()
-    assert g.player.hp < hp_before
+    # monsters_turn создаёт Projectile, но не двигает его.
+    # Урон applied когда снаряд долетит — в update_projectiles (через update(dt)).
+    # Даём достаточно времени (1 сек) чтобы снаряд долетел.
+    g.update(1.0)
+    assert g.player.hp < hp_before, \
+        f"HP unchanged: {g.player.hp} (projectiles: {len(g.projectiles)})"
 
 
 def test_healer_heals_ally(make_game):
@@ -1402,6 +1407,21 @@ def test_minimap_toggle(make_game, monkeypatch):
     initial = g.settings.get('show_minimap', True)
     g.handle_key(pygame.K_m)
     assert g.settings['show_minimap'] != initial
+
+
+def test_bigmap_open_close(make_game):
+    """B в game-режиме открывает большую карту, повторная B — закрывает."""
+    g = make_game()
+    g.screen_mode = 'game'
+    g.handle_key(pygame.K_b)
+    assert g.screen_mode == 'bigmap'
+    # Повторная B в bigmap — закрывает обратно в game
+    g.handle_key(pygame.K_b)
+    assert g.screen_mode == 'game'
+    # Esc тоже закрывает
+    g.screen_mode = 'bigmap'
+    g.handle_key(pygame.K_ESCAPE)
+    assert g.screen_mode == 'game'
 
 def test_quest_log_init(make_game):
     """Старт — никаких квестов, пока не поговорил с NPC."""

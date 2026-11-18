@@ -11,7 +11,7 @@ from core.entities import Entity, Player, Room, Dungeon
 
 
 # ── Базовые сериализаторы ──
-def entity_to_dict(e):
+def entity_to_dict(e: Entity) -> dict:
     return {
         'x': e.x, 'y': e.y, 'hp': e.hp, 'max_hp': e.max_hp,
         'atk': e.atk, 'df': e.df,
@@ -24,7 +24,7 @@ def entity_to_dict(e):
         'npc_type': e.npc_type,
     }
 
-def entity_from_dict(d):
+def entity_from_dict(d: dict) -> Entity:
     e = Entity(d['x'], d['y'], d['hp'], d['max_hp'], d['atk'], d['df'],
                d['name'], d['ch'], tuple(d['color']), d['xp_value'],
                d['boss'], ability=d.get('ability'))
@@ -34,7 +34,7 @@ def entity_from_dict(d):
     e.npc_type = d.get('npc_type')
     return e
 
-def player_to_dict(p):
+def player_to_dict(p: Player) -> dict:
     return {
         'x': p.x, 'y': p.y, 'hp': p.hp, 'mana': getattr(p, 'mana', 0),
         'class_key': getattr(p, 'class_key', 'default'),
@@ -69,7 +69,7 @@ def player_to_dict(p):
     }
 
 
-def player_from_dict(d):
+def player_from_dict(d: dict) -> Player:
     from core import skills
     p = Player(class_key=d.get('class_key', 'default'))
     p.x, p.y = d['x'], d['y']
@@ -141,7 +141,7 @@ def player_from_dict(d):
     return p
 
 
-def dungeon_to_dict(d):
+def dungeon_to_dict(d: Dungeon) -> dict:
     """Тайлы пишутся строками цифр — компактнее вложенных списков int."""
     from core.harvest import serialize as harvest_serialize
     return {
@@ -180,7 +180,7 @@ def _decode_tiles(rows):
     return tiles
 
 
-def dungeon_from_dict(d, is_overworld=False, is_location=False):
+def dungeon_from_dict(d: dict, is_overworld: bool = False, is_location: bool = False) -> Dungeon:
     rows = _decode_tiles(d['tiles'])
     old_h = len(rows)
     old_w = max((len(r) for r in rows), default=0)
@@ -311,7 +311,7 @@ def dungeon_cache_from_dict(data):
 
 
 # ── Слоты ──
-def save_slot_path(slot):
+def save_slot_path(slot: int) -> str:
     return os.path.join(BASE_DIR, f'savegame_{slot}.json')
 
 

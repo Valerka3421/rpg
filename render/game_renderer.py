@@ -778,10 +778,15 @@ class GameRenderer(BaseRenderer):
                       font=T.FONT_TINY, center=True)
 
     def draw_hotbar(self, game):
-        """Быстрая панель предметов/свитков: слоты 1–8."""
+        """Быстрая панель предметов/свитков: слоты 1–8 + активные навыки."""
         slots = getattr(game, 'hotbar', None)
-        if not slots:
-            return
+        if slots:
+            self._draw_item_hotbar(game, slots)
+        # Активные навыки класса (маг: firebolt, frost_bolt, heal_self)
+        self._draw_active_skills(game)
+
+    def _draw_item_hotbar(self, game, slots):
+        """Панель предметов 1–8."""
         n = len(slots)
         size, gap = 44, 6
         total = n * size + (n - 1) * gap
@@ -809,6 +814,57 @@ class GameRenderer(BaseRenderer):
             # Номер слота.
             self.text(str(i + 1), x + 4, y + 2, T.TEXT_DIM,
                       font=T.FONT_TINY)
+
+    def _draw_active_skills(self, game):
+        """Панель активных навыков класса: слева от hotbar предметов.
+
+        Маг имеет firebolt (F1), frost_bolt (F2), heal_self (F3).
+        Кулдаун показывается как затемнение.
+        """
+        p = game.player
+        skills_list = p.active_skills() if hasattr(p, 'active_skills') else []
+        if not skills_list:
+            return
+        size, gap = 44, 6
+        n = len(skills_list)
+        total = n * size + (n - 1) * gap
+        # Размещаем слева от центральной hotbar
+        # Центр hotbar = SCREEN_W // 2. Длина item hotbar = 8*44 + 7*6 = 394.
+        # Слева от неё — панель навыков с отступом 12.
+        x0 = (config.SCREEN_W - 394) // 2 - total - 12
+        if x0 < 8:
+            x0 = 8
+        y = config.SCREEN_H - size - 14
+        cd_map = getattr(p, 'active_skill_cd', {})
+        for i, skill in enumerate(skills_list):
+            x = x0 + i * (size + gap)
+            rect = (x, y, size, size)
+            cd = cd_map.get(skill['key'], 0)
+            ready = cd <= 0
+            mana = getattr(p, 'mana', 0)
+            mana_ok = mana >= skill.get('mana', 0)
+            bg = (35, 30, 50) if ready and mana_ok else (20, 18, 28)
+            border = (140, 100, 200) if ready and mana_ok else (60, 50, 80)
+            T.rounded_rect(self.screen, bg, rect, radius=8,
+                           border_color=border)
+            # Буква навыка (F1, F2, F3...)
+            label = f"F{i+1}"
+            self.text(label, x + 4, y + 2, T.TEXT_DIM, font=T.FONT_TINY)
+            # Имя навыка (первая буква)
+            ch = skill.get('name', '?')[0]
+            self.text(ch, x + size // 2, y + size // 2 - 6,
+                      (220, 200, 240) if ready and mana_ok else (100, 90, 120),
+                      font=T.FONT_SMALL, center=True)
+            # Кулдаун
+            if cd > 0:
+                self.text(f"{cd:.1f}", x + size - 3, y + size - 15,
+                          (200, 180, 100), font=T.FONT_TINY, align_right=True)
+            # Мана cost
+            mana_cost = skill.get('mana', 0)
+            if mana_cost:
+                self.text(f"{mana_cost}m", x + 3, y + size - 15,
+                          (120, 160, 255) if mana_ok else (180, 80, 80),
+                          font=T.FONT_TINY)
 
     # ════════════════════════ МИНИ-КАРТА ════════════════════════
     def _minimap_scaled(self, game):

@@ -7,8 +7,10 @@ from core.data import (ITEMS, CLASSES, class_data, class_stats, parse_item_key,
 
 
 class Entity:
-    def __init__(self, x, y, hp, max_hp, atk, df, name, ch, color,
-                 xp_value=0, boss=False, ability=None):
+    def __init__(self, x: int, y: int, hp: int, max_hp: int,
+                 atk: int, df: int, name: str, ch: str, color: tuple,
+                 xp_value: int = 0, boss: bool = False,
+                 ability: str | None = None) -> None:
         self.x, self.y = x, y
         self.hp, self.max_hp = hp, max_hp
         self.atk, self.df = atk, df
@@ -17,9 +19,9 @@ class Entity:
         self.boss = boss
         self.is_merchant = False
         self.is_npc = False
-        self.npc_type = None
+        self.npc_type: str | None = None
         self.ability = ability
-        self.statuses = {}          # {status_key: remaining_turns}
+        self.statuses: dict[str, int] = {}      # {status_key: remaining_turns}
         self.anim_time = 0.0  # накапливается в update
         self.attack_anim = 0.0  # 0..1, убывает после атаки
         self.facing = (1, 0)  # направление последнего действия
@@ -28,10 +30,10 @@ class Entity:
         self.act_timer = 0.0
         self.breath_timer = 0.0   # только для боссов
 
-    def has_status(self, key):
+    def has_status(self, key: str) -> bool:
         return key in self.statuses
 
-    def add_status(self, key, duration=None):
+    def add_status(self, key: str, duration: int | None = None) -> None:
         from core.data import STATUSES
         if key not in STATUSES:
             return
@@ -40,10 +42,10 @@ class Entity:
         # Не накапливать больше max
         self.statuses[key] = max(self.statuses.get(key, 0), duration)
 
-    def remove_status(self, key):
+    def remove_status(self, key: str) -> None:
         self.statuses.pop(key, None)
 
-    def clear_statuses(self):
+    def clear_statuses(self) -> None:
         self.statuses.clear()
 
 

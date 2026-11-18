@@ -226,8 +226,10 @@ def road_cells(key):
         elif key == 'mine':
             cached = _l_path((60, 60), (60, LOCATION_H - 4))
         elif key == 'goblin_village':
-            cached = _l_path(LOCAL_GOBLIN_CENTER,
-                             (LOCAL_GOBLIN_CENTER[0], 4))
+            # Дороги в goblin_village не заданы — раньше_items_on_road
+            # падало из-за рассинхрона с core/world.py ROAD_SEGMENTS.
+            # Возвращаем пустое множество: спавн разрешён везде в локации.
+            cached = set()
         else:
             cached = set()
             center = (LOCATION_W // 2, LOCATION_H // 2)

@@ -283,6 +283,15 @@ class Server:
                                 except Exception as e:
                                     print(f"[SERVER] save error: {e}")
                             continue
+                        # P3: HMAC verification — если у клиента есть
+                        # сессионный ключ, проверяем подпись сообщения.
+                        session_key = self.session_keys.get(pid)
+                        if session_key and msg.get('type') not in ('hello',):
+                            sig = msg.pop('sig', None)
+                            if sig and not config.verify_message_hmac(
+                                    session_key, msg, sig):
+                                print(f"[SERVER] drop {pid}: bad HMAC")
+                                break
                         with self.lock:
                             self.core.apply_input(pid, msg)
                     except Exception as e:
