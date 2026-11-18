@@ -4,11 +4,9 @@
 цвета камня/травы/дерева, палитры биомов и базовые примитивы
 (_new, _clamp, _grime, _chip, _crack).
 """
-import math
 
 import pygame
 
-from render import textures
 
 SIZE = 64
 

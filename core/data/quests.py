@@ -1,4 +1,8 @@
 """Квесты и доска поручений."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import random
 from dataclasses import dataclass
 
@@ -62,7 +66,7 @@ QUESTS = {
 }
 
 
-def quests_by_giver(giver):
+def quests_by_giver(giver: Any) -> Any: 
     """Список ключей квестов, которые выдаёт NPC."""
     return [k for k, q in QUESTS.items() if q.get('giver') == giver]
 
@@ -81,26 +85,26 @@ class ItemInstance:
     base: str
     rarity: int = 0
 
-    def key(self):
+    def key(self: Any) -> Any: 
         return make_loot_key(self.base, self.rarity)
 
-    def __str__(self):
+    def __str__(self: Any) -> Any: 
         return self.key()
 
-    def data(self):
+    def data(self: Any) -> Any: 
         return ITEMS.get(self.base, {})
 
-    def display_name(self):
+    def display_name(self: Any) -> Any: 
         return item_display_name(self.key())
 
-    def display_color(self):
+    def display_color(self: Any) -> Any: 
         return item_display_color(self.key())
 
-    def sell_price(self):
+    def sell_price(self: Any) -> Any: 
         return item_sell_price(self.key())
 
     @classmethod
-    def from_key(cls, full_key):
+    def from_key(cls: Any, full_key: Any) -> Any: 
         base, rarity = parse_item_key(full_key)
         return cls(base or '', rarity)
 
@@ -109,7 +113,7 @@ class ItemInstance:
 BOARD_BOSS_FLOORS = {5: 'G', 10: 'L', 15: 'V', 20: 'A'}
 
 
-def _board_monsters_for(dmin, dmax):
+def _board_monsters_for(dmin: Any, dmax: Any) -> Any: 
     res = [k for k, m in MONSTERS.items()
            if dmin <= m['min_depth'] <= dmax
            and not m.get('overworld_only')]
@@ -119,7 +123,7 @@ def _board_monsters_for(dmin, dmax):
     return res
 
 
-def _board_collect_targets(dmin, dmax):
+def _board_collect_targets(dmin: Any, dmax: Any) -> Any: 
     chars = {MONSTERS[k]['ch'] for k in _board_monsters_for(dmin, dmax)
              if k in MONSTERS}
     targets = set()
@@ -131,7 +135,7 @@ def _board_collect_targets(dmin, dmax):
     return sorted(targets)
 
 
-def _make_board_quest(dmin, dmax, seed):
+def _make_board_quest(dmin: Any, dmax: Any, seed: Any) -> Any: 
     r = random.Random(seed)
 
     # Boss-охота
@@ -191,7 +195,7 @@ def _make_board_quest(dmin, dmax, seed):
     }
 
 
-def generate_board_quests(dmin, dmax, count=3, base_seed=0):
+def generate_board_quests(dmin: Any, dmax: Any, count: Any = 3, base_seed: Any = 0) -> Any: 
     dmin = max(0, dmin); dmax = min(20, dmax)
     out, seen = [], set()
     for i in range(count * 4):

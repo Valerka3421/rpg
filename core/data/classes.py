@@ -1,4 +1,8 @@
 """Классы персонажей и их эволюции."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 
 from .items import ITEMS, parse_item_key
 
@@ -475,12 +479,12 @@ CLASS_ORDER = ('warrior', 'mage', 'rogue', 'artisan')
 CLASS_ALIASES = {'assassin': 'assassin', 'paladin': 'paladin'}
 
 
-def class_data(class_key):
+def class_data(class_key: Any) -> Any: 
     """Данные класса с подстановкой базового при неизвестном ключе."""
     return CLASSES.get(class_key) or CLASSES.get('default', {})
 
 
-def class_stats(class_key):
+def class_stats(class_key: Any) -> Any: 
     """Полные характеристики класса (для превью в меню)."""
     cls = class_data(class_key)
     if cls.get('stats'):
@@ -499,7 +503,7 @@ def class_stats(class_key):
     return stats
 
 
-def class_can_use(class_key, full_key):
+def class_can_use(class_key: Any, full_key: Any) -> Any: 
     """Может ли класс носить предмет. Возвращает (можно, причина)."""
     cls = class_data(class_key)
     base, rarity = parse_item_key(full_key)

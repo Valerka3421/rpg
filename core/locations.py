@@ -10,6 +10,7 @@
 поэтому при возвращении локация выглядит ровно так, как её оставили.
 """
 from __future__ import annotations
+from typing import Any, Optional
 
 import random
 from collections import deque
@@ -35,7 +36,7 @@ VILLAGE_GATES = {
 }
 
 
-def _village_inward(gate):
+def _village_inward(gate: Any) -> Any: 
     """Клетка сразу внутри деревни, рядом с вратами."""
     gx, gy = gate
     cx, cy = ov.VILLAGE_CENTER
@@ -47,7 +48,7 @@ def _village_inward(gate):
 VILLAGE_INWARD = {k: _village_inward(v) for k, v in VILLAGE_GATES.items()}
 
 
-def _village_gate_side(gate):
+def _village_gate_side(gate: Any) -> Any: 
     """Сторона врата деревни: по вектору от центра деревни к врату."""
     gx, gy = gate
     cx, cy = ov.VILLAGE_CENTER
@@ -192,7 +193,7 @@ LOCATIONS['ruins'] = {
 }
 
 
-def _l_path(a, b):
+def _l_path(a: Any, b: Any) -> Any: 
     """Клетки Г-образной дороги с полутолщиной 1."""
     ax, ay = a
     bx, by = b
@@ -213,7 +214,7 @@ for _gate in VILLAGE_GATES.values():
 _ROAD_CELLS_CACHE = {}
 
 
-def road_cells(key):
+def road_cells(key: Any) -> Any: 
     """Клетки дорог локации (для визуала и запрета спавна на дороге).
 
     Дорога — соединение центра локации с каждым вратём. На дорогах не
@@ -253,7 +254,7 @@ LOCATION_ENTRY = (LOCATION_W // 2, LOCATION_H - 8)
 
 # ── Виды поверхности по локации ──
 
-def ground_kind(key, x, y):
+def ground_kind(key: Any, x: Any, y: Any) -> Any: 
     spec = LOCATIONS.get(key, LOCATIONS['village'])
     kind = spec['kind']
     if kind == 'city':
@@ -289,7 +290,7 @@ def ground_kind(key, x, y):
     return 'road' if (x, y) in road_cells(key) else base
 
 
-def wall_kind(key, x, y):
+def wall_kind(key: Any, x: Any, y: Any) -> Any: 
     spec = LOCATIONS.get(key, LOCATIONS['village'])
     kind = spec['kind']
     if kind == 'city':
@@ -313,24 +314,24 @@ def wall_kind(key, x, y):
     return 'rock' if biome == 'rock' else f'tree_{biome}'
 
 
-def title(key):
+def title(key: Any) -> Any: 
     return LOCATIONS.get(key, LOCATIONS['village'])['title']
 
 
-def is_tree_wall(key, x, y):
+def is_tree_wall(key: Any, x: Any, y: Any) -> Any: 
     """Все деревья на поверхности можно рубить."""
     return wall_kind(key, x, y).startswith('tree')
 
 
 # ── Генерация ──
 
-def _fill_floor(d):
+def _fill_floor(d: Any) -> Any: 
     for y in range(d.h):
         for x in range(d.w):
             d.tiles[y][x] = Tile.FLOOR
 
 
-def _clear(d, center, radius):
+def _clear(d: Any, center: Any, radius: Any) -> Any: 
     cx, cy = center
     for y in range(max(0, cy - radius), min(d.h, cy + radius + 1)):
         for x in range(max(0, cx - radius), min(d.w, cx + radius + 1)):
@@ -338,7 +339,7 @@ def _clear(d, center, radius):
                 d.tiles[y][x] = Tile.FLOOR
 
 
-def _carve(d, a, b, half=1):
+def _carve(d: Any, a: Any, b: Any, half: Any = 1) -> Any: 
     """Прорубить Г-образный проход шириной 2*half+1."""
     ax, ay = a
     bx, by = b
@@ -352,7 +353,7 @@ def _carve(d, a, b, half=1):
                 d.tiles[y][bx + dx] = Tile.FLOOR
 
 
-def _reachable(d, start):
+def _reachable(d: Any, start: Any) -> Any: 
     if d.tiles[start[1]][start[0]] == Tile.WALL:
         return set()
     seen = {start}
@@ -370,7 +371,7 @@ def _reachable(d, start):
     return seen
 
 
-def _spawn_monsters(d, pool, count, avoid=(), min_dist=None, safe_zone=None):
+def _spawn_monsters(d: Any, pool: Any, count: Any, avoid: Any = (), min_dist: Any = None, safe_zone: Any = None) -> Any: 
     blocked = set(avoid) | set(d.transitions) | set(d.harvestables)
     spots = []
     for y in range(1, d.h - 1):
@@ -396,7 +397,7 @@ def _spawn_monsters(d, pool, count, avoid=(), min_dist=None, safe_zone=None):
             ability=m.get('ability')))
 
 
-def _scatter_items(d, count, avoid=(), pool=('mushroom', 'wood', 'stone')):
+def _scatter_items(d: Any, count: Any, avoid: Any = (), pool: Any = ('mushroom', 'wood', 'stone')) -> Any: 
     blocked = set(avoid) | set(d.transitions) | set(d.harvestables)
     spots = [p for p in _reachable(d, (d.w // 2, d.h - 8))
              if p not in blocked and p not in d.items]
@@ -405,7 +406,7 @@ def _scatter_items(d, count, avoid=(), pool=('mushroom', 'wood', 'stone')):
         d.items[pos] = random.choice(pool)
 
 
-def _scatter_bushes(d, key, count, avoid=()):
+def _scatter_bushes(d: Any, key: Any, count: Any, avoid: Any = ()) -> Any: 
     blocked = set(avoid) | set(d.transitions) | set(d.harvestables)
     spots = []
     for y in range(1, d.h - 1):
@@ -422,7 +423,7 @@ def _scatter_bushes(d, key, count, avoid=()):
         d.harvestables[pos] = make_harvestable('bush')
 
 
-def _add_ore(d, count):
+def _add_ore(d: Any, count: Any) -> Any: 
     """Рудные жилы на стенах, к которым можно подойти."""
     walls = []
     for y in range(1, d.h - 1):
@@ -437,7 +438,7 @@ def _add_ore(d, count):
         d.harvestables[pos] = make_harvestable('ore')
 
 
-def _generate_village():
+def _generate_village() -> Any: 
     d = Dungeon(VILLAGE_W, VILLAGE_H)
     _fill_floor(d)
 
@@ -501,7 +502,7 @@ def _generate_village():
     return d
 
 
-def _scatter_ruins(d, center, density):
+def _scatter_ruins(d: Any, center: Any, density: Any) -> Any: 
     """Развалины: обломки стен, колонны и пустые кварталы."""
     for _ in range(260):
         cx = random.randint(2, d.w - 3)
@@ -519,7 +520,7 @@ def _scatter_ruins(d, center, density):
                 d.tiles[y][x] = Tile.WALL
 
 
-def _generate_ruins(key):
+def _generate_ruins(key: Any) -> Any: 
     """Руины города: по дороге от кладбища, иногда — сундук с ресурсами."""
     d = Dungeon(LOCATION_W, LOCATION_H)
     _fill_floor(d)
@@ -566,7 +567,7 @@ def _generate_ruins(key):
     return d
 
 
-def _generate_biome(key):
+def _generate_biome(key: Any) -> Any: 
     spec = LOCATIONS[key]
     biome = spec['biome']
     d = Dungeon(LOCATION_W, LOCATION_H)
@@ -649,12 +650,12 @@ LOCAL_GOBLIN_RECT = (LOCAL_GOBLIN_CENTER[0] - 16, LOCAL_GOBLIN_CENTER[1] - 13,
                      33, 27)
 
 
-def _in_local_goblin_village(x, y):
+def _in_local_goblin_village(x: Any, y: Any) -> Any: 
     vx, vy, vw, vh = LOCAL_GOBLIN_RECT
     return vx <= x < vx + vw and vy <= y < vy + vh
 
 
-def _generate_goblin_village():
+def _generate_goblin_village() -> Any: 
     d = Dungeon(LOCATION_W, LOCATION_H)
     _fill_floor(d)
     cx, cy = LOCAL_GOBLIN_CENTER
@@ -721,7 +722,7 @@ def _generate_goblin_village():
     return d
 
 
-def _generate_mine():
+def _generate_mine() -> Any: 
     d = Dungeon(LOCATION_W, LOCATION_H)
     rooms = []
     for _ in range(120):
@@ -770,7 +771,7 @@ def _generate_mine():
     return d
 
 
-def generate_location(key):
+def generate_location(key: Any) -> Any: 
     """Создаёт карту локации с нуля (Game кэширует результат)."""
     if key == 'village':
         return _generate_village()

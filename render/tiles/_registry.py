@@ -4,7 +4,6 @@
 определяет количество вариантов в _VARIANTS, предоставляет класс
 Tiles — кэш готовых поверхностей с запечённым освещением.
 """
-import math
 
 import pygame
 
@@ -19,9 +18,8 @@ from render.tiles._nature import (
     BIOME_GRASS_BUILDERS, BIOME_TREE_BUILDERS,
 )
 from render.tiles._settlement import (
-    _village_path, _village_plaza, _village_grass, _village_wall,
-    _village_well, _village_stall, _village_statue, _village_torch_post,
-    _city_grass, _city_path, _city_plaza, _city_wall, _city_house,
+    _village_wall,
+    _village_statue, _city_grass, _city_path, _city_plaza, _city_wall, _city_house,
     _city_well, _city_stall, _city_statue, _city_torch,
 )
 from render.tiles._dungeon_ruins import (

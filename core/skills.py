@@ -14,6 +14,10 @@
 Эффекты узлов складываются в словарь бонусов, который читает
 ``Player.recalc`` (характеристики) и боевые правила (вампиризм, золото).
 """
+from __future__ import annotations
+
+from typing import Any, Optional
+
 from core.data import CLASSES, class_data
 
 SKILL_CAP = 25
@@ -54,7 +58,7 @@ SKILL_XP_EFFECT = {
 }
 
 
-def canon_skill(tab):
+def canon_skill(tab: Any) -> Any: 
     """Приводит старое/новое имя ветки к каноническому ключу."""
     if tab is None:
         return None
@@ -81,13 +85,13 @@ PERCENT_EFFECTS = {
 }
 
 
-def _scale(value, factor):
+def _scale(value: Any, factor: Any) -> Any: 
     if isinstance(value, float):
         return round(value * factor, 2)
     return int(round(value * factor))
 
 
-def _scale_effects(effects, factor):
+def _scale_effects(effects: Any, factor: Any) -> Any: 
     keep = ('summon', 'extra_stats', 'plain_weapons')
     scaled = {}
     for key, value in effects.items():
@@ -208,12 +212,12 @@ _EFFECT_NAME_POOLS = {
 }
 
 
-def _stable_offset(key):
+def _stable_offset(key: Any) -> Any: 
     """Детерминированный сдвиг по имени класса (не зависит от hash seed)."""
     return sum(ord(ch) for ch in str(key)) % 97
 
 
-def _class_order(class_key, count):
+def _class_order(class_key: Any, count: Any) -> Any: 
     """Детерминированная перестановка средних узлов ветки для класса."""
     order = list(range(count))
     seed = _stable_offset(class_key) + 17
@@ -224,7 +228,7 @@ def _class_order(class_key, count):
     return order
 
 
-def _pool_name(effects, offset, fallback, used=None):
+def _pool_name(effects: Any, offset: Any, fallback: Any, used: Any = None) -> Any: 
     for key in effects:
         pool = _EFFECT_NAME_POOLS.get(key)
         if pool:
@@ -236,7 +240,7 @@ def _pool_name(effects, offset, fallback, used=None):
     return fallback
 
 
-def _class_profile(class_key):
+def _class_profile(class_key: Any) -> Any: 
     """Характеристики и эффекты класса с учётом базового архетипа."""
     cls = class_data(class_key)
     base = class_data(cls.get('base', 'default'))
@@ -248,7 +252,7 @@ def _class_profile(class_key):
     return stats, dict(cls.get('effects') or {})
 
 
-def _profile_effects(stats):
+def _profile_effects(stats: Any) -> Any: 
     """Прибавки к капительному узлу по «сильным» характеристикам класса."""
     out = {}
     if stats.get('str', 5) >= 6:
@@ -266,7 +270,7 @@ def _profile_effects(stats):
     return out
 
 
-def _fragment(effects, share):
+def _fragment(effects: Any, share: Any) -> Any: 
     """Часть эффектов класса для конкретного узла (доли/проценты)."""
     out = {}
     for key, value in effects.items():
@@ -281,7 +285,7 @@ def _fragment(effects, share):
     return out
 
 
-def class_tree(class_key):
+def class_tree(class_key: Any) -> Any: 
     """Узлы ветки класса: [{key, name, level, effects}].
 
     Ветка привязана к конкретному классу: у специализаций меняются и
@@ -391,7 +395,7 @@ CRAFT_TREES = {
 }
 
 
-def craft_tree(tab):
+def craft_tree(tab: Any) -> Any: 
     tab = canon_skill(tab)
     tree = CRAFT_TREES.get(tab)
     if not tree:
@@ -407,11 +411,11 @@ for _tab_key in CRAFT_TABS:
 
 
 # ── Опыт навыков создания ──
-def skill_xp_to_next(level):
+def skill_xp_to_next(level: Any) -> Any: 
     return max(1, int(SKILL_XP_BASE * (max(1, level) ** SKILL_XP_EXPONENT)))
 
 
-def _merge_aliases(player, tab):
+def _merge_aliases(player: Any, tab: Any) -> Any: 
     """Переносит плоские/старые записи навыков в канонический ключ."""
     skills = getattr(player, 'skills', None)
     if not isinstance(skills, dict):
@@ -436,7 +440,7 @@ def _merge_aliases(player, tab):
             current['xp'] = max(xp, int(current.get('xp', 0) or 0))
 
 
-def _skill_entry(player, tab):
+def _skill_entry(player: Any, tab: Any) -> Any: 
     """Запись навыка: {'level': N, 'xp': M}. Понимает и старый формат."""
     tab = canon_skill(tab)
     _merge_aliases(player, tab)
@@ -453,15 +457,15 @@ def _skill_entry(player, tab):
     return entry
 
 
-def craft_level(player, tab):
+def craft_level(player: Any, tab: Any) -> Any: 
     return max(1, int(_skill_entry(player, tab).get('level', 1) or 1))
 
 
-def craft_xp(player, tab):
+def craft_xp(player: Any, tab: Any) -> Any: 
     return max(0, int(_skill_entry(player, tab).get('xp', 0) or 0))
 
 
-def craft_multiplier(player, tab):
+def craft_multiplier(player: Any, tab: Any) -> Any: 
     """Множитель опыта создания от класса (1.25, 1.5, 2.5 ...)."""
     tab = canon_skill(tab)
     cls = class_data(getattr(player, 'class_key', 'default'))
@@ -472,7 +476,7 @@ def craft_multiplier(player, tab):
     return max(1.0, 1.0 + max(specific, generic))
 
 
-def gain_craft_xp(player, tab, base_amount):
+def gain_craft_xp(player: Any, tab: Any, base_amount: Any) -> Any: 
     """Начисляет опыт навыка. Возвращает список новых уровней навыка."""
     tab = canon_skill(tab)
     if tab not in CRAFT_TABS:
@@ -495,7 +499,7 @@ def gain_craft_xp(player, tab, base_amount):
 
 
 # ── Рецепты ──
-def recipe_requirement(item):
+def recipe_requirement(item: Any) -> Any: 
     """(ветка, требуемый уровень) для предмета или (None, 0)."""
     if not item:
         return None, 0
@@ -505,7 +509,7 @@ def recipe_requirement(item):
     return tab, int(item.get('skill_req', 1))
 
 
-def recipe_unlocked(player, item):
+def recipe_unlocked(player: Any, item: Any) -> Any: 
     # Особые крафты: только для ветки ремесленника и после чтения чертежа.
     classes = item.get('craft_classes')
     if classes:
@@ -522,7 +526,7 @@ def recipe_unlocked(player, item):
     return craft_level(player, tab) >= req
 
 
-def craftable_keys(tab, player):
+def craftable_keys(tab: Any, player: Any) -> Any: 
     """Ключи рецептов ветки, доступные игроку (включая ещё закрытые)."""
     from core.data import get_craftable_items
     result = []
@@ -534,11 +538,11 @@ def craftable_keys(tab, player):
 
 
 # ── Классы ──
-def class_tier(player):
+def class_tier(player: Any) -> Any: 
     return int(class_data(getattr(player, 'class_key', 'default')).get('tier', 1))
 
 
-def class_change_requirement(player):
+def class_change_requirement(player: Any) -> Any: 
     """Уровень персонажа, нужный для следующей смены класса (или None)."""
     tier = class_tier(player)
     if tier >= 3:
@@ -546,18 +550,18 @@ def class_change_requirement(player):
     return CLASS_CHANGE_LEVELS[tier - 1]
 
 
-def promotion_options(player):
+def promotion_options(player: Any) -> Any: 
     """Следующие классы ветки (пусто, если вершина достигнута)."""
     cls = class_data(getattr(player, 'class_key', 'default'))
     return list(cls.get('next', ()))
 
 
-def can_change_class(player):
+def can_change_class(player: Any) -> Any: 
     req = class_change_requirement(player)
     return req is not None and player.level >= req and bool(promotion_options(player))
 
 
-def _node_class_key(node_key):
+def _node_class_key(node_key: Any) -> Any: 
     """Класс, которому принадлежит узел (или None для ремесленных)."""
     node = _NODE_INDEX.get(node_key)
     if node is not None:
@@ -569,7 +573,7 @@ def _node_class_key(node_key):
     return None
 
 
-def release_class_nodes(player, keep_class):
+def release_class_nodes(player: Any, keep_class: Any) -> Any: 
     """Убирает узлы прежних классов. Возвращает число возвращённых очков.
 
     Ветка привязана к классу, поэтому после повышения старая ветка
@@ -590,7 +594,7 @@ def release_class_nodes(player, keep_class):
     return refund
 
 
-def change_class(player, new_key):
+def change_class(player: Any, new_key: Any) -> Any: 
     """Смена класса. Возвращает (успех, причина)."""
     cls = class_data(getattr(player, 'class_key', 'default'))
     if new_key not in cls.get('next', ()):
@@ -616,7 +620,7 @@ def change_class(player, new_key):
     return True, 'ok'
 
 
-def disallowed_equipment(player):
+def disallowed_equipment(player: Any) -> Any: 
     """Слоты, которые текущий класс носить не может."""
     from core.data import class_can_use
     result = []
@@ -631,7 +635,7 @@ def disallowed_equipment(player):
 
 
 # ── Узлы класса ──
-def learn_node(player, node_key):
+def learn_node(player: Any, node_key: Any) -> Any: 
     """Покупает узел классовой ветки за очко навыка."""
     node = _NODE_INDEX.get(node_key)
     if node is None and ':' in node_key:
@@ -657,20 +661,20 @@ def learn_node(player, node_key):
     return True, 'ok'
 
 
-def is_learned(player, node_key):
+def is_learned(player: Any, node_key: Any) -> Any: 
     return node_key in getattr(player, 'skill_nodes', set())
 
 
-def node_effects(node_key):
+def node_effects(node_key: Any) -> Any: 
     node = _NODE_INDEX.get(node_key)
     return dict(node.get('effects', {})) if node else {}
 
 
-def aggregate(player):
+def aggregate(player: Any) -> Any: 
     """Сумма всех пассивных бонусов: класс + изученные узлы."""
     totals = {}
 
-    def merge(effects):
+    def merge(effects: Any) -> Any: 
         for key, value in effects.items():
             if key in ('summon', 'plain_weapons', 'extra_stats'):
                 totals[key] = max(totals.get(key, 0), value)
@@ -692,7 +696,7 @@ def aggregate(player):
     return totals
 
 
-def craft_quality_bonus(player):
+def craft_quality_bonus(player: Any) -> Any: 
     return int(aggregate(player).get('craft_quality', 0))
 
 
@@ -704,17 +708,17 @@ _MINIGAME_CLASSES = {
 }
 
 
-def has_craft_minigame(player, tab):
+def has_craft_minigame(player: Any, tab: Any) -> Any: 
     tab = canon_skill(tab)
     return getattr(player, 'class_key', 'default') in _MINIGAME_CLASSES.get(tab, ())
 
 
-def craft_tab_for(item):
+def craft_tab_for(item: Any) -> Any: 
     tab, _req = recipe_requirement(item)
     return tab
 
 
-def describe_effects(effects):
+def describe_effects(effects: Any) -> Any: 
     """'ATK +2, крит +3%' для подсказок UI."""
     parts = []
     for key, value in effects.items():
@@ -733,19 +737,19 @@ def describe_effects(effects):
     return ', '.join(parts)
 
 
-def class_trait_text(class_key):
+def class_trait_text(class_key: Any) -> Any: 
     cls = class_data(class_key)
     perk = cls.get('perk', '')
     return perk
 
 
-def tab_level(player, tab):
+def tab_level(player: Any, tab: Any) -> Any: 
     if tab == TAB_CLASS:
         return player.level
     return craft_level(player, tab)
 
 
-def tab_progress(player, tab):
+def tab_progress(player: Any, tab: Any) -> Any: 
     """(текущее, следующее, доля) для полоски навыка создания."""
     if tab == TAB_CLASS:
         return (player.level, None, 0.0)
@@ -757,7 +761,7 @@ def tab_progress(player, tab):
     return (level, need, min(1.0, have / max(1, need)))
 
 
-def recipes_for_level(tab, level):
+def recipes_for_level(tab: Any, level: Any) -> Any: 
     """[(key, item)] рецептов ветки, открываемых на уровне level."""
     from core.data import get_craftable_items
     result = []
@@ -768,7 +772,7 @@ def recipes_for_level(tab, level):
     return result
 
 
-def available_nodes(player, class_key=None):
+def available_nodes(player: Any, class_key: Any = None) -> Any: 
     """Узлы текущего класса с состоянием для UI."""
     class_key = class_key or player.class_key
     nodes = []

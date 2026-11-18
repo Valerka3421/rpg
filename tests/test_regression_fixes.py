@@ -227,3 +227,93 @@ def test_icon_renderer_split_into_package():
     assert not os.path.exists(
         os.path.join(os.path.dirname(pkg.__file__), '..', 'icon_renderer.py')
     ), "render/icon_renderer.py должен быть удалён (заменён пакетом render/icons/)"
+
+
+# ── game/game.py split regression ──
+def test_game_split_into_package():
+    """game/game.py (2320 LOC, 111 methods) разбит на game/game/ пакет.
+
+    7 mixin-модулей + _common (shared imports) + __init__ (class Game).
+    Все методы доступны через множественное наследование.
+    """
+    from game import Game
+    import game.game._base
+    import game.game._world
+    import game.game._combat
+    import game.game._inventory
+    import game.game._monsters
+    import game.game._input
+    import game.game._menu
+    import game.game._common
+
+    # Все mixin-классы определены
+    from game.game._base import GameBase
+    from game.game._world import WorldMixin
+    from game.game._combat import CombatMixin
+    from game.game._inventory import InventoryMixin
+    from game.game._monsters import MonsterMixin
+    from game.game._input import InputMixin
+    from game.game._menu import MenuMixin
+
+    # Game наследует все mixin'ы
+    assert issubclass(Game, GameBase)
+    assert issubclass(Game, WorldMixin)
+    assert issubclass(Game, CombatMixin)
+    assert issubclass(Game, InventoryMixin)
+    assert issubclass(Game, MonsterMixin)
+    assert issubclass(Game, InputMixin)
+    assert issubclass(Game, MenuMixin)
+
+    # Ключевые методы доступны на Game через mixin'ы
+    assert hasattr(Game, 'attack')          # CombatMixin
+    assert hasattr(Game, 'new_game')        # GameBase
+    assert hasattr(Game, 'travel_to')       # WorldMixin
+    assert hasattr(Game, 'use_item')        # InventoryMixin
+    assert hasattr(Game, 'monsters_turn')   # MonsterMixin
+    assert hasattr(Game, 'handle_key')      # InputMixin
+    assert hasattr(Game, 'open_shop')       # MenuMixin
+
+    # Оригинальный файл удалён
+    import game.game as pkg
+    assert not os.path.exists(
+        os.path.join(os.path.dirname(pkg.__file__), '..', 'game.py')
+    ), "game/game.py должен быть удалён (заменён пакетом game/game/)"
+
+
+def test_game_package_reexports_for_mock_compatibility():
+    """game.game.random и game.game.save_settings доступны для mock.patch.
+
+    Тесты патчат `game.game.random.random` и `game.game.save_settings` —
+    эти имена должны быть атрибутами пакета game.game (через реэкспорт из _common).
+    """
+    import game.game as gg
+    assert hasattr(gg, 'random'), "game.game.random должен быть доступен для mock.patch"
+    assert hasattr(gg, 'save_settings'), "game.game.save_settings должен быть доступен"
+
+
+# ── mypy annotations regression ──
+def test_core_functions_have_type_annotations():
+    """Все функции в core/ должны иметь type annotations (mypy --strict).
+
+    Проверяем выборочно ключевые модули, аннотированные в этой итерации.
+    """
+    import ast
+    from pathlib import Path
+
+    core_dir = Path(__import__('core').__file__).parent
+    modules_to_check = [
+        'save.py', 'harvest.py', 'quests.py', 'modes.py',
+        'world.py', 'overworld.py', 'locations.py', 'skills.py',
+    ]
+    untyped = []
+    for modname in modules_to_check:
+        path = core_dir / modname
+        if not path.exists():
+            continue
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if node.returns is None:
+                    untyped.append(f"{modname}:{node.lineno} def {node.name}")
+    assert not untyped, \
+        "Функции без return annotation: " + ", ".join(untyped[:5])

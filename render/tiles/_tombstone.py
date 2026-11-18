@@ -1,16 +1,10 @@
 """Auto-generated from render/tiles.py — see git history."""
-import math
 
 import pygame
 
 from render import textures
 from render.tiles._common import (
-    SIZE, WALL_BASE, MORTAR, FLOOR_BASE, FLOOR_GROUT, TORCH_GLOW,
-    MOSS, MOSS_DARK, RUST, BRONZE, BONE,
-    GRASS_BASE, GRASS_DARK, GRASS_DRY, TREE_BASE, TREE_DARK, TRUNK,
-    STONE, STONE_DARK,
-    BIOME_PALETTES, VILLAGE_PALETTE, CITY_PALETTE,
-    _new, _clamp, _grime, _chip, _crack,
+    SIZE, BIOME_PALETTES, _grime,
 )
 
 from render.tiles._nature import _grass

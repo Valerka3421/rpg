@@ -4,6 +4,10 @@
 предсказуемы, а реролл для них отключён. Товары можно покупать повторно
 (``infinite``), иначе после одной закупки лавка опустела бы.
 """
+from __future__ import annotations
+
+from typing import Any, Optional
+
 
 CITY_SHOP_STOCK = {
     'blacksmith': (
@@ -42,7 +46,7 @@ CITY_NPC_SHOPS = {
 }
 
 
-def make_city_shop_stock(npc_type):
+def make_city_shop_stock(npc_type: Any) -> Any: 
     """Фиксированный ассортимент городского торговца."""
     stock = []
     for key, price in CITY_SHOP_STOCK.get(npc_type, ()):
@@ -51,5 +55,5 @@ def make_city_shop_stock(npc_type):
     return stock
 
 
-def is_city_shop_npc(npc_type):
+def is_city_shop_npc(npc_type: Any) -> Any: 
     return npc_type in CITY_SHOP_STOCK

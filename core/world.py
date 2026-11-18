@@ -1,4 +1,8 @@
 """Генерация миров, LOS, FOV, BFS."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import random
 from collections import deque
 
@@ -51,7 +55,7 @@ BIOME_FORESTS = {
 }
 
 
-def _scatter_harvestables(d, reachable):
+def _scatter_harvestables(d: Any, reachable: Any) -> Any: 
     """Деревья для рубки и кусты ягод на поверхности."""
     from core.harvest import make_harvestable
     # Деревья: выбираем существующие лесные стены, чтобы текстура и
@@ -84,7 +88,7 @@ def _scatter_harvestables(d, reachable):
         d.harvestables[pos] = make_harvestable('bush')
 
 
-def _flood_fill_reachable(d, start):
+def _flood_fill_reachable(d: Any, start: Any) -> Any: 
     seen = {start}
     q = deque([start])
     while q:
@@ -102,7 +106,7 @@ def _flood_fill_reachable(d, start):
     return seen
 
 
-def _carve_road(d, x0, y0, x1, y1, half_width=None):
+def _carve_road(d: Any, x0: Any, y0: Any, x1: Any, y1: Any, half_width: Any = None) -> Any: 
     """Прорубить прямую дорогу в лесу (лес уже расставлен)."""
     half = ov.ROAD_HALF_WIDTH if half_width is None else half_width
     if y0 == y1:
@@ -117,7 +121,7 @@ def _carve_road(d, x0, y0, x1, y1, half_width=None):
                     d.tiles[y][x] = Tile.FLOOR
 
 
-def _clear_circle(d, center, radius):
+def _clear_circle(d: Any, center: Any, radius: Any) -> Any: 
     cx, cy = center
     for y in range(max(0, cy - radius), min(d.h, cy + radius + 1)):
         for x in range(max(0, cx - radius), min(d.w, cx + radius + 1)):
@@ -125,7 +129,7 @@ def _clear_circle(d, center, radius):
                 d.tiles[y][x] = Tile.FLOOR
 
 
-def _plant_forests(d):
+def _plant_forests(d: Any) -> Any: 
     """Насыпать рощи в восьми внешних регионах, не заходя в деревню."""
     for rx in range(3):
         for ry in range(3):
@@ -153,7 +157,7 @@ def _plant_forests(d):
                             d.tiles[yy][xx] = Tile.WALL
 
 
-def _plant_goblin_wilds(d):
+def _plant_goblin_wilds(d: Any) -> Any: 
     """Лес вокруг Деревни гоблинов — только восточная часть карты."""
     for _ in range(85):
         cx = random.randint(ov.LEGACY_MAP_W + 1, MAP_W - 2)
@@ -171,7 +175,7 @@ def _plant_goblin_wilds(d):
                     d.tiles[yy][xx] = Tile.WALL
 
 
-def _build_village(d):
+def _build_village(d: Any) -> Any: 
     for hx, hy, hw, hh in ov.VILLAGE_HOUSES:
         for yy in range(hy, hy + hh):
             for xx in range(hx, hx + hw):
@@ -186,7 +190,7 @@ def _build_village(d):
     for tx, ty in ov.VILLAGE_TORCHES:     d.tiles[ty][tx] = Tile.WALL
 
 
-def _build_goblin_village(d):
+def _build_goblin_village(d: Any) -> Any: 
     """Хижины, тотемы и костёр гоблинов. Дороги прорубаются после."""
     for hx, hy, hw, hh in ov.GOBLIN_HOUSES:
         for yy in range(hy, hy + hh):
@@ -247,7 +251,7 @@ def generate_overworld() -> Dungeon:
     # Кусты ягод и деревья для рубки.
     _scatter_harvestables(d, reachable)
 
-    def spawn_monster(x, y, key):
+    def spawn_monster(x: Any, y: Any, key: Any) -> Any: 
         m = MONSTERS[key]
         d.monsters.append(Entity(
             x, y, m['hp'], m['hp'], m['atk'], m['df'],
@@ -310,7 +314,7 @@ def generate_overworld() -> Dungeon:
     return d
 
 
-def _build_city_ruins(d):
+def _build_city_ruins(d: Any) -> Any: 
     """Руины древнего города: разрушенные здания, статуи, заросшие дороги.
 
     С 25% шансом в центре руин появляется сундук (Tile.CHEST) с базовыми
@@ -341,7 +345,7 @@ def _build_city_ruins(d):
             d.chest_loot[(cx, cy)] = loot
 
 
-def _place_cardinal_gates(d):
+def _place_cardinal_gates(d: Any) -> Any: 
     """4 перехода на краях карты (север, юг, запад, восток).
 
     Каждый — Tile.GATE с записью в ``d.transitions``. Это «выходы» из
@@ -355,7 +359,7 @@ def _place_cardinal_gates(d):
                                          'entry': (gx, gy)}
 
 
-def place_entry_tile(d, depth):
+def place_entry_tile(d: Any, depth: Any) -> Any: 
     """Ставит рядом с комнатой появления лестницу «назад».
 
     Глубина 1 — EXIT на поверхность, глубина 2+ — UPSTAIRS на этаж выше.
@@ -387,7 +391,7 @@ def place_entry_tile(d, depth):
 TREASURY_SIZE = 5
 
 
-def _treasury_candidates(arena):
+def _treasury_candidates(arena: Any) -> Any: 
     """Четыре позиции казны — вплотную к арене через один ряд стен."""
     w = h = TREASURY_SIZE
     ax, ay = arena.center()
@@ -399,7 +403,7 @@ def _treasury_candidates(arena):
     ]
 
 
-def _ring_cells(room):
+def _ring_cells(room: Any) -> Any: 
     """Клетки по периметру комнаты (снаружи, без самой комнаты)."""
     cells = []
     for y in range(room.y - 1, room.y + room.h + 1):
@@ -411,7 +415,7 @@ def _ring_cells(room):
     return cells
 
 
-def _door_cell(arena, treasury, side):
+def _door_cell(arena: Any, treasury: Any, side: Any) -> Any: 
     """Единственная клетка между ареной и казной (там будет дверь)."""
     if side == 'right':
         return (arena.x + arena.w, treasury.center()[1])
@@ -422,7 +426,7 @@ def _door_cell(arena, treasury, side):
     return (treasury.center()[0], arena.y - 1)
 
 
-def _carve_treasury(d, rooms, arena):
+def _carve_treasury(d: Any, rooms: Any, arena: Any) -> Any: 
     """Казна 5×5, соединённая только с ареной босса одной дверью.
 
     Ищем место вплотную к арене (через один ряд стен). Внутри казны и
@@ -469,7 +473,7 @@ def _carve_treasury(d, rooms, arena):
     return None
 
 
-def clear_boss_barriers(d):
+def clear_boss_barriers(d: Any) -> Any: 
     """После победы над боссом: открыть замурованные выходы арены.
 
     Возвращает True, если тайлы изменились (для перерисовки карты).
@@ -660,7 +664,7 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
     return d
 
 
-def _connect_l_corridor(d, room_a, room_b):
+def _connect_l_corridor(d: Any, room_a: Any, room_b: Any) -> Any: 
     """Узкий (1-клеточный) L-коридор между двумя комнатами.
 
     Сначала горизонталь, потом вертикаль — или наоборот (случайно).
@@ -686,7 +690,7 @@ def _connect_l_corridor(d, room_a, room_b):
                 d.tiles[ay][xx] = Tile.FLOOR
 
 
-def _all_rooms_connected(d, rooms):
+def _all_rooms_connected(d: Any, rooms: Any) -> Any: 
     """BFS-проверка: все центры комнат достижимы из центра первой комнаты."""
     if not rooms:
         return True
@@ -777,7 +781,7 @@ def has_los(d: Dungeon, x0: int, y0: int, x1: int, y1: int) -> bool:
                     and d.tiles[y][prev_x] == Tile.WALL):
                 return False
 
-def bfs_toward_player(d, start, player_pos, blocked):
+def bfs_toward_player(d: Any, start: Any, player_pos: Any, blocked: Any) -> Any: 
     px, py = player_pos
     targets = set()
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):

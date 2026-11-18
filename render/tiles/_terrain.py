@@ -5,12 +5,8 @@ import pygame
 
 from render import textures
 from render.tiles._common import (
-    SIZE, WALL_BASE, MORTAR, FLOOR_BASE, FLOOR_GROUT, TORCH_GLOW,
-    MOSS, MOSS_DARK, RUST, BRONZE, BONE,
-    GRASS_BASE, GRASS_DARK, GRASS_DRY, TREE_BASE, TREE_DARK, TRUNK,
-    STONE, STONE_DARK,
-    BIOME_PALETTES, VILLAGE_PALETTE, CITY_PALETTE,
-    _new, _clamp, _grime, _chip, _crack,
+    SIZE, GRASS_BASE, STONE, STONE_DARK,
+    _new, _grime,
 )
 
 from render.tiles._dungeon_ruins import _dungeon_ground

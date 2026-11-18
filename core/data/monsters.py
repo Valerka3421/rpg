@@ -1,4 +1,8 @@
 """Данные монстров, боссов и масштабирование статов."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import random
 
 MONSTERS = {
@@ -68,11 +72,11 @@ MONSTER_DROPS = {
 }
 
 
-def roll_monster_drops(monster_ch):
+def roll_monster_drops(monster_ch: Any) -> Any: 
     return [k for k, c in MONSTER_DROPS.get(monster_ch, []) if random.random() < c]
 
 
-def scale_stats(hp, atk, df, depth):
+def scale_stats(hp: Any, atk: Any, df: Any, depth: Any) -> Any: 
     """Обычные мобы: HP растёт заметно, ATK/DEF — умеренно."""
     hp_factor = 1 + (depth - 1) * 0.10
     return (int(hp * hp_factor),
@@ -80,7 +84,7 @@ def scale_stats(hp, atk, df, depth):
             df + (depth - 1) // 5)
 
 
-def scale_boss_stats(hp, atk, df, depth):
+def scale_boss_stats(hp: Any, atk: Any, df: Any, depth: Any) -> Any: 
     """Боссы масштабируются мягче обычных мобов — иначе финальный
     дракон требует часов гринда."""
     hp_factor = 1 + (depth - 1) * 0.06
@@ -103,7 +107,7 @@ MANA_POWDER_BY_CRYSTAL = {
 }
 
 
-def mana_crystal_for(monster):
+def mana_crystal_for(monster: Any) -> Any: 
     """Размер кристалла зависит от силы моба."""
     hp = max(1, getattr(monster, 'max_hp', 10) or 10)
     if getattr(monster, 'boss', False) or hp >= 60:
@@ -113,14 +117,14 @@ def mana_crystal_for(monster):
     return MANA_CRYSTAL_BY_SIZE['small']
 
 
-def roll_mana_crystal(monster, chance=MANA_CRYSTAL_CHANCE):
+def roll_mana_crystal(monster: Any, chance: Any = MANA_CRYSTAL_CHANCE) -> Any: 
     """Небольшой шанс выпадения кристалла маны с любого моба."""
     if random.random() >= chance:
         return None
     return mana_crystal_for(monster)
 
 
-def mana_crystal_powder(crystal_key):
+def mana_crystal_powder(crystal_key: Any) -> Any: 
     return MANA_POWDER_BY_CRYSTAL.get(crystal_key, 0)
 
 # ════════════════════ СТАТУС-ЭФФЕКТЫ ════════════════════

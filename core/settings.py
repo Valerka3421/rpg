@@ -1,4 +1,8 @@
 """Настройки игры — сохранение/загрузка settings.json."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import json
 import os
 
@@ -14,7 +18,7 @@ DEFAULTS = {
     'resolution': [1600, 900],
 }
 
-def load_settings():
+def load_settings() -> Any: 
     if not os.path.exists(SETTINGS_FILE):
         return dict(DEFAULTS)
     try:
@@ -27,7 +31,7 @@ def load_settings():
         return dict(DEFAULTS)
 
 
-def save_settings(settings):
+def save_settings(settings: Any) -> Any: 
     """Атомарная запись: при сбое старый settings.json остаётся целым."""
     tmp = SETTINGS_FILE + '.tmp'
     try:

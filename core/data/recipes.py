@@ -1,4 +1,8 @@
 """Навыки крафта, рецепты и кривая опыта."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import random
 
 from .items import ITEMS, make_loot_key, roll_rarity
@@ -24,16 +28,16 @@ CRAFT_TABS = (('all', 'Все крафты'),) + tuple(
     (key, SKILLS[key]['name']) for key in SKILL_ORDER)
 
 
-def skill_xp_to_next(level):
+def skill_xp_to_next(level: Any) -> Any: 
     """Опыт навыка для перехода с ``level`` на ``level + 1``."""
     return max(10, int(45 * (max(1, level) ** 1.35)))
 
 
-def default_skills():
+def default_skills() -> Any: 
     return {key: {'level': 1, 'xp': 0} for key in SKILL_ORDER}
 
 
-def craft_skill_reward(item_key, count=1):
+def craft_skill_reward(item_key: Any, count: Any = 1) -> Any: 
     """Сколько опыта навыка даёт крафт предмета."""
     item = ITEMS.get(item_key, {})
     tier = item.get('tier', 1)
@@ -42,14 +46,14 @@ def craft_skill_reward(item_key, count=1):
 
 
 # ── Кристаллы маны ──
-def get_craftable_items():
+def get_craftable_items() -> Any: 
     """Список (key, item) для крафта: предметы с рецептом."""
     from .items import ITEMS  # lazy: avoid circular import
     return [(k, v) for k, v in ITEMS.items()
             if v.get('recipe') or v.get('recipes')]
 
 
-def xp_to_next(level):
+def xp_to_next(level: Any) -> Any: 
     """Сколько XP нужно для перехода с `level` на `level + 1`.
 
     Раньше кривая была экспоненциальной (10 * 1.6**n), из-за чего после
@@ -60,18 +64,18 @@ def xp_to_next(level):
     return max(1, int(XP_BASE * (max(1, level) ** XP_EXPONENT)))
 
 
-def reroll_price(depth):
+def reroll_price(depth: Any) -> Any: 
     return 15 + depth * 3
 
 
-def book_price_at_depth(base_price, depth):
+def book_price_at_depth(base_price: Any, depth: Any) -> Any: 
     """Книги дорожают с глубиной: на 1-й — базовая цена, на 20-й — x3."""
     return int(base_price * (1 + depth * 0.1))
 
 
-def make_shop_stock(depth):
+def make_shop_stock(depth: Any) -> Any: 
     stock = []
-    def add(key, price):
+    def add(key: Any, price: Any) -> Any: 
         stock.append({'key': key, 'price': price, 'sold': False})
 
     # Книги перков

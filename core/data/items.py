@@ -1,4 +1,8 @@
 """Данные предметов: оружие, броня, зелья, ресурсы."""
+from __future__ import annotations
+
+from typing import Any, Optional
+
 import random
 
 ITEMS = {
@@ -624,7 +628,7 @@ MATERIAL_KEYS = ('bone', 'ogre_leather', 'goblin_ear', 'rat_tail', 'orc_tusk',
                  'magic_powder', 'iron_ingot', 'steel_ingot', 'mithril_ingot')
 
 # ════════════════════ НАВЫКИ КРАФТА ════════════════════
-def item_category(item_key, default='blacksmith'):
+def item_category(item_key: Any, default: Any = 'blacksmith') -> Any: 
     """Категория предмета — она же вкладка крафта и навык за крафт."""
     from .recipes import SKILLS  # lazy: avoid circular import
     item = item_key if isinstance(item_key, dict) else ITEMS.get(item_key, {})
@@ -644,7 +648,7 @@ def item_category(item_key, default='blacksmith'):
     return default
 
 
-def item_recipes(item_key):
+def item_recipes(item_key: Any) -> Any: 
     """[(материалы, сколько_получится)] для предмета.
 
     Поддерживает как старый ``recipe``, так и новый ``recipes`` —
@@ -664,7 +668,7 @@ def item_recipes(item_key):
     return out
 
 
-def select_recipe(item_key, inventory, recipe_index=None):
+def select_recipe(item_key: Any, inventory: Any, recipe_index: Any = None) -> Any: 
     """(материалы, сколько_получится, индекс_варианта).
 
     Без явного индекса выбирается первый доступный вариант, иначе —
@@ -687,7 +691,7 @@ RARITY_CHANCES = [(0, 0.85), (1, 0.10), (2, 0.04), (3, 0.01)]
 RARITY_COLORS = {0: None, 1: (170, 220, 170), 2: (140, 190, 255), 3: (255, 180, 80)}
 
 
-def roll_rarity():
+def roll_rarity() -> Any: 
     r = random.random()
     c = 0.0
     for level, chance in RARITY_CHANCES:
@@ -697,11 +701,11 @@ def roll_rarity():
     return 0
 
 
-def make_loot_key(base_key, rarity):
+def make_loot_key(base_key: Any, rarity: Any) -> Any: 
     return base_key if rarity <= 0 else f"{base_key}+{rarity}"
 
 
-def parse_item_key(full_key):
+def parse_item_key(full_key: Any) -> Any: 
     """'sword+2' или ItemInstance('sword', 2) → (base, rarity)."""
     if not full_key:
         return None, 0
@@ -718,25 +722,25 @@ def parse_item_key(full_key):
     return full_key, 0
 
 
-def get_item_data(full_key):
+def get_item_data(full_key: Any) -> Any: 
     base, _ = parse_item_key(full_key)
     return ITEMS.get(base, {})
 
 
-def item_display_name(full_key):
+def item_display_name(full_key: Any) -> Any: 
     base, lvl = parse_item_key(full_key)
     name = ITEMS.get(base, {}).get('name', base or '?')
     return f"{name} +{lvl}" if lvl > 0 else name
 
 
-def item_display_color(full_key):
+def item_display_color(full_key: Any) -> Any: 
     base, lvl = parse_item_key(full_key)
     if lvl in RARITY_COLORS and RARITY_COLORS[lvl] is not None:
         return RARITY_COLORS[lvl]
     return ITEMS.get(base, {}).get('color', (200, 200, 200))
 
 
-def item_sell_price(full_key):
+def item_sell_price(full_key: Any) -> Any: 
     base, lvl = parse_item_key(full_key)
     return ITEMS.get(base, {}).get('sell', 0) + lvl * 10
 

@@ -1,16 +1,10 @@
 """Auto-generated mixin from render/icon_renderer.py."""
-import math
-import os
 
 import pygame
 
 from core.config import TILE
-from core.data import ITEMS, MATERIAL_KEYS, item_display_color, parse_item_key
 from render import textures
-from render.base_renderer import BaseRenderer
 from render.icons._base import CANVAS, CX
-from render.sprites import Sprites
-from render.theme import Theme as T
 
 class PlayerMixin:
     """Спрайты классов игрока (воин, разбойник, паладин, авантюрист)."""

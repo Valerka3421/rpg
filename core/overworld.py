@@ -11,6 +11,10 @@
 и генератор мира, и рендерер — поэтому город, дороги и биомы выглядят
 одинаково в одиночной и мультиплеерной игре.
 """
+from __future__ import annotations
+
+from typing import Any, Optional
+
 from core.config import MAP_H
 
 # Исторический размер мира. Слева от этой границы — прежние 8 биомов.
@@ -43,7 +47,7 @@ VILLAGE_HOUSES = (
 CITY_GATE_WIDTH = 3
 
 
-def _city_wall_cells():
+def _city_wall_cells() -> Any: 
     vx, vy, vw, vh = VILLAGE_RECT
     cx, cy = VILLAGE_CENTER
     half = CITY_GATE_WIDTH // 2
@@ -183,25 +187,25 @@ CITY_RUINS_BASE_RESOURCES = ('wood', 'stone', 'ore', 'hide', 'berry',
                              'mushroom')
 
 
-def in_city_ruins(x, y):
+def in_city_ruins(x: Any, y: Any) -> Any: 
     rx, ry, rw, rh = CITY_RUINS_RECT
     return rx <= x < rx + rw and ry <= y < ry + rh
 
 
-def is_city_ruins_statue(x, y):
+def is_city_ruins_statue(x: Any, y: Any) -> Any: 
     return (x, y) in CITY_RUINS_STATUES
 
 
-def is_stall(x, y):     return (x, y) in VILLAGE_STALLS
-def is_statue(x, y):    return (x, y) in VILLAGE_STATUES
-def is_torch(x, y):     return (x, y) in VILLAGE_TORCHES
-def is_ruins_pillar(x, y): return (x, y) in RUINS_PILLARS
-def is_goblin_totem(x, y): return (x, y) in GOBLIN_TOTEMS
-def is_goblin_campfire(x, y): return (x, y) == GOBLIN_CAMPFIRE
-def is_city_wall(x, y): return (x, y) in CITY_WALL_CELLS
+def is_stall(x: Any, y: Any) -> Any: return (x, y) in VILLAGE_STALLS
+def is_statue(x: Any, y: Any) -> Any: return (x, y) in VILLAGE_STATUES
+def is_torch(x: Any, y: Any) -> Any: return (x, y) in VILLAGE_TORCHES
+def is_ruins_pillar(x: Any, y: Any) -> Any: return (x, y) in RUINS_PILLARS
+def is_goblin_totem(x: Any, y: Any) -> Any: return (x, y) in GOBLIN_TOTEMS
+def is_goblin_campfire(x: Any, y: Any) -> Any: return (x, y) == GOBLIN_CAMPFIRE
+def is_city_wall(x: Any, y: Any) -> Any: return (x, y) in CITY_WALL_CELLS
 
 
-def region_of(x, y):
+def region_of(x: Any, y: Any) -> Any: 
     """Регион сетки 3×3, в котором находится клетка.
 
     Новые земли восточнее исторической карты возвращают фиктивный
@@ -214,17 +218,17 @@ def region_of(x, y):
     return rx, ry
 
 
-def in_village(x, y):
+def in_village(x: Any, y: Any) -> Any: 
     vx, vy, vw, vh = VILLAGE_RECT
     return vx <= x < vx + vw and vy <= y < vy + vh
 
 
-def in_goblin_village(x, y):
+def in_goblin_village(x: Any, y: Any) -> Any: 
     vx, vy, vw, vh = GOBLIN_VILLAGE_RECT
     return vx <= x < vx + vw and vy <= y < vy + vh
 
 
-def in_city_safe(x, y, margin=0):
+def in_city_safe(x: Any, y: Any, margin: Any = 0) -> Any: 
     """Клетка внутри городских стен или в ``margin`` клетках от них.
 
     Мобы не должны появляться рядом с городом: там живут мирные горожане
@@ -235,14 +239,14 @@ def in_city_safe(x, y, margin=0):
             and vy - margin <= y <= vy + vh - 1 + margin)
 
 
-def biome_at(x, y):
+def biome_at(x: Any, y: Any) -> Any: 
     """Имя биома или None для деревень и новых земель."""
     if x >= LEGACY_MAP_W:
         return None
     return BIOME_NAMES.get(region_of(x, y))
 
 
-def is_road(x, y):
+def is_road(x: Any, y: Any) -> Any: 
     """Клетка принадлежит дороге между деревнями и краями карты."""
     for x0, y0, x1, y1 in ROAD_SEGMENTS:
         if y0 == y1:
@@ -256,29 +260,29 @@ def is_road(x, y):
     return False
 
 
-def in_dungeon_clearing(x, y):
+def in_dungeon_clearing(x: Any, y: Any) -> Any: 
     dx, dy = DUNGEON_POS
     return (x - dx) ** 2 + (y - dy) ** 2 <= DUNGEON_CLEARING_RADIUS ** 2
 
 
-def in_dungeon_ruins(x, y):
+def in_dungeon_ruins(x: Any, y: Any) -> Any: 
     """Вся расчищенная археозона вокруг входа (шире, чем зона без леса)."""
     dx, dy = DUNGEON_POS
     return (x - dx) ** 2 + (y - dy) ** 2 <= DUNGEON_RUINS_RADIUS ** 2
 
 
-def in_house(x, y):
+def in_house(x: Any, y: Any) -> Any: 
     for hx, hy, hw, hh in VILLAGE_HOUSES:
         if hx <= x < hx + hw and hy <= y < hy + hh:
             return True
     return False
 
 
-def is_well(x, y):
+def is_well(x: Any, y: Any) -> Any: 
     return (x, y) == WELL_POS
 
 
-def city_ground_kind(x, y):
+def city_ground_kind(x: Any, y: Any) -> Any: 
     """Вид земли в городе: площадь, мостовая или трава."""
     cx, cy = VILLAGE_CENTER
     if (x - cx) ** 2 + (y - (cy - 1)) ** 2 <= 16:
@@ -289,11 +293,11 @@ def city_ground_kind(x, y):
 
 
 # Историческое имя оставлено для старых сохранений и внешнего кода.
-def village_ground_kind(x, y):
+def village_ground_kind(x: Any, y: Any) -> Any: 
     return city_ground_kind(x, y)
 
 
-def city_wall_kind(x, y):
+def city_wall_kind(x: Any, y: Any) -> Any: 
     """Вид стены в городе."""
     if is_well(x, y):     return 'city_well'
     if is_statue(x, y):   return 'city_statue'
@@ -304,7 +308,7 @@ def city_wall_kind(x, y):
     return 'city_wall'
 
 
-def goblin_ground_kind(x, y):
+def goblin_ground_kind(x: Any, y: Any) -> Any: 
     """Вид земли в Деревне гоблинов."""
     cx, cy = GOBLIN_VILLAGE_CENTER
     if (x - cx) ** 2 + (y - (cy - 1)) ** 2 <= 16:
@@ -314,7 +318,7 @@ def goblin_ground_kind(x, y):
     return 'goblin_grass'
 
 
-def ground_kind(x, y):
+def ground_kind(x: Any, y: Any) -> Any: 
     if in_goblin_village(x, y):
         return goblin_ground_kind(x, y)
     if in_village(x, y):
@@ -334,7 +338,7 @@ def ground_kind(x, y):
     return f'grass_{biome}' if biome else 'grass_pine'
 
 
-def wall_kind(x, y):
+def wall_kind(x: Any, y: Any) -> Any: 
     if in_goblin_village(x, y):
         if is_goblin_campfire(x, y): return 'goblin_campfire'
         if is_goblin_totem(x, y):    return 'goblin_totem'
@@ -357,7 +361,7 @@ def wall_kind(x, y):
     return 'rock' if biome == 'rock' else f'tree_{biome}'
 
 
-def location_title(x, y):
+def location_title(x: Any, y: Any) -> Any: 
     """Название места для HUD."""
     if in_goblin_village(x, y):
         return GOBLIN_VILLAGE_TITLE

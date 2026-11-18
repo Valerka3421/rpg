@@ -1,6 +1,9 @@
 """Сериализация + слоты + dungeon_cache."""
+from __future__ import annotations
+
 import json
 import os
+from typing import Any, Optional
 
 from core.config import DATA_DIR, MAP_H, MAP_W, Tile
 
@@ -12,7 +15,7 @@ from core.entities import Dungeon, Entity, Player, Room
 
 
 # ── Базовые сериализаторы ──
-def entity_to_dict(e: Entity) -> dict:
+def entity_to_dict(e: Entity) -> dict[str, Any]:
     return {
         'x': e.x, 'y': e.y, 'hp': e.hp, 'max_hp': e.max_hp,
         'atk': e.atk, 'df': e.df,
@@ -25,7 +28,7 @@ def entity_to_dict(e: Entity) -> dict:
         'npc_type': e.npc_type,
     }
 
-def entity_from_dict(d: dict) -> Entity:
+def entity_from_dict(d: dict[str, Any]) -> Entity:
     e = Entity(d['x'], d['y'], d['hp'], d['max_hp'], d['atk'], d['df'],
                d['name'], d['ch'], tuple(d['color']), d['xp_value'],
                d['boss'], ability=d.get('ability'))
@@ -35,7 +38,7 @@ def entity_from_dict(d: dict) -> Entity:
     e.npc_type = d.get('npc_type')
     return e
 
-def player_to_dict(p: Player) -> dict:
+def player_to_dict(p: Player) -> dict[str, Any]:
     return {
         'x': p.x, 'y': p.y, 'hp': p.hp, 'mana': getattr(p, 'mana', 0),
         'class_key': getattr(p, 'class_key', 'default'),
@@ -70,7 +73,7 @@ def player_to_dict(p: Player) -> dict:
     }
 
 
-def player_from_dict(d: dict) -> Player:
+def player_from_dict(d: dict[str, Any]) -> Player:
     from core import skills
     p = Player(class_key=d.get('class_key', 'default'))
     p.x, p.y = d['x'], d['y']
@@ -143,7 +146,7 @@ def player_from_dict(d: dict) -> Player:
     return p
 
 
-def dungeon_to_dict(d: Dungeon) -> dict:
+def dungeon_to_dict(d: Dungeon) -> dict[str, Any]:
     """Тайлы пишутся строками цифр — компактнее вложенных списков int."""
     from core.harvest import serialize as harvest_serialize
     return {
@@ -160,7 +163,7 @@ def dungeon_to_dict(d: Dungeon) -> dict:
             for k, v in d.transitions.items()
         ],
         'barrier_tiles': [list(p) for p in getattr(d, 'barrier_tiles', ())],
-        'treasury_pos': (list(d.treasury_pos)
+        'treasury_pos': (list(d.treasury_pos)  # type: ignore[arg-type]
                          if getattr(d, 'treasury_pos', None) else None),
         'boss_door_cells': [list(p)
                             for p in getattr(d, 'boss_door_cells', ())],
@@ -172,8 +175,8 @@ def dungeon_to_dict(d: Dungeon) -> dict:
     }
 
 
-def _decode_tiles(rows):
-    tiles = []
+def _decode_tiles(rows: list[Any]) -> list[list[Tile]]:
+    tiles: list[list[Tile]] = []
     for row in rows:
         if isinstance(row, str):
             tiles.append([Tile(int(ch)) for ch in row])
@@ -182,7 +185,7 @@ def _decode_tiles(rows):
     return tiles
 
 
-def dungeon_from_dict(d: dict, is_overworld: bool = False, is_location: bool = False) -> Dungeon:
+def dungeon_from_dict(d: dict[str, Any], is_overworld: bool = False, is_location: bool = False) -> Dungeon:
     rows = _decode_tiles(d['tiles'])
     old_h = len(rows)
     old_w = max((len(r) for r in rows), default=0)
@@ -271,7 +274,12 @@ def dungeon_from_dict(d: dict, is_overworld: bool = False, is_location: bool = F
 
 
 # ── dungeon_cache ──
-def dungeon_cache_to_dict(cache, current_depth=None, max_keep=3, skip_depth=None):
+def dungeon_cache_to_dict(
+    cache: dict[int, dict[str, Any]],
+    current_depth: Optional[int] = None,
+    max_keep: int = 3,
+    skip_depth: Optional[int] = None,
+) -> dict[str, Any]:
     """Сериализует кэш этажей.
 
     ``skip_depth`` — этаж, который уже сохранён отдельным ключом ``dungeon``
@@ -296,8 +304,10 @@ def dungeon_cache_to_dict(cache, current_depth=None, max_keep=3, skip_depth=None
     }
 
 
-def dungeon_cache_from_dict(data):
-    result = {}
+def dungeon_cache_from_dict(
+    data: Optional[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    result: dict[int, dict[str, Any]] = {}
     for depth_str, c in (data or {}).items():
         try:
             result[int(depth_str)] = {
@@ -317,11 +327,11 @@ def save_slot_path(slot: int) -> str:
     return os.path.join(BASE_DIR, f'savegame_{slot}.json')
 
 
-def save_slot_exists(slot):
+def save_slot_exists(slot: int) -> bool:
     return os.path.exists(save_slot_path(slot))
 
 
-def save_slot_info(slot):
+def save_slot_info(slot: int) -> Optional[dict[str, Any]]:
     path = save_slot_path(slot)
     if not os.path.exists(path):
         return None
@@ -341,7 +351,7 @@ def save_slot_info(slot):
         return None
 
 
-def delete_slot(slot):
+def delete_slot(slot: int) -> bool:
     path = save_slot_path(slot)
     if os.path.exists(path):
         try:
