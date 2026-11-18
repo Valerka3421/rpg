@@ -327,7 +327,7 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
 
 # ════════════════════ КРАФТ ════════════════════
 # Качество (+N) имеет смысл только для снаряжения.
-EQUIP_TYPES = ('weapon', 'armor', 'head', 'legs')
+EQUIP_TYPES = ('weapon', 'armor', 'head', 'legs', 'boots')
 
 
 @dataclass
@@ -443,6 +443,27 @@ def craft_item(player, item_key, quality=None, recipe_index=None):
                        item, count)
 
 
+def craft_many(player, item_key, quantity=1, quality=None,
+               recipe_index=None):
+    """Создаёт несколько одинаковых предметов за раз.
+
+    Снаряжение не стакается, поэтому для него количество всегда 1.
+    Возвращает список ``CraftResult``; последний может быть неудачным,
+    если материалы закончились.
+    """
+    item = ITEMS.get(item_key, {})
+    quantity = max(1, int(quantity))
+    if item.get('type') in EQUIP_TYPES:
+        quantity = 1
+    results = []
+    for _ in range(quantity):
+        res = craft_item(player, item_key, quality, recipe_index)
+        results.append(res)
+        if not res.ok:
+            break
+    return results
+
+
 def craft(item_key, inventory, level, player=None, recipe_index=None,
           quality=None):
     """Создаёт предмет. Возвращает (успех, причина).
@@ -466,10 +487,13 @@ def craft(item_key, inventory, level, player=None, recipe_index=None,
     return True, 'ok'
 
 
-def craftable_list(inventory, level, player=None, tab='all'):
+def craftable_list(inventory, level, player=None, tab='all',
+                   unlocked_only=False):
     """[(key, data, recipe, can, category, recipe_index, count) ...].
 
     `tab` — ключ вкладки окна крафта: 'all' или категория навыка.
+    `unlocked_only` — скрывать рецепты, которые ещё не открыты по
+    уровню навыка крафта (используется окном крафта).
     """
     from core.data import get_craftable_items
     result = []
@@ -477,12 +501,14 @@ def craftable_list(inventory, level, player=None, tab='all'):
         category = item_category(key)
         if tab not in (None, 'all') and category != tab:
             continue
+        unlocked = player is None or skills.recipe_unlocked(player, item)
+        if unlocked_only and not unlocked:
+            continue
         recipe, count, recipe_index = select_recipe(key, inventory)
         has_materials = bool(recipe) and all(
             inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
         level_ok = level >= item.get('level_req', 1)
-        allowed = level_ok and (player is None
-                                or skills.recipe_unlocked(player, item))
+        allowed = level_ok and unlocked
         result.append((key, item, recipe, has_materials and allowed,
                        category, recipe_index, count))
     return result
@@ -507,6 +533,35 @@ def consume(inventory, key):
     return True
 
 
+def is_stackable(key):
+    """Снаряжение не стакается; всё остальное — до ``MAX_STACK``."""
+    from core.data import get_item_data
+    return get_item_data(key).get('type') not in EQUIP_TYPES
+
+
+def inventory_stacks(inventory):
+    """Список ``(key, count)`` с учётом лимита стака.
+
+    Оружие и броня показываются отдельными слотами (по 1), обычные
+    предметы разбиваются на стаки не больше ``MAX_STACK``.
+    """
+    from core.config import MAX_STACK
+    entries = []
+    for key in sorted(inventory):
+        count = int(inventory.get(key, 0) or 0)
+        if count <= 0:
+            continue
+        if not is_stackable(key):
+            entries.extend([(key, 1)] * count)
+            continue
+        while count > MAX_STACK:
+            entries.append((key, MAX_STACK))
+            count -= MAX_STACK
+        if count:
+            entries.append((key, count))
+    return entries
+
+
 @dataclass
 class UseResult:
     ok: bool
@@ -523,6 +578,7 @@ SLOT_FOR_TYPE = {
     'armor': 'armor',
     'head': 'head',
     'legs': 'legs',
+    'boots': 'boots',
     # Старое имя типа предмета из ранних сейвов/данных.
     'helmet': 'head',
     'leggings': 'legs',
@@ -570,6 +626,31 @@ def use_item(player, key, monsters=None, on_hit=None):
     if not item:
         return None
     kind = item.get('type')
+
+    if kind == 'blueprint':
+        teaches = item.get('teaches')
+        if not teaches:
+            return UseResult(False, 'no_use', 'Пустой чертёж.')
+        known = getattr(player, 'blueprints', None)
+        if known is None:
+            known = set()
+            player.blueprints = known
+        if teaches in known:
+            return UseResult(False, 'known', 'Этот чертёж уже изучен.')
+        base_class = getattr(player, 'class_base', '')
+        class_key = getattr(player, 'class_key', '')
+        from core.data import ITEMS as _ITEMS
+        recipe_item = _ITEMS.get(teaches, {})
+        classes = recipe_item.get('craft_classes') or ()
+        if classes and base_class not in classes and class_key not in classes:
+            return UseResult(False, 'class',
+                             'Чертёж понятен только ремесленнику.')
+        known.add(teaches)
+        consume(inventory, key)
+        name = recipe_item.get('name', teaches)
+        return UseResult(True, 'blueprint',
+                         f"Изучен чертёж: {name}", 0,
+                         (240, 210, 120))
 
     if kind == 'resource':
         healing = item.get('heal', 0)

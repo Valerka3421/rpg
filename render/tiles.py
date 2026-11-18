@@ -903,6 +903,41 @@ def _dungeon_ground(variant):
     return s
 
 
+def _sand(variant):
+    """Песчаный берег: тёплый песок с редкими камешками."""
+    base = (196, 178, 128)
+    s = _new()
+    s.fill(base)
+    rng = textures.rng_for(variant, 71, seed=211)
+    textures.speckles(s, (0, 0, SIZE, SIZE), base, rng, 460, 0.10)
+    for _ in range(14):
+        x = rng.randint(2, SIZE - 3)
+        y = rng.randint(2, SIZE - 3)
+        col = textures.shade(base, rng.uniform(0.86, 1.10))
+        pygame.draw.circle(s, col, (x, y), rng.randint(1, 2))
+    for _ in range(3):
+        x = rng.randint(4, SIZE - 6)
+        y = rng.randint(4, SIZE - 6)
+        pygame.draw.circle(s, (150, 140, 118), (x, y), 2)
+    return s
+
+
+def _water(variant):
+    """Морская вода: волны и блики."""
+    base = (46, 92, 128)
+    s = _new()
+    s.fill(base)
+    rng = textures.rng_for(variant, 73, seed=223)
+    textures.speckles(s, (0, 0, SIZE, SIZE), base, rng, 300, 0.12)
+    for _ in range(7):
+        x = rng.randint(-6, SIZE - 16)
+        y = rng.randint(2, SIZE - 6)
+        w = rng.randint(14, 34)
+        pygame.draw.arc(s, (126, 178, 204), (x, y, w, 10),
+                        0.15, 3.0, 2)
+    return s
+
+
 def _rock(variant):
     """Валун на каменистой земле — стена каменного края."""
     s = _dungeon_ground(variant + 2)
@@ -1452,6 +1487,7 @@ _VARIANTS = {
     'arrow_n': 3, 'arrow_e': 3, 'arrow_s': 3, 'arrow_w': 3,
     'mine_wall': 2, 'mine_ground': 6, 'locked_door': 1,
     'chest': 1, 'tombstone': 3,
+    'sand': 4, 'water': 3,
 }
 
 
@@ -1480,6 +1516,8 @@ _BUILDERS.update({
     'dungeon_ruins': _dungeon_ruins_floor,
     'ruins_pillar': _ruins_pillar,
     'rock': _rock,
+    'sand': _sand,
+    'water': _water,
     'goblin_grass': _goblin_grass,
     'goblin_path': _goblin_path,
     'goblin_plaza': _goblin_plaza,

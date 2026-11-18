@@ -152,7 +152,7 @@ class GameCore:
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
             'df_stat': p.df_stat, 'int': getattr(p, 'int_stat', 5),
             'weapon': p.weapon, 'armor': p.armor,
-            'head': p.head, 'legs': p.legs,
+            'head': p.head, 'legs': p.legs, 'boots': p.boots,
             'helmet': p.head, 'leggings': p.legs,
             'inventory': dict(p.inventory),
             'gold': p.gold,
@@ -166,6 +166,7 @@ class GameCore:
             'skill_points': getattr(p, 'skill_points', 0),
             'skill_xp': dict(getattr(p, 'skill_xp', {})),
             'skill_nodes': sorted(getattr(p, 'skill_nodes', set())),
+            'blueprints': sorted(getattr(p, 'blueprints', set())),
         }
 
     def _player_from_dict(self, d):
@@ -182,6 +183,7 @@ class GameCore:
         p.armor = d.get('armor')
         p.head = d.get('head', d.get('helmet'))
         p.legs = d.get('legs', d.get('leggings'))
+        p.boots = d.get('boots')
         p.inventory = dict(d.get('inventory', {}))
         p.gold = d.get('gold', 0)
         p.double_strike = d.get('double_strike', False)
@@ -207,6 +209,7 @@ class GameCore:
         p.skill_points = int(d.get('skill_points', 1))
         p.skill_xp = {k: v['xp'] for k, v in p.skills.items()}
         p.skill_nodes = set(d.get('skill_nodes') or ())
+        p.blueprints = set(d.get('blueprints') or ())
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
         p.mana = min(d.get('mana', p.max_mana), p.max_mana)
@@ -370,7 +373,8 @@ class GameCore:
     def unequip(self, pid, slot):
         p = self.players.get(pid)
         slot = {'helmet': 'head', 'leggings': 'legs'}.get(slot, slot)
-        if p is None or slot not in ('weapon', 'armor', 'head', 'legs'):
+        if p is None or slot not in ('weapon', 'armor', 'head', 'legs',
+                                     'boots'):
             return
         key = getattr(p, slot, None)
         if not key:
@@ -429,7 +433,7 @@ class GameCore:
         p = self.players.get(pid)
         if p is None or not self._merchant_in_reach(p):
             return False
-        items = sorted(p.inventory.items())
+        items = rules.inventory_stacks(p.inventory)
         if not (0 <= index < len(items)):
             return False
         key = items[index][0]
@@ -648,7 +652,17 @@ class GameCore:
         self._event(f"{p.class_name} добыл: {names}", COL_HEAL)
 
     def _open_chest(self, p, x, y):
-        """Сундук казны: золото + пара предметов по глубине."""
+        """Сундук: заранее заданные ресурсы или золото + предметы."""
+        loot = getattr(self.dungeon, 'chest_loot', {}).pop((x, y), None)
+        if loot:
+            parts = []
+            for key, count in loot.items():
+                p.inventory[key] = p.inventory.get(key, 0) + count
+                parts.append(f"{item_display_name(key)} ×{count}")
+            self._event(f"{p.class_name} открыл сундук: " + ", ".join(parts),
+                        COL_GOLD)
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            return
         depth = max(1, self.depth)
         gold = 20 + depth * 8
         p.gold += gold
@@ -1254,7 +1268,7 @@ class GameCore:
                 'luk': p.luk, 'df_stat': p.df_stat,
                 'int': getattr(p, 'int_stat', 5),
                 'weapon': p.weapon, 'armor': p.armor,
-                'head': p.head, 'legs': p.legs,
+                'head': p.head, 'legs': p.legs, 'boots': p.boots,
                 'helmet': p.head, 'leggings': p.legs,
                 'skills': {k: dict(v) for k, v in p.skills.items()},
             }

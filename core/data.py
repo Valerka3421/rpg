@@ -306,9 +306,24 @@ ITEMS = {
     'cloth_pants':   {'ch': '|', 'name': 'Штаны', 'type': 'legs', 'value': 1,
                       'level_req': 1, 'color': (150, 130, 100), 'tier': 1, 'sell': 4,
                       'desc': '+1 DEF.'},
-    'leather_boots': {'ch': '|', 'name': 'Кожаные сапоги', 'type': 'legs', 'value': 1,
+    'leather_boots': {'ch': '|', 'name': 'Кожаные сапоги', 'type': 'boots', 'value': 1,
                       'level_req': 1, 'color': (160, 120, 80), 'tier': 1, 'sell': 6,
-                      'dodge_bonus': 0.03, 'desc': '+1 DEF, +3% укл.'},
+                      'dodge_bonus': 0.03, 'armor_type': 'light',
+                      'category': 'blacksmith',
+                      'recipe': {'hide': 2, 'wood': 1}, 'skill': 'smithing',
+                      'skill_req': 1, 'desc': '+1 DEF, +3% укл.'},
+    'chain_boots': {'ch': '|', 'name': 'Кольчужные сапоги', 'type': 'boots',
+                    'value': 2, 'level_req': 5, 'color': (170, 170, 180),
+                    'tier': 2, 'sell': 14, 'dodge_bonus': 0.02,
+                    'armor_type': 'medium', 'category': 'blacksmith',
+                    'recipe': {'ore': 2, 'hide': 1}, 'skill': 'smithing',
+                    'skill_req': 10, 'desc': '+2 DEF, +2% укл.'},
+    'plate_boots': {'ch': '|', 'name': 'Латные сапоги', 'type': 'boots',
+                    'value': 3, 'level_req': 9, 'color': (215, 220, 240),
+                    'tier': 3, 'sell': 24, 'armor_type': 'heavy',
+                    'category': 'blacksmith',
+                    'recipe': {'ore': 3, 'bone': 1}, 'skill': 'smithing',
+                    'skill_req': 16, 'desc': '+3 DEF.'},
     'plate_greaves': {'ch': '|', 'name': 'Латные поножи', 'type': 'legs', 'value': 2,
                       'level_req': 6, 'color': (220, 220, 240), 'tier': 2, 'sell': 15,
                       'desc': '+2 DEF.'},
@@ -372,6 +387,10 @@ ITEMS = {
     'book_def': {'ch': '?', 'name': 'Книга защиты', 'type': 'book',
                  'stat': 'df_stat', 'value': 5, 'color': (160, 200, 255),
                  'tier': 3, 'sell': 30, 'shop_price': 80, 'desc': '+5 DEF навсегда.'},
+    'book_int': {'ch': '?', 'name': 'Книга интеллекта', 'type': 'book',
+                 'stat': 'int', 'value': 5, 'color': (180, 150, 255),
+                 'tier': 3, 'sell': 30, 'shop_price': 80,
+                 'desc': '+5 INT навсегда: мана и урон магией.'},
     'book_double': {'ch': '?', 'name': 'Книга двойного удара', 'type': 'book',
                     'stat': 'double_strike', 'value': 0.15,
                     'color': (200, 150, 255), 'tier': 3, 'sell': 40, 'shop_price': 120,
@@ -469,6 +488,58 @@ ITEMS = {
                       'category': 'blacksmith', 'level_req': 5,
                       'recipe': {'ore': 3, 'stone': 2},
                       'desc': 'Лёгкий и прочный металл.'},
+    # ── Особые (ремесленные) крафты ──
+    # Открываются только чтением чертежа и только классам ветки
+    # «Ремесленник» (artisan и его эволюции).
+    'artisan_blade': {'ch': '/', 'name': 'Клинок ремесленника',
+                      'type': 'weapon', 'wtype': 'sword', 'value': 9,
+                      'level_req': 8, 'color': (210, 230, 255), 'tier': 3,
+                      'sell': 90, 'category': 'blacksmith',
+                      'recipe': {'mithril_ingot': 2, 'dragon_scale': 1,
+                                 'magic_powder': 2},
+                      'skill': 'blacksmith', 'skill_req': 18,
+                      'special': True, 'craft_classes': ('artisan',),
+                      'blueprint_required': 'artisan_blade',
+                      'desc': 'Шедевр кузнеца: +9 ATK, +2 DEF.',
+                      'df_bonus': 2},
+    'philosophers_stone': {'ch': 'o', 'name': 'Философский камень',
+                           'type': 'material', 'sell': 150,
+                           'color': (255, 200, 120), 'tier': 3,
+                           'category': 'alchemy',
+                           'recipe': {'magic_powder': 3,
+                                      'mana_crystal_large': 1,
+                                      'iron_ingot': 1},
+                           'skill': 'alchemy', 'skill_req': 20,
+                           'special': True, 'craft_classes': ('artisan',),
+                           'blueprint_required': 'philosophers_stone',
+                           'desc': 'Венец алхимии. Очень дорого продаётся.'},
+    'grand_elixir': {'ch': '!', 'name': 'Великий эликсир', 'type': 'heal',
+                     'value': 140, 'color': (255, 140, 200), 'tier': 3,
+                     'sell': 70, 'shop_price': 220,
+                     'category': 'alchemy',
+                     'recipe': {'magic_powder': 4, 'mana_crystal': 2,
+                                'berry': 3},
+                     'skill': 'alchemy', 'skill_req': 22,
+                     'special': True, 'craft_classes': ('artisan',),
+                     'blueprint_required': 'grand_elixir',
+                     'desc': 'Восстанавливает 140 HP.'},
+    # ── Чертежи особых крафтов ──
+    'blueprint_artisan_blade': {'ch': '?', 'name': 'Чертёж: клинок ремесленника',
+                                'type': 'blueprint', 'teaches': 'artisan_blade',
+                                'sell': 40, 'color': (230, 210, 160),
+                                'tier': 3, 'shop_price': 180,
+                                'desc': 'Ремесленнику: открывает крафт клинка.'},
+    'blueprint_philosophers_stone': {'ch': '?', 'name': 'Чертёж: философский камень',
+                                     'type': 'blueprint',
+                                     'teaches': 'philosophers_stone',
+                                     'sell': 40, 'color': (240, 220, 150),
+                                     'tier': 3, 'shop_price': 200,
+                                     'desc': 'Ремесленнику: открывает философский камень.'},
+    'blueprint_grand_elixir': {'ch': '?', 'name': 'Чертёж: великий эликсир',
+                               'type': 'blueprint', 'teaches': 'grand_elixir',
+                               'sell': 40, 'color': (240, 180, 210),
+                               'tier': 3, 'shop_price': 200,
+                               'desc': 'Ремесленнику: открывает великий эликсир.'},
     # ── Свитки и руны ──
     'scroll_heal': {'ch': '&', 'name': 'Свиток лечения', 'type': 'scroll',
                     'effect': 'heal', 'value': 30, 'color': (120, 240, 120),
@@ -595,12 +666,16 @@ def item_category(item_key, default='blacksmith'):
     if cat in SKILLS:
         return cat
     kind = item.get('type')
-    if kind in ('weapon', 'armor', 'head', 'legs', 'material'):
+    if kind in ('weapon', 'armor', 'head', 'legs', 'boots', 'material'):
         return 'blacksmith'
-    if kind == 'heal':
+    if kind in ('heal', 'mana', 'poison', 'buff'):
         return 'alchemy'
-    if kind in ('scroll', 'rune'):
+    if kind in ('scroll', 'rune', 'blueprint'):
         return 'magic_engineering'
+    # Если тип незнакомый, но навык указан явно — доверяем ему.
+    skill = item.get('skill')
+    if skill in SKILLS:
+        return skill
     return default
 
 
@@ -1405,9 +1480,17 @@ def make_shop_stock(depth):
         if random.random() < chance:
             add(bk, book_price_at_depth(price, depth))
     # Книги статов
-    for bk in ('book_str', 'book_agi', 'book_vit', 'book_luk', 'book_def'):
+    for bk in ('book_str', 'book_agi', 'book_vit', 'book_luk', 'book_def',
+               'book_int'):
         if random.random() < 0.25:
             add(bk, book_price_at_depth(80, depth))
+
+    # Чертёж особого крафта — редкая находка у торговца.
+    if depth >= 3 and random.random() < 0.15:
+        add(random.choice(('blueprint_artisan_blade',
+                           'blueprint_philosophers_stone',
+                           'blueprint_grand_elixir')),
+            book_price_at_depth(180, depth))
 
     # Свитки
     if random.random() < 0.20:
@@ -1426,14 +1509,18 @@ def make_shop_stock(depth):
     head_pool = {1: ['leather_cap'],
                  2: ['leather_cap', 'iron_helm'],
                  3: ['iron_helm', 'steel_helm', 'crown']}[tier]
-    legs_pool = {1: ['cloth_pants', 'leather_boots'],
-                 2: ['leather_boots', 'leather_legs', 'chain_legs',
-                     'plate_greaves'],
+    legs_pool = {1: ['cloth_pants'],
+                 2: ['leather_legs', 'chain_legs', 'plate_greaves'],
                  3: ['plate_greaves', 'plate_legs']}[tier]
+    boots_pool = {1: ['leather_boots'],
+                  2: ['leather_boots', 'chain_boots'],
+                  3: ['chain_boots', 'plate_boots']}[tier]
     if random.random() < 0.45:
         add(random.choice(head_pool), 10 * tier)
     if random.random() < 0.45:
         add(random.choice(legs_pool),  8 * tier)
+    if random.random() < 0.40:
+        add(random.choice(boots_pool), 7 * tier)
 
     add(potion_key, 5 * tier)
     add(potion_key, 5 * tier)
@@ -1446,7 +1533,8 @@ def make_shop_stock(depth):
     add(make_loot_key(wk, wr), 15 * tier + wr * 10)
     add(make_loot_key(ak, ar), 12 * tier + ar * 10)
     add(head_pool[0], 8 * tier)
-    add(legs_pool[0], 8 * tier)
+    add(random.choice(legs_pool), 8 * tier)
+    add(random.choice(boots_pool), 6 * tier)
     return stock
 
 

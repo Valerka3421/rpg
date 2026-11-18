@@ -111,6 +111,10 @@ class Game:
         self.screen_mode = 'game'
         self.shop_submode = 'buy'
         self.inv_page = 0
+        # Быстрая панель: 8 слотов, клавиши 1–8.
+        self.hotbar = [None] * 8
+        # Летящие снаряды (стрелы, магические шары).
+        self.projectiles = []
         self.floats = []
         self.merchant = None
         self.shop_stock = []
@@ -453,16 +457,9 @@ class Game:
             self.save(silent=True)
 
     def update_fov(self):
-        if self.world_mode == 'overworld' and self.location != 'mine':
-            # На поверхности тумана войны нет: видно всю карту локации.
-            # Шахта — подземелье, там обзор остаётся ограниченным.
-            d = self.dungeon
-            self.visible = {(x, y) for y in range(d.h) for x in range(d.w)}
-        else:
-            radius = FOV_RADIUS + max(
-                0, int(getattr(self.player, 'vision_bonus', 0)))
-            self.visible = compute_fov(self.dungeon, self.player.x,
-                                       self.player.y, radius)
+        # Туман войны убран везде: игрок видит всю карту локации/этажа.
+        d = self.dungeon
+        self.visible = {(x, y) for y in range(d.h) for x in range(d.w)}
         self.explored |= self.visible
 
     # ════════════════════════ SAVE / LOAD ════════════════════════
@@ -523,6 +520,7 @@ class Game:
                 'boss_kills': self.boss_kills,
             },
             'elder': entity_to_dict(self.elder) if self.elder else None,
+            'hotbar': list(getattr(self, 'hotbar', [])),
         }
         tmp = path + '.tmp'
         try:
@@ -631,6 +629,8 @@ class Game:
             self.shop_submode = 'buy'
             self.shop.page = 0
             self.inv_page = 0
+            self.hotbar = list(data.get('hotbar') or [])[:8]
+            self.hotbar += [None] * (8 - len(self.hotbar))
             self.log_scroll = 0
             self.floats = []
             self._lvl_float_idx = 0
@@ -794,9 +794,22 @@ class Game:
         return False
 
     def _open_chest(self, x, y):
-        """Сундук казны: золото + пара предметов по глубине."""
+        """Сундук: заранее заданные ресурсы или золото + предметы."""
         from audio import Audio
         Audio.play('pickup')
+        loot = getattr(self.dungeon, 'chest_loot', {}).pop((x, y), None)
+        if loot:
+            names = []
+            for key, count in loot.items():
+                self.player.inventory[key] = (
+                    self.player.inventory.get(key, 0) + count)
+                self.quest_log.update_collect(key, self.player.inventory)
+                names.append(f"{item_display_name(key)} ×{count}")
+            self.log("Сундук открыт: " + ", ".join(names), COL_GOLD)
+            self.add_float(x, y, "СУНДУК", COL_GOLD)
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
+            return
         depth = max(1, self.depth)
         gold = 20 + depth * 8
         self.player.gold += gold
@@ -911,7 +924,7 @@ class Game:
             self.add_float(self.player.x, self.player.y, f"+{result.amount}", COL_HEAL)
         elif result.kind == 'equip':
             self.log(result.message, result.color)
-        elif result.kind == 'book':
+        elif result.kind in ('book', 'blueprint'):
             self.log(result.message, COL_GOLD)
             if result.amount:
                 self.add_float(self.player.x, self.player.y,
@@ -946,15 +959,39 @@ class Game:
             self.log(result.message, result.color)
 
     def use_item_by_index(self, idx):
-        items = sorted(self.player.inventory.items())
+        items = rules.inventory_stacks(self.player.inventory)
         start = self.inv_page * INVENTORY_PAGE_SIZE
         page_items = items[start:start + INVENTORY_PAGE_SIZE]
         if 0 <= idx < len(page_items):
             self.use_item(page_items[idx][0])
             self.inv_page = min(self.inv_page, self.inv_pages_count() - 1)
 
+    def use_hotbar(self, idx):
+        """Использовать предмет/свиток из быстрой панели."""
+        if not (0 <= idx < len(self.hotbar)):
+            return
+        key = self.hotbar[idx]
+        if not key:
+            self.log(f"Слот {idx + 1} пуст. Shift+цифра в инвентаре — назначить.",
+                     COL_DIM)
+            return
+        if self.player.inventory.get(key, 0) <= 0:
+            self.log(f"В слоте {idx + 1} закончился предмет.", COL_DIM)
+            return
+        self.use_item(key)
+
+    def assign_hotbar(self, idx):
+        """Назначить предмет под курсором в инвентаре на слот панели."""
+        mx, my = self.mouse_pos
+        for key, rect in self._ui_hits.get('inventory', {}).get('items', []):
+            if self._hit(rect, (mx, my)):
+                self.hotbar[idx] = key
+                self.log(f"Слот {idx + 1}: {item_display_name(key)}", COL_GOLD)
+                return
+        self.log("Наведи курсор на предмет и нажми Shift+цифру.", COL_DIM)
+
     def inv_pages_count(self):
-        n = len(self.player.inventory)
+        n = len(rules.inventory_stacks(self.player.inventory))
         return max(1, (n + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE)
 
     def inv_next_page(self):
@@ -992,7 +1029,7 @@ class Game:
         key = getattr(p, slot, None)
         if not key:
             names = {'weapon': 'Оружие', 'armor': 'Броня',
-                     'head': 'Шлем', 'legs': 'Поножи'}
+                     'head': 'Шлем', 'legs': 'Поножи', 'boots': 'Обувь'}
             self.log(f"{names.get(slot, 'Слот')}: пусто.", COL_DIM)
             return
         setattr(p, slot, None)
@@ -1017,6 +1054,9 @@ class Game:
 
     def unequip_legs(self):
         self.unequip_slot('legs')
+
+    def unequip_boots(self):
+        self.unequip_slot('boots')
 
     # ════════════════════════ БОЙ ════════════════════════
     def attack(self, a, b):
@@ -1086,7 +1126,11 @@ class Game:
         self.log(f"+{reward.gold} золота", COL_GOLD)
         self.add_float(monster.x, monster.y - 0.6, f"+{reward.gold}g", COL_GOLD)
         for item_key in reward.drops:
-            self._place_drop(monster.x, monster.y, item_key)
+            # Добыча сразу попадает в инвентарь — не нужно бегать по тайлам.
+            self.player.inventory[item_key] = (
+                self.player.inventory.get(item_key, 0) + 1)
+            self.quest_log.update_collect(item_key, self.player.inventory)
+            self.log(f"Добыча: {item_display_name(item_key)}", COL_GOLD)
 
         if monster.boss:
             # Погиб босс: замурованные выходы его арены открываются.
@@ -1189,7 +1233,7 @@ class Game:
                 return
         if ability == 'ranged' and 2 <= dist <= 4:
             if has_los(self.dungeon, m.x, m.y, self.player.x, self.player.y):
-                self.attack(m, self.player)
+                self._launch_projectile(m, self.player)
                 return
         if dist <= 1:
             self.attack(m, self.player)
@@ -1210,6 +1254,49 @@ class Game:
                                     (self.player.x, self.player.y), blocked)
             if nxt:
                 m.x, m.y = nxt
+
+    # ── Снаряды дальних атак ──
+    PROJECTILE_STYLES = {
+        'a': ('arrow', (210, 190, 120)),      # гоблин-лучник
+        'L': ('orb', (200, 120, 255)),        # лич
+        'S': ('orb', (180, 140, 220)),        # шаман
+        'W': ('spirit', (190, 200, 255)),     # призрак
+    }
+
+    def _launch_projectile(self, source, target, kind=None, color=None,
+                           speed=9.0):
+        """Запускает видимый снаряд; урон применяется при попадании."""
+        style, default_color = self.PROJECTILE_STYLES.get(
+            getattr(source, 'ch', ''), ('orb', (200, 160, 255)))
+        self.projectiles.append({
+            'x': float(source.x), 'y': float(source.y),
+            'kind': kind or style,
+            'color': color or default_color,
+            'speed': speed,
+            'source': source, 'target': target,
+        })
+
+    def update_projectiles(self, dt):
+        if not self.projectiles:
+            return
+        remaining = []
+        for pr in self.projectiles:
+            target = pr.get('target')
+            if target is None or getattr(target, 'hp', 0) <= 0:
+                continue
+            dx = target.x - pr['x']
+            dy = target.y - pr['y']
+            dist = (dx * dx + dy * dy) ** 0.5
+            step = max(0.01, pr['speed'] * dt)
+            if dist <= step:
+                source = pr.get('source')
+                if source is not None and getattr(source, 'hp', 0) > 0:
+                    self.attack(source, target)
+                continue
+            pr['x'] += dx / dist * step
+            pr['y'] += dy / dist * step
+            remaining.append(pr)
+        self.projectiles = remaining
 
     def _flee_monster(self, m):
         """Шаг в сторону, увеличивающую расстояние до игрока."""
@@ -1409,12 +1496,22 @@ class Game:
                 self.unequip_head()
             elif key == pygame.K_b:
                 self.unequip_legs()
+            elif key == pygame.K_n:
+                self.unequip_boots()
             elif key == pygame.K_q:
                 self.inv_prev_page()
             elif key == pygame.K_e:
                 self.inv_next_page()
             elif pygame.K_1 <= key <= pygame.K_9:
-                self.use_item_by_index(key - pygame.K_1)
+                if (mods & pygame.KMOD_SHIFT) and key <= pygame.K_8:
+                    self.assign_hotbar(key - pygame.K_1)
+                else:
+                    self.use_item_by_index(key - pygame.K_1)
+            return
+
+        # Быстрая панель: 1–8 используют назначенные предметы.
+        if pygame.K_1 <= key <= pygame.K_8:
+            self.use_hotbar(key - pygame.K_1)
             return
 
         # Открытие экранов
@@ -1623,6 +1720,12 @@ class Game:
         if self._hit(hits.get('next', (0, 0, 0, 0)), pos):
             self.craft.next_page()
             return True
+        if self._hit(hits.get('qty_minus', (0, 0, 0, 0)), pos):
+            self.craft.change_quantity(-1)
+            return True
+        if self._hit(hits.get('qty_plus', (0, 0, 0, 0)), pos):
+            self.craft.change_quantity(1)
+            return True
         for idx, rect in hits.get('hammer', []):
             if self._hit(rect, pos):
                 self.craft.craft(idx)
@@ -1827,6 +1930,8 @@ class Game:
             f.life -= dt
             f.y -= 40 * dt
         self.floats = [f for f in self.floats if f.life > 0]
+
+        self.update_projectiles(dt)
 
         # Пауза: смерть/победа/меню
         if self.dead or self.victory:

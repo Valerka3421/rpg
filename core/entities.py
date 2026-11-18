@@ -63,6 +63,7 @@ class Player(Entity):
         effects = data.get('effects') or {}
         head = data.get('head', data.get('helmet'))
         legs = data.get('legs', data.get('leggings'))
+        boots = data.get('boots')
 
         wb = ab = hp_extra = 0
         w_crit = w_dodge = a_dodge = 0.0
@@ -70,7 +71,7 @@ class Player(Entity):
         mana_extra = 0
         for slot, key in (('weapon', data.get('weapon')),
                           ('armor', data.get('armor')),
-                          ('head', head), ('legs', legs)):
+                          ('head', head), ('legs', legs), ('boots', boots)):
             if not key:
                 continue
             base, lvl = parse_item_key(key)
@@ -136,6 +137,7 @@ class Player(Entity):
         self.armor = cls.get('start_armor')
         self.head = None
         self.legs = None
+        self.boots = None
         self.inventory = {}
         for k, v in cls.get('start_items', {}).items():
             self.inventory[k] = self.inventory.get(k, 0) + v
@@ -156,6 +158,7 @@ class Player(Entity):
         self.skill_points = 1
         self.skill_xp = {k: v['xp'] for k, v in self.skills.items()}
         self.skill_nodes = set()
+        self.blueprints = set()        # прочитанные чертежи особых крафтов
         self.mana = 0
         self.max_mana = 0
         self._effects_cache = {}
@@ -225,7 +228,7 @@ class Player(Entity):
             'luk': self.luk, 'df_stat': self.df_stat, 'level': self.level,
             'int': self.int_stat,
             'weapon': self.weapon, 'armor': self.armor,
-            'head': self.head, 'legs': self.legs,
+            'head': self.head, 'legs': self.legs, 'boots': self.boots,
             'effects': effects,
         })
         self.max_hp = stats['max_hp']
@@ -312,6 +315,8 @@ class Dungeon:
         # Босс-комплекс: центр казны и клетки запертой двери
         self.treasury_pos = None
         self.boss_door_cells = set()
+        # Содержимое сундуков, заданное генерацией: (x, y) -> {ключ: кол-во}
+        self.chest_loot = {}
 
 
 @dataclass

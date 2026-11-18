@@ -115,9 +115,11 @@ MERCHANT_FLOORS = (3, 6, 9, 12, 15, 18)
 # Запасной пул лесных мобов. Гоблины и скелеты в лесу больше не спавнятся:
 # они живут в Деревне гоблинов и подземелье соответственно.
 OVERWORLD_MONSTERS = ('rat', 'wolf', 'boar')
-INVENTORY_COLS = 5
-INVENTORY_ROWS = 5
+INVENTORY_COLS = 10
+INVENTORY_ROWS = 10
 INVENTORY_PAGE_SIZE = INVENTORY_COLS * INVENTORY_ROWS
+# Максимум предметов в одном стаке. Оружие и броня не стакаются вовсе.
+MAX_STACK = 99
 SHOP_PAGE_SIZE = 9
 # Сколько рецептов показывать на одной странице окна крафта.
 CRAFT_PAGE_SIZE = 8

@@ -386,7 +386,7 @@ class MenuRenderer(BaseRenderer):
                   T.TEXT_DIM, font=T.FONT_BODY, center=True)
 
         sections = [
-            ("Создатели", ["Dodik", "Don't talk to people", "Kariov"]),
+            ("Создатели", ["Dodik", "Don't talk to people", "And don’t write"]),
             ("Художник", ["Лизабет еБатори"]),
         ]
         y = 190

@@ -52,7 +52,7 @@ class ShopController:
 
     def sell(self, idx):
         g = self.game
-        items = sorted(g.player.inventory.items())
+        items = rules.inventory_stacks(g.player.inventory)
         abs_idx = self._page_index(idx)
         if not (0 <= abs_idx < len(items)):
             return
@@ -79,7 +79,8 @@ class ShopController:
 
     def pages_count(self):
         g = self.game
-        n = len(g.shop_stock) if g.shop_submode == 'buy' else len(g.player.inventory)
+        n = len(g.shop_stock) if g.shop_submode == 'buy' else len(
+            rules.inventory_stacks(g.player.inventory))
         return max(1, (n + SHOP_PAGE_SIZE - 1) // SHOP_PAGE_SIZE)
 
     def next_page(self):

@@ -533,7 +533,7 @@ def test_reroll_not_enough_gold(make_game):
 
 def test_inventory_pagination(make_game):
     g = make_game()
-    g.player.inventory = {f'item_{i}': 1 for i in range(30)}
+    g.player.inventory = {f'item_{i}': 1 for i in range(130)}
     assert g.inv_pages_count() == 2
     g.inv_page = 0
     g.inv_next_page();
@@ -582,8 +582,8 @@ def test_sell_on_second_page(make_game):
     assert g.player.gold > gold_before
 
 
-def test_inventory_page_size_is_25():
-    assert INVENTORY_PAGE_SIZE == 25
+def test_inventory_page_size_is_100():
+    assert INVENTORY_PAGE_SIZE == 100
 
 
 def test_craft_screen_opens(make_game):
@@ -608,6 +608,7 @@ def test_craft_screen_closes_k(make_game):
 
 def test_craftable_list_returns_recipes(make_game):
     g = make_game()
+    g.player.skills['smithing'] = 25
     craftable = g.craftable_list()
     assert len(craftable) >= 3
     keys = [c[0] for c in craftable]
@@ -634,6 +635,7 @@ def test_craft_requires_level(make_game):
     """Крафт уважает level_req — как показывает окно крафта."""
     g = make_game()
     g.player.level = 1
+    g.player.skills['smithing'] = 3      # рецепт открыт, но уровень мал
     g.player.inventory = {'bone': 2, 'wood': 1}
     craftable = g.craftable_list()
     bone_idx = next(i for i, c in enumerate(craftable) if c[0] == 'bone_sword')
@@ -645,9 +647,10 @@ def test_craft_requires_level(make_game):
 
 def test_craft_not_enough_materials(make_game):
     g = make_game()
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 1}
     craftable = g.craftable_list()
-    bone_idx = next((i for i, c in enumerate(craftable) if c[0] == 'bone_sword'), None)
+    bone_idx = next(i for i, c in enumerate(craftable) if c[0] == 'bone_sword')
     assert craftable[bone_idx][3] is False
     g.craft_item(bone_idx)
     assert 'bone_sword' not in g.player.inventory
@@ -674,6 +677,7 @@ def test_craft_via_click(make_game):
 def test_craft_missing_materials_keeps_inventory(make_game):
     g = make_game()
     g.player.level = 5
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 1}
     craftable = g.craftable_list()
     bone_idx = next(i for i, c in enumerate(craftable) if c[0] == 'bone_sword')

@@ -83,6 +83,7 @@ assets/
 		├── book_vit.png
 		├── book_luk.png
 		├── book_def.png
+		├── book_int.png
 		├── book_double.png
 		├── book_regen.png
 		├── book_vampire.png

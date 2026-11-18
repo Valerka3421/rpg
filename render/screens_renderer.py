@@ -1,5 +1,6 @@
 """Экраны поверх игры: статы, инвентарь, магазин, крафт, диалог, квесты, статистика."""
 from core import config
+from core import rules
 import math
 import pygame
 from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
@@ -153,7 +154,8 @@ class ScreensRenderer(BaseRenderer):
         for label, key, stat in (("Оружие", p.weapon, "ATK"),
                                  ("Броня", p.armor, "DEF"),
                                  ("Шлем", p.head, "DEF"),
-                                 ("Поножи", p.legs, "DEF")):
+                                 ("Поножи", p.legs, "DEF"),
+                                 ("Обувь", getattr(p, 'boots', None), "DEF")):
             if key:
                 base, lvl = parse_item_key(key)
                 it = ITEMS.get(base, {})
@@ -186,7 +188,7 @@ class ScreensRenderer(BaseRenderer):
 
     def _d_hp(self, p):
         extra = 0
-        for slot in ('armor', 'head', 'legs'):
+        for slot in ('armor', 'head', 'legs', 'boots'):
             key = getattr(p, slot, None)
             if key:
                 b, _ = parse_item_key(key)
@@ -203,7 +205,7 @@ class ScreensRenderer(BaseRenderer):
     def _d_def(self, p):
         df_part = p.df_stat // 2
         total = df_part
-        for slot in ('armor', 'head', 'legs'):
+        for slot in ('armor', 'head', 'legs', 'boots'):
             key = getattr(p, slot, None)
             if key:
                 b, l = parse_item_key(key)
@@ -233,7 +235,7 @@ class ScreensRenderer(BaseRenderer):
         self.text("ИНВЕНТАРЬ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
                   align_right=True)
-        self.text("Q/E — страницы   H/B — снять шлем/поножи",
+        self.text("Q/E — страницы   H/B/N — снять шлем/поножи/обувь",
                   self._modal_right(game), cy0 + 34, T.TEXT_MUTED,
                   font=T.FONT_SMALL, align_right=True)
 
@@ -256,7 +258,7 @@ class ScreensRenderer(BaseRenderer):
         y2 = T.section(self.screen, inv_x, y, inv_w, "Рюкзак")
 
         from core.config import INVENTORY_COLS, INVENTORY_ROWS
-        items = sorted(p.inventory.items())
+        items = rules.inventory_stacks(p.inventory)
         total = max(1, (len(items) + INVENTORY_PAGE_SIZE - 1)
                     // INVENTORY_PAGE_SIZE)
         page = min(game.inv_page, total - 1)
@@ -264,11 +266,11 @@ class ScreensRenderer(BaseRenderer):
         start = page * INVENTORY_PAGE_SIZE
         page_items = items[start:start + INVENTORY_PAGE_SIZE]
 
-        gap_cell = 6
+        gap_cell = 4
         cols, rows = INVENTORY_COLS, INVENTORY_ROWS
         avail_h = (cy0 + ch) - y2 - 46
-        cell_w = min(120, (inv_w - gap_cell * (cols - 1)) // cols)
-        cell_h = max(80, min(120, (avail_h - gap_cell * (rows - 1)) // rows))
+        cell_w = min(64, (inv_w - gap_cell * (cols - 1)) // cols)
+        cell_h = min(64, max(38, (avail_h - gap_cell * (rows - 1)) // rows))
         grid_w = cols * cell_w + gap_cell * (cols - 1)
         grid_x = inv_x + (inv_w - grid_w) // 2
 
@@ -314,14 +316,26 @@ class ScreensRenderer(BaseRenderer):
             self._draw_inventory_tooltip(game, hovered[0], (mx, my))
 
     def _draw_equipment_panel(self, game, x, y, w, h, mx, my, hovered):
-        """Левая панель: силуэт игрока + 4 ячейки (голова, руки, тело, ноги)."""
+        """Левая панель: подсказка класса, силуэт и ячейки экипировки."""
         p = game.player
 
+        # ── Что может носить этот класс ──
+        from core.data import class_data, WCLASS_NAMES, ARMOR_TYPE_NAMES
+        cls = class_data(p.class_key)
+        weapons = ', '.join(WCLASS_NAMES.get(w, w)
+                            for w in cls.get('weapons', ())) or '—'
+        armor = ', '.join(ARMOR_TYPE_NAMES.get(a, a)
+                          for a in cls.get('armor_types', ())) or '—'
+        hint = f"Оружие: {weapons}. Броня: {armor}."
+        hint = self.fit_text(hint, w - 4, T.FONT_TINY)
+        self.text(hint, x + w // 2, y + 2, (170, 180, 160),
+                  font=T.FONT_TINY, center=True)
+
         # ── Силуэт персонажа ──
-        char_size = min(h - 260, 200, w - 40)
-        char_size = max(char_size, 120)
+        char_size = min(h - 340, 160, w - 40)
+        char_size = max(char_size, 100)
         char_x = x + (w - char_size) // 2
-        char_y = y + 10
+        char_y = y + 30
 
         # Подложка под силуэт
         T.rounded_rect(self.screen, (26, 24, 32),
@@ -331,16 +345,17 @@ class ScreensRenderer(BaseRenderer):
         # Персонаж (используем тот же draw_player, что и на поле)
         self.icons.draw_player(p.class_key, char_x, char_y, size=char_size)
 
-        # ── 4 ячейки: голова, руки, тело, ноги ──
-        slot_size = min(72, (w - 40) // 2 - 8)
+        # ── 5 ячеек: голова, руки, тело, ноги, обувь ──
+        slot_size = min(64, (w - 40) // 2 - 8)
         slots_y = char_y + char_size + 20
 
-        # Сетка 2×2
+        # Сетка 2 колонки × 3 строки
         slots = [
             ('head', 'Голова', 0, 0),
             ('weapon', 'Руки', 1, 0),
             ('armor', 'Тело', 0, 1),
             ('legs', 'Ноги', 1, 1),
+            ('boots', 'Обувь', 0, 2),
         ]
         cell_gap = 10
         grid_w = 2 * slot_size + cell_gap
@@ -385,8 +400,8 @@ class ScreensRenderer(BaseRenderer):
         border = T.ROW_BORDER if hover else T.PANEL_BORDER
         T.rounded_rect(self.screen, bg, rect, radius=8, border_color=border)
 
-        icon_size = max(40, min(64, h - 26))
-        self.icons.draw_item(key, x + (w - icon_size) // 2, y + 4,
+        icon_size = max(20, min(56, h - 24))
+        self.icons.draw_item(key, x + (w - icon_size) // 2, y + 3,
                              size=icon_size)
 
         base, _ = parse_item_key(key)
@@ -398,9 +413,11 @@ class ScreensRenderer(BaseRenderer):
         from core.data import class_can_use
         if not class_can_use(game.player.class_key, key)[0]:
             color = T.HP_CRIT
-        label = self.fit_text(item_display_name(key), w - 14, T.FONT_SMALL)
-        self.text(label, x + w // 2, y + h - 22, color,
-                  font=T.FONT_SMALL, center=True)
+        label = self.fit_text(item_display_name(key), w - 6,
+                              T.FONT_TINY if h < 70 else T.FONT_SMALL)
+        self.text(label, x + w // 2, y + h - 17, color,
+                  font=T.FONT_TINY if h < 70 else T.FONT_SMALL,
+                  center=True)
 
         # Бейдж количества — в правом верхнем углу ячейки
         if count > 1:
@@ -583,7 +600,7 @@ class ScreensRenderer(BaseRenderer):
                       T.GOLD if can_afford else T.TEXT_MUTED, align_right=True)
             self.text(it.get('desc', ''), x0 + 36, y + 24, T.TEXT_MUTED,
                       font=T.FONT_TINY)
-            if it.get('type') in ('weapon', 'armor', 'head', 'legs',
+            if it.get('type') in ('weapon', 'armor', 'head', 'legs', 'boots',
                                   'helmet', 'leggings'):
                 deltas = self.compare_item(game, key, it['type'])
                 dt, dc = self.format_delta(deltas)
@@ -703,11 +720,7 @@ class ScreensRenderer(BaseRenderer):
 
     def _draw_skill_glyph(self, effects, cx, cy, r, color, strength=1.0):
         """Процедурный значок узла по его главному эффекту."""
-        key = next((k for k in (
-            'atk', 'crit', 'lifesteal', 'attack_speed', 'mana', 'hp', 'df',
-            'dodge', 'move_speed', 'gold_pct', 'xp_pct', 'craft_xp',
-            'craft_quality', 'quest_gold', 'quest_xp', 'summon', 'rage',
-            'frenzy') if effects.get(k)), None)
+        key = self._primary_effect(effects)
         color = T.shade(self._GLYPH_COLORS.get(key, color), strength)
         s = max(0.55, r / 26.0)
         w = max(1, int(round(2 * s)))
@@ -799,6 +812,53 @@ class ScreensRenderer(BaseRenderer):
                 (cx, cy - 11 * s), (cx + 9 * s, cy),
                 (cx, cy + 11 * s), (cx - 9 * s, cy)], w)
 
+    @staticmethod
+    def _primary_effect(effects):
+        return next((k for k in (
+            'atk', 'crit', 'lifesteal', 'attack_speed', 'mana', 'hp', 'df',
+            'dodge', 'move_speed', 'gold_pct', 'xp_pct', 'craft_xp',
+            'craft_quality', 'quest_gold', 'quest_xp', 'summon', 'rage',
+            'frenzy', 'extra_stats', 'plain_weapons')
+            if effects.get(k)), None)
+
+    def _draw_node_icon(self, node, cx, cy, r, color, strength=1.0):
+        """Иконка из assets/icons, а при её отсутствии — процедурный значок."""
+        from render.assets_icons import IconAssets, node_icon_candidates
+        effects = node.get('effects') or {}
+        effect_key = self._primary_effect(effects)
+        candidates = node_icon_candidates(node.get('key'), effect_key,
+                                         node.get('tab'))
+        size = int(r * 1.9)
+        if IconAssets.draw(self.screen, candidates, cx, cy, size,
+                           alpha=255 * min(1.0, max(0.25, strength))):
+            return
+        self._draw_skill_glyph(effects, cx, cy, r, color, strength)
+
+    def _draw_class_icon(self, class_key, effects, cx, cy, r, color,
+                         strength=1.0):
+        from render.assets_icons import IconAssets, class_icon_candidates
+        effect_key = self._primary_effect(effects or {})
+        size = int(r * 1.9)
+        if IconAssets.draw(self.screen,
+                           class_icon_candidates(class_key, effect_key),
+                           cx, cy, size,
+                           alpha=255 * min(1.0, max(0.25, strength))):
+            return
+        self._draw_skill_glyph(effects or {'hp': 1}, cx, cy, r, color,
+                               strength)
+
+    def _draw_craft_hub_icon(self, tab, effects, cx, cy, r, color,
+                             strength=1.0):
+        from render.assets_icons import IconAssets, node_icon_candidates
+        effect_key = self._primary_effect(effects or {})
+        candidates = node_icon_candidates(None, effect_key, tab)
+        size = int(r * 1.9)
+        if IconAssets.draw(self.screen, candidates, cx, cy, size,
+                           alpha=255 * min(1.0, max(0.25, strength))):
+            return
+        self._draw_skill_glyph(effects or {'craft_quality': 1}, cx, cy, r,
+                               color, strength)
+
     def _draw_node_counter(self, nx, ny, count, total, learned):
         label = f"{count}/{total}"
         color = (126, 166, 226) if learned else (196, 184, 158)
@@ -832,12 +892,11 @@ class ScreensRenderer(BaseRenderer):
             pygame.draw.polygon(self.screen, (252, 238, 196),
                                 self._hex_points(nx, ny, r + 6), 1)
         strength = 1.0 if learned else (0.82 if state == 'available' else 0.5)
-        self._draw_skill_glyph(node.get('effects', {}), nx, ny, r * 0.74,
-                               glyph, strength)
+        self._draw_node_icon(node, nx, ny, r * 0.74, glyph, strength)
         self._draw_node_counter(nx, ny + r + 8, 1 if learned else 0, 1, learned)
         return rect
 
-    def _draw_class_hub(self, cls, cx, cy, r, learned, total):
+    def _draw_class_hub(self, cls, class_key, cx, cy, r, learned, total):
         border = T.GOLD
         pygame.draw.polygon(self.screen, (9, 8, 7), self._hex_points(cx, cy, r + 8))
         pygame.draw.polygon(self.screen, (44, 36, 23), self._hex_points(cx, cy, r + 3))
@@ -847,8 +906,8 @@ class ScreensRenderer(BaseRenderer):
                             self._hex_points(cx, cy, r - 6), 1)
         pygame.draw.circle(self.screen, T.shade(border, 0.4),
                            (int(cx), int(cy)), int(r * 0.64), 1)
-        self._draw_skill_glyph(cls.get('effects') or {'hp': 1},
-                               cx, cy - 2, r * 0.6, (232, 208, 154))
+        self._draw_class_icon(class_key, cls.get('effects'),
+                              cx, cy - 2, r * 0.6, (232, 208, 154))
         self._draw_node_counter(cx, cy + r + 8, learned, total, True)
 
     def _draw_class_tree(self, game, nodes, cls, ctrl, x, y, cw, tree_bottom):
@@ -907,7 +966,8 @@ class ScreensRenderer(BaseRenderer):
             game._ui_hits['skills']['rows'].append((i, rect))
             if self._in_rect(rect, mouse):
                 hovered = node
-        self._draw_class_hub(cls, cx, cy, r + 12, learned_count, len(nodes))
+        self._draw_class_hub(cls, game.player.class_key, cx, cy, r + 12,
+                             learned_count, len(nodes))
 
         # Смена класса — такие же узлы древа, связанные с центром.
         promo_y = min(tree_bottom - 52, cy + dy * 1.62)
@@ -983,10 +1043,10 @@ class ScreensRenderer(BaseRenderer):
                                 self._hex_points(nx, ny, pr))
             pygame.draw.polygon(self.screen, border,
                                 self._hex_points(nx, ny, pr + 2), 2)
-            self._draw_skill_glyph(cls.get('effects') or {'hp': 1},
-                                   nx, ny, pr * 0.72,
-                                   tuple(cls.get('color', (200, 200, 200))),
-                                   1.0 if ready else 0.6)
+            self._draw_class_icon(key, cls.get('effects'),
+                                  nx, ny, pr * 0.72,
+                                  tuple(cls.get('color', (200, 200, 200))),
+                                  1.0 if ready else 0.6)
             label = self.fit_text(cls.get('name', key),
                                   rect[2] - 8, T.FONT_TINY)
             self.text(label, nx, ny + pr + 5,
@@ -1140,7 +1200,7 @@ class ScreensRenderer(BaseRenderer):
                             self._hex_points(cx, cy, r))
         pygame.draw.polygon(self.screen, T.GOLD,
                             self._hex_points(cx, cy, r + 3), 3)
-        self._draw_skill_glyph(effects, cx, cy - 2, r * 0.6, color)
+        self._draw_craft_hub_icon(tab, effects, cx, cy - 2, r * 0.6, color)
         self._draw_node_counter(cx, cy + r + 8, level, 25, True)
 
     def _craft_tree_positions(self, cx, cy, cw, tree_h, count):
@@ -1301,6 +1361,22 @@ class ScreensRenderer(BaseRenderer):
         self.text(f"Уровень {game.player.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
 
+        # ── Партия: сколько предметов создать за раз ──
+        qty = getattr(game.craft, 'quantity', 1)
+        qy = cy0 + 34
+        qr = self._modal_right(game)
+        self.text(f"Партия ×{qty}", qr - 62, qy + 3, T.TEXT_DIM,
+                  font=T.FONT_SMALL, align_right=True)
+        minus_rect = (qr - 54, qy, 24, 22)
+        plus_rect = (qr - 26, qy, 24, 22)
+        for rect, label in ((minus_rect, '-'), (plus_rect, '+')):
+            T.rounded_rect(self.screen, (30, 27, 22), rect, radius=5,
+                           border_color=(78, 66, 48))
+            self.text(label, rect[0] + rect[2] // 2, rect[1] + 1,
+                      T.GOLD, font=T.FONT_BODY, center=True)
+        game._ui_hits['craft']['qty_minus'] = minus_rect
+        game._ui_hits['craft']['qty_plus'] = plus_rect
+
         # ── Вкладки: все крафты и три навыка ──
         tab_y = cy0 + 44
         tx = cx0
@@ -1442,6 +1518,10 @@ class ScreensRenderer(BaseRenderer):
         y += 30
         self.text(f"Создаётся: {item_display_name(item_key)}", x, y,
                   T.TEXT, font=T.FONT_BODY)
+        qty = int(mg.get('quantity', 1)) if mg else 1
+        if qty > 1:
+            self.text(f"Партия: ×{qty}", x + cw - 20, y, T.GOLD,
+                      font=T.FONT_BODY, align_right=True)
         y += 30
         bar = (x, y, cw - 20, 26)
         T.rounded_rect(self.screen, (28, 26, 20), bar, radius=6,

@@ -4,6 +4,7 @@ import time
 import pygame
 
 from core import config
+from core import rules
 from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE, INVENTORY_PAGE_SIZE
 from core.entities import Player, Entity, Dungeon, Message
 from core.quests import QuestLog
@@ -97,7 +98,8 @@ class ClientView:
                 config.SCREEN_H - MODAL_MARGIN_Y * 2)
 
     def inv_pages_count(self):
-        n = len(self.player.inventory)
+        from core import rules
+        n = len(rules.inventory_stacks(self.player.inventory))
         return max(1, (n + INVENTORY_PAGE_SIZE - 1) // INVENTORY_PAGE_SIZE)
 
     def inv_next_page(self):
@@ -110,7 +112,9 @@ class ClientView:
         """Список рецептов — та же логика, что у сервера."""
         from core import rules
         return rules.craftable_list(self.player.inventory, self.player.level,
-                                    tab=getattr(self.craft, 'tab', 'all'))
+                                    self.player,
+                                    tab=getattr(self.craft, 'tab', 'all'),
+                                    unlocked_only=True)
 
     def craft_page_items(self):
         return self.craft.page_items()
@@ -138,7 +142,9 @@ class ClientView:
         pass
 
     def update_fov(self):
-        self.visible = compute_fov(self.dungeon, self.player.x, self.player.y)
+        # Туман войны убран и в мультиплеере.
+        d = self.dungeon
+        self.visible = {(x, y) for y in range(d.h) for x in range(d.w)}
         self.explored |= self.visible
 
     # ════════════════════════ ЧАТ ════════════════════════
@@ -548,6 +554,7 @@ class ClientView:
         p.armor = pd.get('armor')
         p.head = pd.get('head', pd.get('helmet'))
         p.legs = pd.get('legs', pd.get('leggings'))
+        p.boots = pd.get('boots')
         if 'skills' in pd:
             from core.data import default_skills
             from core import skills as sk
@@ -742,7 +749,7 @@ class _ShopStub:
     def pages_count(self):
         view = self.view
         n = (len(view.shop_stock) if view.shop_submode == 'buy'
-             else len(view.player.inventory))
+             else len(rules.inventory_stacks(view.player.inventory)))
         return max(1, (n + SHOP_PAGE_SIZE - 1) // SHOP_PAGE_SIZE)
 
     def next_page(self):

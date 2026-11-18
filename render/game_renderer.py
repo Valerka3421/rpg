@@ -114,6 +114,7 @@ class GameRenderer(BaseRenderer):
             self._draw_player(game, cam_x, cam_y)
             for remote in self.visible_remotes(game):
                 self._draw_remote_player(remote, cam_x, cam_y)
+            self._draw_projectiles(game, cam_x, cam_y)
             # 3) Стены/деревья уже нарисованы в слое карты. Сущности
             # (игрок, мобы, лут, NPC) всегда остаются ПОВЕРХ текстур мира.
             # 4) Всплывающие цифры — поверх всего
@@ -127,6 +128,7 @@ class GameRenderer(BaseRenderer):
         ox, oy = config.view_origin()
         self.screen.blit(self._field_surface, (ox, oy))
         self.draw_toolbar(game)
+        self.draw_hotbar(game)
 
 
     def _draw_map_cached(self, game, cam_x, cam_y):
@@ -210,7 +212,6 @@ class GameRenderer(BaseRenderer):
                 elif tile == Tile.CHEST:
                     self.screen.blit(Tiles.get('chest', 0, light), (px, py))
         if not self._is_overworld:
-            self._draw_darkness(game, cam_x, cam_y)
             self._draw_wall_shadows(game, cam_x, cam_y)
         if torches:
             glow = Tiles.torch_glow()
@@ -560,6 +561,36 @@ class GameRenderer(BaseRenderer):
             if x > px + TILE - 6:
                 break
 
+    def _draw_projectiles(self, game, cam_x, cam_y):
+        """Летящие стрелы и магические снаряды."""
+        for pr in getattr(game, 'projectiles', []) or []:
+            sx = (pr['x'] - cam_x) * TILE
+            sy = (pr['y'] - cam_y) * TILE
+            kind = pr.get('kind', 'orb')
+            color = tuple(pr.get('color', (200, 160, 255)))
+            if kind == 'arrow':
+                tx = pr['target'].x - cam_x
+                ty = pr['target'].y - cam_y
+                dx, dy = tx * TILE - sx, ty * TILE - sy
+                dist = max(1.0, (dx * dx + dy * dy) ** 0.5)
+                dx, dy = dx / dist * 16, dy / dist * 16
+                pygame.draw.line(self.screen, (230, 210, 150),
+                                 (sx - dx, sy - dy), (sx + dx, sy + dy), 3)
+                pygame.draw.circle(self.screen, color,
+                                   (int(sx + dx), int(sy + dy)), 4)
+            elif kind == 'spirit':
+                pygame.draw.circle(self.screen, (30, 30, 50),
+                                   (int(sx), int(sy)), 9)
+                pygame.draw.circle(self.screen, color, (int(sx), int(sy)),
+                                   6, 2)
+            else:
+                pygame.draw.circle(self.screen, (30, 20, 40),
+                                   (int(sx), int(sy)), 10)
+                pygame.draw.circle(self.screen, color, (int(sx), int(sy)),
+                                   7)
+                pygame.draw.circle(self.screen, (255, 255, 255),
+                                   (int(sx), int(sy)), 3)
+
     def _draw_floats(self, game, cam_x, cam_y):
         for f in game.floats:
             alpha = min(255, int(f.life / FLOAT_TTL * 255))
@@ -745,6 +776,39 @@ class GameRenderer(BaseRenderer):
             self.icons.draw_toolbar_icon(name, x + 6, y + 6, size=w - 12, hover=hover)
             self.text(labels[name], x + w // 2, y + h + 6, T.TEXT_DIM,
                       font=T.FONT_TINY, center=True)
+
+    def draw_hotbar(self, game):
+        """Быстрая панель предметов/свитков: слоты 1–8."""
+        slots = getattr(game, 'hotbar', None)
+        if not slots:
+            return
+        n = len(slots)
+        size, gap = 44, 6
+        total = n * size + (n - 1) * gap
+        x0 = (config.SCREEN_W - total) // 2
+        y = config.SCREEN_H - size - 14
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        inventory = getattr(game.player, 'inventory', {})
+        for i, key in enumerate(slots):
+            x = x0 + i * (size + gap)
+            rect = (x, y, size, size)
+            hover = x <= mx <= x + size and y <= my <= y + size
+            T.rounded_rect(self.screen, (30, 27, 22), rect, radius=8,
+                           border_color=(206, 166, 82) if hover
+                           else (78, 66, 48))
+            count = int(inventory.get(key, 0) or 0) if key else 0
+            if key and count > 0:
+                self.icons.draw_item(key, x + 4, y + 4, size=size - 8)
+                if count > 1:
+                    txt = "99+" if count >= 100 else str(count)
+                    self.text(txt, x + size - 3, y + size - 15, T.GOLD,
+                              font=T.FONT_TINY, align_right=True)
+            else:
+                self.text("—", x + size // 2, y + size // 2 - 6,
+                          T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
+            # Номер слота.
+            self.text(str(i + 1), x + 4, y + 2, T.TEXT_DIM,
+                      font=T.FONT_TINY)
 
     # ════════════════════════ МИНИ-КАРТА ════════════════════════
     def _minimap_scaled(self, game):
