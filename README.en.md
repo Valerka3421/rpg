@@ -11,6 +11,24 @@ through the same color grading). Sounds are synthesized on the fly. The
 palette is in the spirit of **Stoneshard**: warm near-black stone, muted olive,
 cold blue-green gloom, and amber torchlight.
 
+## City of Aethelgard
+
+The walled city in the centre of the world map is the safe hub. Monsters never
+spawn inside it or in the belt around its walls (spawning checks a safe zone).
+Four townsfolk stand on the plaza and talk with `T` or a click:
+
+| NPC | Where | What |
+|---|---|---|
+| **Guard** | south gate | hits monsters within 5 tiles, immortal, low damage, no XP or loot |
+| **Blacksmith** | west plaza | sells ingots (iron, steel, mithril), ore, wood and stone |
+| **Alchemist** | east plaza | sells healing and mana potions, magic powder |
+| **Innkeeper** | north plaza | sells ready food: fried mushrooms, berry compote, roast venison, boar and bear |
+
+City stock is fixed and repeat-purchasable; reroll (`R`) is disabled for
+townsfolk. Mana is the third HUD resource (`MP`), grows with level plus
+equipment and skill bonuses (`10 + level×2`), and is spent by scrolls and runes.
+Mana potions and food restore it (compote restores both HP and mana).
+
 ## Quick start
 
 ```bat
@@ -113,9 +131,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for rules and conventions.
 
 ## Save format
 
-JSON, `version: 7`. Tiles are compact digit strings. Mid-dungeon save is
-~100 KB instead of ~580 KB. Saves version 5/6 are auto-migrated; too-new
-saves are rejected.
+JSON, `version: 8`. Tiles are compact digit strings. Mid-dungeon save is
+~100 KB instead of ~580 KB. Saves version 5/6 are auto-migrated and get
+skill, mana and new equipment-slot fields; version 8 stores mana explicitly
+(older saves start with a full mana pool). Too-new saves are rejected.
 
 ## Cooperative multiplayer
 

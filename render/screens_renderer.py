@@ -6,7 +6,8 @@ import pygame
 from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
 from core.data import (ITEMS, parse_item_key, item_display_name,
                        item_display_color, item_sell_price,
-                       PERK_INFO, PERK_BOOK_MAP, QUESTS)
+                       PERK_INFO, PERK_BOOK_MAP, QUESTS,
+                       CITY_NPC_NAMES, is_city_shop_npc)
 from render.theme import Theme as T
 from render.base_renderer import BaseRenderer
 
@@ -545,13 +546,18 @@ class ScreensRenderer(BaseRenderer):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         game._ui_hits['shop'] = {'rows': []}
-        self.text("ТОРГОВЕЦ", cx0, cy0, T.MERCH, font=T.FONT_H1)
+        npc_type = getattr(game, 'active_shop_npc', None)
+        city_shop = is_city_shop_npc(npc_type)
+        header = CITY_NPC_NAMES.get(npc_type, 'ТОРГОВЕЦ') if city_shop \
+            else "ТОРГОВЕЦ"
+        self.text(header.upper(), cx0, cy0, T.MERCH, font=T.FONT_H1)
         mode = "ПОКУПКА" if game.shop_submode == 'buy' else "ПРОДАЖА"
         T.badge(self.screen, cx0 + 240, cy0 + 8, mode,
                 color=T.BG if game.shop_submode == 'buy' else T.TEXT,
                 bg=T.MERCH if game.shop_submode == 'buy' else T.HP_CRIT,
                 font=T.FONT_BODY)
-        self.text(f"Глубина {game.depth}", self._modal_right(game), cy0 + 8,
+        where = "Город Этельгард" if city_shop else f"Глубина {game.depth}"
+        self.text(where, self._modal_right(game), cy0 + 8,
                   T.TEXT_DIM, align_right=True)
         self.text(f"${game.player.gold}", self._modal_right(game), cy0 + 34,
                   T.GOLD, align_right=True)
@@ -562,7 +568,9 @@ class ScreensRenderer(BaseRenderer):
         else:
             y = T.section(self.screen, cx0, y, cw, "Продать")
             self._draw_shop_sell(game, cx0, y, cw)
-        self.text("S — режим · R — обновить · Q/E — страницы",
+        hint = ("S — режим · Q/E — страницы" if city_shop
+                else "S — режим · R — обновить · Q/E — страницы")
+        self.text(hint,
                   cx0 + cw // 2, cy0 + ch - 22, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 
@@ -1644,6 +1652,14 @@ class ScreensRenderer(BaseRenderer):
         is_board = game.dialogue.npc_type == 'quest_board'
         if is_board:
             frame_color = (206, 170, 96)
+        city_type = (game.dialogue.npc_type
+                     if game.dialogue.npc_type in CITY_NPC_NAMES else None)
+        CITY_FRAME = {
+            'guard': (176, 186, 210), 'blacksmith': (206, 152, 88),
+            'alchemist': (156, 126, 224), 'innkeeper': (214, 172, 112),
+        }
+        if city_type:
+            frame_color = CITY_FRAME.get(city_type, frame_color)
 
         # ── Портрет ──
         portrait_size = 140
@@ -1670,6 +1686,11 @@ class ScreensRenderer(BaseRenderer):
         elif game.dialogue.npc_type == 'elder':
             self.icons.draw_elder(portrait_x + icon_off, portrait_y + icon_off,
                                   size=icon_size)
+        elif city_type:
+            self.icons.draw_city_npc(city_type,
+                                     portrait_x + icon_off,
+                                     portrait_y + icon_off,
+                                     size=icon_size)
         else:
             self.icons.draw_merchant(portrait_x + icon_off, portrait_y + icon_off,
                                      size=icon_size)
@@ -1677,6 +1698,8 @@ class ScreensRenderer(BaseRenderer):
         # ── Имя в золотом бейдже ──
         if is_board:
             npc_name = "Доска поручений"
+        elif city_type:
+            npc_name = CITY_NPC_NAMES[city_type]
         else:
             npc_name = "Старейшина" if game.dialogue.npc_type == 'elder' else "Торговец"
         info_x = portrait_x + portrait_size + 24

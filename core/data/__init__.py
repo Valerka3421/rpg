@@ -43,6 +43,10 @@ from .quests import (
     _board_monsters_for, _board_collect_targets,
     _make_board_quest, generate_board_quests,
 )
+from .city import (
+    CITY_SHOP_STOCK, CITY_NPC_NAMES, CITY_NPC_GLYPHS, CITY_NPC_SHOPS,
+    make_city_shop_stock, is_city_shop_npc,
+)
 
 __all__ = [
     'MONSTERS', 'MONSTERS_BY_CH', 'BOSSES', 'BOSS_DROPS',
@@ -69,4 +73,6 @@ __all__ = [
     'QUESTS', 'quests_by_giver',
     '_board_monsters_for', '_board_collect_targets',
     '_make_board_quest', 'generate_board_quests',
+    'CITY_SHOP_STOCK', 'CITY_NPC_NAMES', 'CITY_NPC_GLYPHS', 'CITY_NPC_SHOPS',
+    'make_city_shop_stock', 'is_city_shop_npc',
 ]

@@ -105,6 +105,14 @@ VILLAGE_PALETTE = {
     'trunk': (70, 56, 38),
 }
 
+# Город: трава чуть холоднее и «причёсаннее», чем в лесу.
+CITY_PALETTE = {
+    'grass': (62, 76, 48), 'grass_dark': (42, 54, 34),
+    'grass_dry': (108, 104, 64),
+    'tree': (58, 76, 48), 'tree_dark': (34, 50, 32),
+    'trunk': (70, 56, 38),
+}
+
 
 def _new(fill=None):
     s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
@@ -611,6 +619,309 @@ def _tree(variant, palette=None):
     return s
 
 
+# ════════════════════════ БИОМЫ: НОВАЯ ОТРИСОВКА ════════════════════════
+# Каждый край рисуется своим набором деталей поверх общей палитры: у
+# сосен — хвоя и шишки, у болота — лужи и камыш, у мёртвого леса — кости.
+BIOME_LEAF_COLORS = {
+    'pine':   ((42, 64, 40), (25, 44, 28)),
+    'birch':  ((96, 118, 62), (60, 84, 46)),
+    'rock':   ((104, 100, 92), (62, 60, 54)),
+    'autumn': ((152, 94, 40), (104, 58, 26)),
+    'swamp':  ((56, 78, 58), (32, 50, 42)),
+    'dark':   ((36, 54, 40), (20, 34, 26)),
+    'meadow': ((76, 98, 52), (46, 68, 36)),
+    'dead':   ((98, 88, 72), (58, 52, 44)),
+}
+
+
+def _decor_pine(s, rng):
+    for _ in range(18):
+        x = rng.randint(2, SIZE - 4)
+        y = rng.randint(3, SIZE - 3)
+        if rng.random() < 0.55:
+            pygame.draw.line(s, (112, 86, 48), (x, y), (x + 2, y + 1), 1)
+        else:
+            pygame.draw.line(s, (58, 76, 46), (x, y), (x + 1, y + 3), 1)
+    # шишка
+    cx, cy = rng.randint(10, 52), rng.randint(10, 52)
+    pygame.draw.ellipse(s, (84, 58, 34), (cx, cy, 6, 8))
+    pygame.draw.ellipse(s, (126, 92, 54), (cx + 1, cy + 1, 4, 5))
+
+
+def _decor_birch(s, rng):
+    for _ in range(16):
+        x = rng.randint(3, SIZE - 4)
+        y = rng.randint(3, SIZE - 4)
+        col = (196, 190, 168) if rng.random() < 0.5 else (110, 120, 62)
+        pygame.draw.line(s, col, (x, y), (x + rng.randint(1, 3), y + 1), 1)
+    for _ in range(4):
+        x, y = rng.randint(6, 50), rng.randint(6, 50)
+        pygame.draw.ellipse(s, (150, 142, 74), (x, y, 4, 2))
+
+
+def _decor_rock(s, rng):
+    for _ in range(3):
+        x, y = rng.randint(4, 48), rng.randint(4, 48)
+        w, h = rng.randint(8, 18), rng.randint(6, 12)
+        pygame.draw.ellipse(s, (52, 49, 44), (x, y, w, h))
+        pygame.draw.ellipse(s, (92, 88, 80), (x + 2, y + 1, w - 5, h - 4))
+    for _ in range(12):
+        x, y = rng.randint(2, SIZE - 6), rng.randint(2, SIZE - 6)
+        pygame.draw.circle(s, textures.shade(STONE, rng.uniform(0.7, 1.2)),
+                           (x, y), rng.choice((1, 1, 2)))
+    _crack(s, rng.randint(8, 50), rng.randint(8, 48), 3,
+           (44, 42, 38), rng)
+
+
+def _decor_autumn(s, rng):
+    palette = ((176, 92, 34), (198, 132, 40), (150, 54, 30), (120, 80, 28))
+    for _ in range(22):
+        x, y = rng.randint(2, SIZE - 5), rng.randint(2, SIZE - 5)
+        pygame.draw.ellipse(s, rng.choice(palette), (x, y, 4, 3))
+    for _ in range(6):
+        x, y = rng.randint(6, 50), rng.randint(6, 48)
+        pygame.draw.line(s, (116, 72, 34), (x, y), (x + 3, y + 2), 1)
+
+
+def _decor_swamp(s, rng):
+    for _ in range(2):
+        x, y = rng.randint(3, 34), rng.randint(4, 40)
+        w, h = rng.randint(14, 24), rng.randint(8, 14)
+        pygame.draw.ellipse(s, (30, 44, 42), (x, y, w, h))
+        pygame.draw.ellipse(s, (46, 66, 60), (x + 2, y + 2, max(4, w - 5),
+                                              max(3, h - 5)))
+        pygame.draw.arc(s, (96, 118, 104), (x + 4, y + 3, max(3, w - 9),
+                                            max(2, h - 8)), 3.4, 5.6, 1)
+    for _ in range(9):
+        x, y = rng.randint(4, 56), rng.randint(10, 58)
+        pygame.draw.line(s, (72, 88, 52), (x, y), (x, y - rng.randint(5, 10)), 1)
+        pygame.draw.circle(s, (108, 88, 48), (x, y - rng.randint(5, 9)), 1)
+
+
+def _decor_dark(s, rng):
+    for _ in range(7):
+        x, y = rng.randint(6, 52), rng.randint(10, 54)
+        for dx in (-2, 0, 2):
+            pygame.draw.line(s, (30, 52, 34), (x, y), (x + dx, y - 5), 1)
+    for _ in range(3):
+        x, y = rng.randint(8, 50), rng.randint(8, 48)
+        pygame.draw.circle(s, (128, 104, 160), (x, y), 2)
+        pygame.draw.circle(s, (188, 164, 224), (x, y), 1)
+
+
+def _decor_meadow(s, rng):
+    petals = ((226, 214, 130), (206, 120, 150), (150, 160, 220),
+              (222, 226, 214), (218, 160, 84))
+    for _ in range(12):
+        x, y = rng.randint(4, SIZE - 5), rng.randint(8, SIZE - 4)
+        pygame.draw.line(s, (58, 86, 42), (x, y), (x, y - 4), 1)
+        pygame.draw.circle(s, rng.choice(petals), (x, y - 5), 2)
+        pygame.draw.circle(s, (232, 196, 84), (x, y - 5), 1)
+
+
+def _decor_dead(s, rng):
+    for _ in range(6):
+        x, y = rng.randint(4, SIZE - 8), rng.randint(6, SIZE - 4)
+        ex, ey = x + rng.randint(3, 8), y + rng.randint(-3, 3)
+        pygame.draw.line(s, (96, 84, 66), (x, y), (ex, ey), 1)
+    for _ in range(3):
+        x, y = rng.randint(6, 52), rng.randint(6, 52)
+        pygame.draw.line(s, (214, 208, 190), (x, y), (x + 5, y + 1), 1)
+        pygame.draw.circle(s, (202, 196, 180), (x + 5, y + 1), 1)
+    for _ in range(14):
+        x, y = rng.randint(1, SIZE - 2), rng.randint(1, SIZE - 2)
+        pygame.draw.circle(s, (86, 80, 68), (x, y), 1)
+
+
+def _decor_beach(s, rng):
+    """Пляж: ракушки, галька и редкие водоросли на песке."""
+    shells = ((236, 226, 206), (222, 188, 176), (240, 214, 172))
+    for _ in range(7):
+        x, y = rng.randint(4, SIZE - 6), rng.randint(4, SIZE - 6)
+        pygame.draw.arc(s, rng.choice(shells), (x, y, 5, 4), 0.2, 2.9, 1)
+        pygame.draw.line(s, (168, 148, 118), (x + 2, y + 3), (x + 2, y + 4), 1)
+    for _ in range(10):
+        x, y = rng.randint(2, SIZE - 4), rng.randint(2, SIZE - 4)
+        pygame.draw.circle(s, rng.choice(((186, 172, 142), (150, 140, 120),
+                                         (208, 196, 168))), (x, y), 1)
+    for _ in range(2):
+        x, y = rng.randint(6, 48), rng.randint(10, 50)
+        pygame.draw.line(s, (110, 128, 92), (x, y), (x + rng.randint(3, 7), y - 2), 1)
+
+
+BIOME_DECOR = {
+    'pine': _decor_pine, 'birch': _decor_birch, 'rock': _decor_rock,
+    'autumn': _decor_autumn, 'swamp': _decor_swamp, 'dark': _decor_dark,
+    'meadow': _decor_meadow, 'dead': _decor_dead, 'beach': _decor_beach,
+}
+
+
+def _biome_grass(name, variant):
+    s = _grass(variant, BIOME_PALETTES[name])
+    rng = textures.rng_for(variant, 89, seed=31)
+    BIOME_DECOR[name](s, rng)
+    _grime(s, rng, 60, 7)
+    return s
+
+
+def _pine_tree(variant, name='pine'):
+    palette = BIOME_PALETTES[name]
+    s = _biome_grass(name, variant + 2)
+    rng = textures.rng_for(variant, 93, seed=47)
+    trunk = palette['trunk']
+    dark = palette['tree_dark']
+    top = palette['tree']
+    pygame.draw.ellipse(s, (0, 0, 0, 90), (8, 46, 48, 14))
+    pygame.draw.rect(s, textures.shade(trunk, 0.6), (29, 44, 7, 14))
+    pygame.draw.rect(s, trunk, (30, 44, 5, 13))
+    # три яруса хвои
+    for i, (cy, half) in enumerate(((44, 22), (33, 18), (21, 14))):
+        shade = textures.shade(top, 0.86 + i * 0.09)
+        pts = [(32, cy - half), (32 - half, cy + 7), (32 + half, cy + 7)]
+        pygame.draw.polygon(s, textures.shade(dark, 0.9), pts)
+        inner = [(32, cy - half + 4), (32 - half + 5, cy + 5),
+                 (32 + half - 5, cy + 5)]
+        pygame.draw.polygon(s, shade, inner)
+        pygame.draw.line(s, textures.shade(top, 1.3),
+                         (32, cy - half + 4), (32 - half + 5, cy + 4), 1)
+    for _ in range(10):
+        x, y = rng.randint(18, 46), rng.randint(8, 46)
+        pygame.draw.line(s, textures.shade(dark, 0.7), (x, y), (x - 2, y + 2), 1)
+    return s
+
+
+def _birch_tree(variant):
+    palette = BIOME_PALETTES['birch']
+    s = _biome_grass('birch', variant + 2)
+    rng = textures.rng_for(variant, 95, seed=53)
+    # ствол с чёрными штрихами
+    pygame.draw.rect(s, (188, 184, 168), (28, 22, 8, 36))
+    pygame.draw.rect(s, (220, 216, 202), (29, 22, 3, 36))
+    for _ in range(7):
+        y = rng.randint(24, 54)
+        pygame.draw.line(s, (52, 50, 46), (28, y), (29 + rng.randint(1, 6), y), 1)
+    crown = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    lobes = ((24, 22, 14), (40, 22, 15), (32, 13, 15),
+             (16, 32, 10), (48, 32, 10))
+    for cx, cy, r in lobes:
+        pygame.draw.circle(crown, palette['tree_dark'], (cx, cy + 3), r)
+    for cx, cy, r in lobes:
+        pygame.draw.circle(crown, palette['tree'], (cx, cy), max(3, r - 2))
+    for _ in range(26):
+        x, y = rng.randint(10, 54), rng.randint(4, 40)
+        if crown.get_at((x, y))[3] < 40:
+            continue
+        pygame.draw.circle(crown, textures.shade(palette['tree'],
+                                                 rng.uniform(0.75, 1.2)),
+                           (x, y), 1)
+    s.blit(textures.silhouette(crown, palette['tree_dark'], 1), (0, 0))
+    s.blit(crown, (0, 0))
+    return s
+
+
+def _rock_cluster(variant):
+    s = _biome_grass('rock', variant + 2)
+    rng = textures.rng_for(variant, 97, seed=59)
+    pygame.draw.ellipse(s, (0, 0, 0, 90), (6, 44, 52, 14))
+    for cx, cy, w, h in ((24, 40, 30, 20), (36, 30, 20, 16), (20, 28, 16, 12)):
+        pygame.draw.ellipse(s, (54, 52, 48), (cx - w // 2, cy - h // 2, w, h))
+        pygame.draw.ellipse(s, (96, 92, 84),
+                            (cx - w // 2 + 2, cy - h // 2 + 1, w - 5, h - 5))
+        pygame.draw.arc(s, (140, 134, 122),
+                        (cx - w // 2 + 4, cy - h // 2 + 2, w - 9, h - 8),
+                        1.9, 4.6, 2)
+    for _ in range(10):
+        x, y = rng.randint(8, 56), rng.randint(8, 56)
+        pygame.draw.circle(s, textures.shade(STONE, rng.uniform(0.7, 1.2)),
+                           (x, y), 1)
+    return s
+
+
+def _bare_tree(variant):
+    palette = BIOME_PALETTES['dead']
+    s = _biome_grass('dead', variant + 2)
+    rng = textures.rng_for(variant, 99, seed=61)
+    trunk = palette['trunk']
+    pygame.draw.ellipse(s, (0, 0, 0, 80), (10, 48, 44, 12))
+    pygame.draw.polygon(s, textures.shade(trunk, 0.55), [
+        (28, 56), (30, 26), (35, 26), (38, 56)])
+    pygame.draw.rect(s, trunk, (30, 24, 5, 32))
+    for _ in range(8):
+        x, y = 32 + rng.randint(-2, 2), rng.randint(14, 40)
+        dx = rng.choice((-1, 1)) * rng.randint(6, 16)
+        dy = -rng.randint(3, 10)
+        pygame.draw.line(s, textures.shade(trunk, 0.8), (x, y),
+                         (x + dx, y + dy), 2)
+        pygame.draw.line(s, textures.shade(trunk, 1.1), (x + dx, y + dy),
+                         (x + dx + rng.choice((-1, 1)) * 5, y + dy - 4), 1)
+    return s
+
+
+def _autumn_tree(variant):
+    palette = BIOME_PALETTES['autumn']
+    s = _tree(variant + 2, palette)
+    rng = textures.rng_for(variant, 101, seed=67)
+    for _ in range(12):
+        x, y = rng.randint(14, 50), rng.randint(10, 44)
+        if s.get_at((x, y))[3] > 60:
+            pygame.draw.circle(s, rng.choice(((196, 122, 42), (170, 76, 32),
+                                              (210, 164, 58))), (x, y), 2)
+    return s
+
+
+def _swamp_tree(variant):
+    palette = BIOME_PALETTES['swamp']
+    s = _tree(variant + 2, palette)
+    rng = textures.rng_for(variant, 103, seed=71)
+    for _ in range(6):
+        x = rng.randint(14, 50)
+        y = rng.randint(22, 48)
+        pygame.draw.line(s, (96, 110, 82), (x, y), (x, y + rng.randint(4, 10)), 1)
+    for _ in range(2):
+        x, y = rng.randint(10, 50), rng.randint(44, 56)
+        pygame.draw.ellipse(s, (44, 58, 50), (x, y, 10, 5))
+    return s
+
+
+def _dark_tree(variant):
+    s = _pine_tree(variant + 1, 'dark')
+    rng = textures.rng_for(variant, 105, seed=73)
+    for _ in range(8):
+        x, y = rng.randint(16, 48), rng.randint(12, 44)
+        pygame.draw.line(s, (20, 34, 26), (x, y), (x - 2, y + 2), 1)
+    return s
+
+
+def _meadow_tree(variant):
+    palette = BIOME_PALETTES['meadow']
+    s = _tree(variant + 2, palette)
+    rng = textures.rng_for(variant, 107, seed=79)
+    for _ in range(10):
+        x, y = rng.randint(4, 58), rng.randint(44, 58)
+        pygame.draw.circle(s, rng.choice(((226, 214, 130), (206, 120, 150),
+                                          (150, 160, 220))), (x, y), 2)
+    return s
+
+
+BIOME_GRASS_BUILDERS = {
+    name: (lambda variant, n=name: _biome_grass(n, variant))
+    for name in BIOME_PALETTES
+}
+
+BIOME_TREE_BUILDERS = {
+    'pine': _pine_tree,
+    'birch': _birch_tree,
+    'rock': _rock_cluster,
+    'autumn': _autumn_tree,
+    'swamp': _swamp_tree,
+    'dark': _dark_tree,
+    'meadow': _meadow_tree,
+    'dead': _bare_tree,
+    'beach': lambda variant: _tree(variant, BIOME_PALETTES['beach']),
+}
+
+
+
 def _cave_entrance(variant=0):
     s = _dungeon_ground(1)
     rng = textures.rng_for(variant, 8, seed=97)
@@ -813,6 +1124,170 @@ def _village_torch_post(variant):
     pygame.draw.circle(s, (255, 240, 180), (32, 16), 1)
     glow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     pygame.draw.circle(glow, (255, 180, 80, 40), (32, 16), 14)
+    s.blit(glow, (0, 0))
+    return s
+
+
+# ════════════════════════ ГОРОД ════════════════════════
+def _city_grass(variant):
+    s = _grass(variant, CITY_PALETTE)
+    rng = textures.rng_for(variant, 33, seed=181)
+    # ухоженные клумбы и подметённая трава
+    if variant % 2 == 0:
+        for _ in range(4):
+            x = rng.randint(8, SIZE - 10)
+            y = rng.randint(10, SIZE - 10)
+            pygame.draw.circle(s, (226, 214, 148), (x, y), 2)
+            pygame.draw.circle(s, (196, 118, 146), (x + 3, y + 1), 1)
+            pygame.draw.line(s, (58, 84, 44), (x, y + 2), (x, y + 5), 1)
+    for _ in range(5):
+        x, y = rng.randint(2, SIZE - 6), rng.randint(2, SIZE - 6)
+        pygame.draw.circle(s, (142, 132, 112), (x, y), 1)
+    return s
+
+
+def _city_path(variant):
+    s = _cobbles(variant, (112, 104, 88), (48, 45, 38), cells=5, seed=191)
+    rng = textures.rng_for(variant, 35, seed=193)
+    # сточная канавка вдоль края
+    pygame.draw.line(s, (44, 41, 34), (0, SIZE - 4), (SIZE, SIZE - 4), 2)
+    pygame.draw.line(s, (72, 68, 58), (0, SIZE - 6), (SIZE, SIZE - 6), 1)
+    for _ in range(4):
+        x = rng.randint(2, SIZE - 5)
+        pygame.draw.line(s, (88, 102, 60), (x, SIZE - 5), (x, SIZE - 8), 1)
+    return s
+
+
+def _city_plaza(variant):
+    s = _cobbles(variant, (128, 118, 98), (56, 51, 42), cells=3, seed=197)
+    rng = textures.rng_for(variant, 37, seed=199)
+    # декоративный ромб в центре площади
+    if variant % 3 == 0:
+        pygame.draw.polygon(s, (146, 132, 108),
+                            [(32, 14), (50, 32), (32, 50), (14, 32)], 2)
+        pygame.draw.polygon(s, (98, 88, 72),
+                            [(32, 18), (46, 32), (32, 46), (18, 32)], 1)
+    for _ in range(3):
+        x, y = rng.randint(4, 54), rng.randint(4, 54)
+        pygame.draw.circle(s, (96, 108, 66), (x, y), 1)
+    return s
+
+
+def _city_wall(variant):
+    """Городская стена: светлая кладка с мхом и бойницами."""
+    s = _new()
+    _wall_blocks(s, variant, base_color=(122, 118, 108),
+                 mortar=(58, 55, 50))
+    rng = textures.rng_for(variant, 39, seed=211)
+    # бойница
+    x = 24 + (variant % 3) * 6
+    pygame.draw.rect(s, (30, 29, 26), (x, 14, 8, 32))
+    pygame.draw.rect(s, (74, 71, 64), (x - 2, 12, 12, 4))
+    pygame.draw.rect(s, (74, 71, 64), (x - 2, 46, 12, 4))
+    for _ in range(7):
+        mx, my = rng.randint(2, SIZE - 8), rng.randint(2, SIZE - 8)
+        pygame.draw.ellipse(s, (76, 92, 54), (mx, my, rng.randint(3, 9), 2))
+    _grime(s, rng, 120, 8)
+    return s
+
+
+def _city_house(variant):
+    """Городской дом: черепичная крыша."""
+    s = _city_grass(variant + 1)
+    rng = textures.rng_for(variant, 41, seed=223)
+    roof_base = (138, 78, 56)
+    roof = textures.shade(roof_base, 0.9 + textures.hash01(
+        variant, 7, seed=227) * 0.2)
+    pygame.draw.rect(s, (30, 24, 20), (2, 6, 60, 56))
+    pygame.draw.rect(s, roof, (3, 4, 58, 56))
+    # черепица: ряды полукруглых пластин
+    for row, y in enumerate(range(6, 62, 7)):
+        pygame.draw.line(s, textures.shade(roof, 0.58),
+                         (3, y), (61, y), 1)
+        offset = 0 if row % 2 else 5
+        for x in range(-5 + offset, 64, 10):
+            pygame.draw.arc(s, textures.shade(roof, 0.72),
+                            (x, y - 4, 8, 7), 3.4, 6.0, 1)
+            pygame.draw.arc(s, textures.shade(roof, 1.18),
+                            (x + 1, y - 5, 6, 6), 3.4, 6.0, 1)
+    pygame.draw.rect(s, textures.shade(roof, 1.28), (3, 4, 58, 3))
+    pygame.draw.rect(s, (48, 32, 24), (3, 58, 58, 3))
+    # слуховое окно
+    wx = 12 + (variant % 2) * 32
+    pygame.draw.rect(s, (66, 50, 36), (wx, 12, 12, 10))
+    pygame.draw.rect(s, (150, 128, 74), (wx + 2, 14, 8, 6))
+    for _ in range(3):
+        x = rng.randint(6, 52)
+        y = rng.randint(12, 50)
+        pygame.draw.ellipse(s, (70, 88, 52), (x, y, rng.randint(3, 7), 2))
+    _grime(s, rng, 90, 7)
+    return s
+
+
+def _city_well(variant=0):
+    s = _city_plaza(0)
+    rng = textures.rng_for(variant, 43, seed=229)
+    pygame.draw.circle(s, (0, 0, 0, 100), (33, 38), 20)
+    pygame.draw.circle(s, (78, 74, 66), (32, 34), 19)
+    pygame.draw.circle(s, (126, 120, 104), (32, 32), 17)
+    pygame.draw.circle(s, (92, 86, 72), (32, 32), 14)
+    pygame.draw.circle(s, (16, 24, 30), (32, 32), 11)
+    pygame.draw.circle(s, (34, 52, 62), (31, 31), 8)
+    pygame.draw.arc(s, (110, 140, 150), (24, 24, 16, 16), 0.2, 2.4, 2)
+    pygame.draw.rect(s, (74, 56, 38), (18, 10, 4, 24))
+    pygame.draw.rect(s, (74, 56, 38), (42, 10, 4, 24))
+    pygame.draw.rect(s, (104, 78, 48), (16, 6, 32, 5))
+    pygame.draw.line(s, (48, 36, 24), (20, 11), (32, 28), 1)
+    pygame.draw.line(s, (48, 36, 24), (44, 11), (32, 28), 1)
+    pygame.draw.rect(s, (64, 48, 32), (29, 26, 6, 5))
+    _grime(s, rng, 70, 7)
+    return s
+
+
+def _city_stall(variant):
+    s = _city_path(variant + 1)
+    rng = textures.rng_for(variant, 45, seed=233)
+    pygame.draw.rect(s, (58, 42, 24), (4, 30, 56, 30))
+    pygame.draw.rect(s, (104, 76, 44), (4, 30, 56, 4))
+    for i in range(3):
+        pygame.draw.rect(s, (140, 104, 62), (8, 34 + i * 8, 48, 5))
+    awning = (40, 92, 132) if variant % 2 else (128, 52, 116)
+    pygame.draw.rect(s, awning, (2, 2, 60, 26))
+    pygame.draw.rect(s, textures.shade(awning, 1.25), (2, 2, 60, 6))
+    for x in range(2, 62, 8):
+        pygame.draw.line(s, textures.shade(awning, 0.7), (x, 2), (x, 28), 2)
+    for _ in range(6):
+        x = rng.randint(10, 54)
+        pygame.draw.circle(s, rng.choice([(240, 200, 100), (200, 80, 80),
+                                          (100, 180, 80)]), (x, 36), 3)
+    _grime(s, rng, 60, 7)
+    return s
+
+
+def _city_statue(variant):
+    s = _city_plaza(variant + 2)
+    rng = textures.rng_for(variant, 47, seed=239)
+    pygame.draw.rect(s, (146, 138, 120), (12, 48, 40, 14))
+    pygame.draw.rect(s, (104, 96, 78), (12, 48, 40, 14), 2)
+    pygame.draw.rect(s, (168, 160, 140), (17, 42, 30, 8))
+    pygame.draw.circle(s, (206, 200, 184), (32, 20), 8)
+    pygame.draw.rect(s, (206, 200, 184), (26, 28, 12, 16))
+    pygame.draw.line(s, (222, 222, 210), (42, 16), (42, 46), 3)
+    pygame.draw.circle(s, (222, 222, 210), (42, 14), 3)
+    _grime(s, rng, 40, 6)
+    return s
+
+
+def _city_torch(variant):
+    s = _city_plaza(variant + 1)
+    pygame.draw.rect(s, (66, 50, 32), (30, 20, 4, 38))
+    pygame.draw.rect(s, (104, 78, 48), (30, 20, 1, 38))
+    pygame.draw.rect(s, (88, 66, 42), (26, 18, 12, 4))
+    pygame.draw.circle(s, (255, 200, 100), (32, 14), 5)
+    pygame.draw.circle(s, (255, 150, 50), (32, 14), 3)
+    pygame.draw.circle(s, (255, 240, 180), (32, 14), 1)
+    glow = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
+    pygame.draw.circle(glow, (255, 180, 80, 44), (32, 14), 15)
     s.blit(glow, (0, 0))
     return s
 
@@ -1075,7 +1550,7 @@ def _goblin_campfire(variant):
 
 def _quest_board(variant=0):
     """Отдельная текстура доски поручений (не спрайт NPC)."""
-    s = _village_grass(0)
+    s = _city_grass(0)
     rng = textures.rng_for(variant, 71, seed=197)
     # столбы
     pygame.draw.rect(s, (78, 54, 32), (12, 24, 5, 36))
@@ -1484,6 +1959,9 @@ _VARIANTS = {
     'road': 4, 'village_grass': 8, 'village_path': 4,
     'village_plaza': 4, 'village_wall': 3, 'village_well': 1,
     'village_stall': 2, 'village_statue': 1, 'village_torch_post': 1,
+    'city_grass': 8, 'city_path': 4, 'city_plaza': 3,
+    'city_wall': 4, 'city_house': 3, 'city_well': 1,
+    'city_stall': 2, 'city_statue': 1, 'city_torch': 1,
     'dungeon_ground': 6, 'dungeon_ruins': 4, 'rock': 3,
     'ruins_pillar': 2,
     'goblin_grass': 8, 'goblin_path': 4, 'goblin_plaza': 4,
@@ -1503,26 +1981,33 @@ _VARIANTS = {
 
 
 def _register_biome_tiles():
-    """Добавить в кэш по паре тайлов на каждый из восьми биомов."""
-    for name, palette in BIOME_PALETTES.items():
-        _BUILDERS[f'grass_{name}'] = (
-            lambda variant, p=palette: _grass(variant, p))
-        _BUILDERS[f'tree_{name}'] = (
-            lambda variant, p=palette: _tree(variant, p))
+    """Добавить в кэш по паре уникальных тайлов на каждый из восьми биомов."""
+    for name in BIOME_PALETTES:
+        _BUILDERS[f'grass_{name}'] = BIOME_GRASS_BUILDERS[name]
+        _BUILDERS[f'tree_{name}'] = BIOME_TREE_BUILDERS[name]
         _VARIANTS[f'grass_{name}'] = 6
         _VARIANTS[f'tree_{name}'] = 3
 
 
 _BUILDERS.update({
     'road': _road,
-    'village_grass': _village_grass,
-    'village_path': _village_path,
-    'village_plaza': _village_plaza,
-    'village_wall': _village_wall,
-    'village_well': _village_well,
-    'village_stall': _village_stall,
-    'village_statue': _village_statue,
-    'village_torch_post': _village_torch_post,
+    'village_grass': _city_grass,
+    'village_path': _city_path,
+    'village_plaza': _city_plaza,
+    'village_wall': _city_house,
+    'village_well': _city_well,
+    'village_stall': _city_stall,
+    'village_statue': _city_statue,
+    'village_torch_post': _city_torch,
+    'city_grass': _city_grass,
+    'city_path': _city_path,
+    'city_plaza': _city_plaza,
+    'city_wall': _city_wall,
+    'city_house': _city_house,
+    'city_well': _city_well,
+    'city_stall': _city_stall,
+    'city_statue': _city_statue,
+    'city_torch': _city_torch,
     'dungeon_ground': _dungeon_ground,
     'dungeon_ruins': _dungeon_ruins_floor,
     'ruins_pillar': _ruins_pillar,
@@ -1635,11 +2120,14 @@ class Tiles:
 
 
 _BUILDERS.update({
-    'village_stall': _village_stall, 'village_statue': _village_statue,
-    'village_torch_post': _village_torch_post,
+    'village_stall': _city_stall, 'village_statue': _city_statue,
+    'village_torch_post': _city_torch,
+    'city_stall': _city_stall, 'city_statue': _city_statue,
+    'city_torch': _city_torch,
     'dungeon_ruins': _dungeon_ruins_floor, 'ruins_pillar': _ruins_pillar,
 })
 _VARIANTS.update({
     'village_stall': 2, 'village_statue': 1, 'village_torch_post': 1,
+    'city_stall': 2, 'city_statue': 1, 'city_torch': 1,
     'dungeon_ruins': 4, 'ruins_pillar': 2,
 })

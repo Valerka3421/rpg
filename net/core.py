@@ -204,7 +204,7 @@ class GameCore:
         p.blueprints = set(d.get('blueprints') or ())
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
-        p.mana = min(d.get('mana', p.max_mana), p.max_mana)
+        p.mana = min(int(d.get('mana', p.max_mana)), p.max_mana)
         p.anim_time = 0.0
         p.attack_anim = 0.0
         p.facing = (1, 0)

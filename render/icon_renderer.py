@@ -19,6 +19,7 @@ class IconRenderer(BaseRenderer):
         self._item_cache = {}
         self._monster_cache = {}
         self._merchant_cache = {}
+        self._city_npc_cache = {}
         self._elder_cache = {}
         self._player_cache = {}
         self._class_icon_cache = {}
@@ -79,6 +80,13 @@ class IconRenderer(BaseRenderer):
             self._potion(s, (240, 50, 70), big=False, sparkle=True)
         elif key == 'potion_l':
             self._potion(s, (200, 20, 60), big=True, sparkle=True)
+        elif key == 'mana_s':
+            self._potion(s, (110, 160, 250), big=False, sparkle=False)
+        elif key == 'mana_m':
+            self._potion(s, (132, 108, 240), big=True, sparkle=True)
+        elif key in ('fried_mushrooms', 'berry_compote', 'roast_venison',
+                     'roast_boar', 'roast_bear'):
+            self._food(s, key)
         elif key == 'dagger':
             self._blade(s, 18, (200, 215, 235), guard=6, gem=False)
         elif key == 'shortsword':
@@ -451,6 +459,43 @@ class IconRenderer(BaseRenderer):
             pygame.draw.circle(s, (255, 240, 150),
                                (CX + dx - 1, 10 + dy - 1), 1)
         pygame.draw.ellipse(s, (30, 30, 45, 60), (CX - 20, 50, 40, 6))
+
+    def _food(self, s, key):
+        color = ITEMS.get(key, {}).get('color', (180, 120, 70))
+        # тарелка
+        pygame.draw.ellipse(s, (60, 60, 70, 90), (10, 44, 44, 12))
+        pygame.draw.ellipse(s, (208, 204, 192), (10, 40, 44, 12))
+        pygame.draw.ellipse(s, (160, 156, 146), (10, 40, 44, 12), 2)
+        pygame.draw.ellipse(s, (236, 232, 222), (16, 42, 32, 7))
+        if key == 'berry_compote':
+            # кружка с компотом
+            pygame.draw.rect(s, (150, 158, 170), (22, 14, 20, 28),
+                             border_radius=4)
+            pygame.draw.rect(s, (200, 208, 218), (22, 14, 20, 28), 2,
+                             border_radius=4)
+            pygame.draw.ellipse(s, (176, 62, 104), (24, 16, 16, 8))
+            for dx, dy in ((28, 26), (34, 24), (30, 33)):
+                pygame.draw.circle(s, (214, 72, 112), (dx, dy), 3)
+            pygame.draw.arc(s, (172, 180, 190), (40, 20, 12, 14), -1.3, 1.3, 3)
+        elif key == 'fried_mushrooms':
+            for cx, cy, r in ((22, 42, 7), (32, 37, 8), (42, 43, 6)):
+                pygame.draw.ellipse(s, color, (cx - r, cy - r // 2, r * 2, r))
+                pygame.draw.ellipse(s, (146, 106, 64),
+                                    (cx - r, cy - r // 2, r * 2, r), 1)
+                pygame.draw.ellipse(s, (222, 190, 138),
+                                    (cx - r + 2, cy - r // 2 + 1,
+                                     r + 2, max(2, r // 2)))
+        else:
+            # кусок жареного мяса с косточкой
+            pygame.draw.ellipse(s, color, (16, 26, 32, 22))
+            pygame.draw.ellipse(s, (86, 52, 36), (16, 26, 32, 22), 2)
+            pygame.draw.ellipse(s, (min(255, color[0] + 36),
+                                    min(255, color[1] + 30),
+                                    min(255, color[2] + 26)),
+                                (20, 29, 16, 10))
+            pygame.draw.line(s, (234, 226, 204), (20, 30), (10, 22), 4)
+            pygame.draw.circle(s, (234, 226, 204), (10, 21), 3)
+        pygame.draw.ellipse(s, (30, 30, 45, 60), (12, 50, 40, 6))
 
     def _material(self, s, key):
         if key == 'bone':
@@ -1857,6 +1902,96 @@ class IconRenderer(BaseRenderer):
                                 [(xx - 1, 24), (xx + 1, 24), (xx, 28)])
 
     # ════════════════════════ NPC ════════════════════════
+    def draw_city_npc(self, npc_type, px, py, size=CANVAS):
+        ck = (npc_type, size)
+        if ck not in self._city_npc_cache:
+            s = pygame.Surface((CANVAS, CANVAS), pygame.SRCALPHA)
+            self._draw_city_npc_64(s, npc_type)
+            if size != CANVAS:
+                s = pygame.transform.smoothscale(s, (size, size))
+            self._city_npc_cache[ck] = textures.finish(s, shadow=True)
+        self.screen.blit(self._city_npc_cache[ck], (px, py))
+
+    def _draw_city_npc_64(self, s, npc_type):
+        # ноги
+        pygame.draw.rect(s, (54, 44, 34), (26, 50, 5, 9))
+        pygame.draw.rect(s, (54, 44, 34), (33, 50, 5, 9))
+        if npc_type == 'guard':
+            # кольчуга и нагрудник
+            pygame.draw.polygon(s, (120, 126, 142), [(22, 26), (42, 26),
+                                                     (45, 52), (19, 52)])
+            pygame.draw.polygon(s, (78, 84, 100), [(22, 26), (42, 26),
+                                                   (45, 52), (19, 52)], 2)
+            pygame.draw.rect(s, (156, 162, 178), (25, 30, 14, 14))
+            pygame.draw.rect(s, (98, 104, 120), (25, 30, 14, 14), 1)
+            # наплечники
+            pygame.draw.circle(s, (140, 146, 162), (20, 29), 6)
+            pygame.draw.circle(s, (140, 146, 162), (44, 29), 6)
+            # голова и шлем
+            pygame.draw.circle(s, (232, 200, 160), (32, 18), 9)
+            pygame.draw.arc(s, (150, 156, 172), (21, 5, 22, 22), 3.14, 6.28, 4)
+            pygame.draw.rect(s, (150, 156, 172), (21, 14, 22, 3))
+            pygame.draw.line(s, (206, 210, 220), (32, 4), (32, 10), 2)
+            pygame.draw.circle(s, (24, 20, 16), (29, 19), 1)
+            pygame.draw.circle(s, (24, 20, 16), (35, 19), 1)
+            # копьё и щит
+            pygame.draw.line(s, (122, 92, 58), (14, 12), (14, 58), 3)
+            pygame.draw.polygon(s, (210, 214, 224), [(14, 4), (10, 12), (18, 12)])
+            pygame.draw.circle(s, (100, 70, 40), (46, 38), 11)
+            pygame.draw.circle(s, (140, 104, 62), (46, 38), 11, 2)
+            pygame.draw.circle(s, (200, 170, 90), (46, 38), 4)
+        elif npc_type == 'blacksmith':
+            # кожаный передник поверх рубахи
+            pygame.draw.polygon(s, (104, 70, 42), [(22, 24), (42, 24),
+                                                   (45, 56), (19, 56)])
+            pygame.draw.polygon(s, (66, 44, 26), [(22, 24), (42, 24),
+                                                  (45, 56), (19, 56)], 2)
+            pygame.draw.rect(s, (150, 116, 78), (27, 28, 10, 22))
+            # руки
+            pygame.draw.circle(s, (226, 176, 132), (18, 44), 5)
+            pygame.draw.circle(s, (226, 176, 132), (46, 44), 5)
+            # голова, борода
+            pygame.draw.circle(s, (228, 184, 140), (32, 18), 9)
+            pygame.draw.polygon(s, (74, 48, 30), [(24, 23), (40, 23), (32, 37)])
+            pygame.draw.circle(s, (24, 18, 12), (29, 18), 1)
+            pygame.draw.circle(s, (24, 18, 12), (35, 18), 1)
+            # молот
+            pygame.draw.line(s, (96, 70, 44), (48, 34), (54, 56), 3)
+            pygame.draw.rect(s, (128, 132, 142), (42, 22, 16, 10))
+        elif npc_type == 'alchemist':
+            # мантия
+            pygame.draw.polygon(s, (92, 74, 138), [(21, 25), (43, 25),
+                                                   (47, 56), (17, 56)])
+            pygame.draw.polygon(s, (60, 44, 96), [(21, 25), (43, 25),
+                                                  (47, 56), (17, 56)], 2)
+            pygame.draw.rect(s, (196, 170, 80), (21, 44, 24, 3))
+            # голова и остроконечная шляпа
+            pygame.draw.circle(s, (232, 206, 168), (32, 18), 9)
+            pygame.draw.ellipse(s, (74, 54, 112), (14, 10, 36, 8))
+            pygame.draw.polygon(s, (98, 76, 148), [(24, 12), (40, 12), (36, 0),
+                                                   (28, 0)])
+            pygame.draw.circle(s, (24, 18, 12), (29, 19), 1)
+            pygame.draw.circle(s, (24, 18, 12), (35, 19), 1)
+            # склянка
+            pygame.draw.rect(s, (166, 210, 220), (46, 42, 8, 10))
+            pygame.draw.rect(s, (196, 240, 240), (48, 40, 4, 3))
+            pygame.draw.circle(s, (120, 220, 140), (50, 48), 3)
+        else:   # innkeeper
+            pygame.draw.polygon(s, (126, 96, 58), [(21, 25), (43, 25),
+                                                   (46, 56), (18, 56)])
+            pygame.draw.polygon(s, (86, 62, 38), [(21, 25), (43, 25),
+                                                  (46, 56), (18, 56)], 2)
+            pygame.draw.rect(s, (206, 196, 166), (26, 26, 12, 20))
+            pygame.draw.rect(s, (118, 84, 48), (21, 45, 24, 4))
+            pygame.draw.circle(s, (228, 184, 140), (32, 18), 10)
+            pygame.draw.polygon(s, (110, 76, 46), [(23, 22), (41, 22), (32, 30)])
+            pygame.draw.circle(s, (24, 18, 12), (29, 18), 1)
+            pygame.draw.circle(s, (24, 18, 12), (35, 18), 1)
+            # кружка
+            pygame.draw.rect(s, (140, 140, 150), (44, 38, 10, 13))
+            pygame.draw.rect(s, (198, 198, 206), (44, 38, 10, 3))
+            pygame.draw.arc(s, (150, 150, 160), (50, 41, 8, 7), -1.2, 1.2, 2)
+
     def draw_merchant(self, px, py, size=CANVAS):
         ck = (size,)
         if ck not in self._merchant_cache:

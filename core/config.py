@@ -130,7 +130,7 @@ CRAFT_PAGE_SIZE = 8
 MINIMAP_SCALE = 2
 MINIMAP_MARGIN = 8
 
-SAVE_VERSION = 7
+SAVE_VERSION = 8
 
 # ── Консоль разработчика ──
 # Пароль хранится хешем scrypt (с солью), чтобы он не лежал в сейвах/настройках

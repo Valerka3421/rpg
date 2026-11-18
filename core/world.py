@@ -177,6 +177,9 @@ def _build_village(d):
         for yy in range(hy, hy + hh):
             for xx in range(hx, hx + hw):
                 d.tiles[yy][xx] = Tile.WALL
+    # Городская стена: кольцо с воротами на четырёх дорогах.
+    for wx, wy in ov.CITY_WALL_CELLS:
+        d.tiles[wy][wx] = Tile.WALL
     wx, wy = ov.WELL_POS
     d.tiles[wy][wx] = Tile.WALL
     for sx, sy in ov.VILLAGE_STALLS:      d.tiles[sy][sx] = Tile.WALL
@@ -257,7 +260,8 @@ def generate_overworld() -> Dungeon:
     for p in spots:
         if any(o.x == p[0] and o.y == p[1] for o in d.monsters):
             continue
-        if (p[0] - spawn[0]) ** 2 + (p[1] - spawn[1]) ** 2 < 100:
+        # Безопасная зона: не только сам город, но и полоса вокруг стен.
+        if ov.in_city_safe(p[0], p[1], margin=8):
             continue
         if (p[0] - ex) ** 2 + (p[1] - ey) ** 2 <= 9:
             continue

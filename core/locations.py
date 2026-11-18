@@ -159,7 +159,7 @@ BIOME_BUSHES = {
 
 LOCATIONS = {
     'village': {
-        'title': ov.VILLAGE_TITLE, 'kind': 'village',
+        'title': ov.VILLAGE_TITLE, 'kind': 'city',
         'w': VILLAGE_W, 'h': VILLAGE_H,
     },
     'goblin_village': {
@@ -256,13 +256,13 @@ LOCATION_ENTRY = (LOCATION_W // 2, LOCATION_H - 8)
 def ground_kind(key, x, y):
     spec = LOCATIONS.get(key, LOCATIONS['village'])
     kind = spec['kind']
-    if kind == 'village':
+    if kind == 'city':
         if ov.in_village(x, y):
-            return ov.village_ground_kind(x, y)
+            return ov.city_ground_kind(x, y)
         if (x, y) in VILLAGE_ROADS or ov.is_road(x, y):
             return 'road'
         biome = ov.biome_at(x, y)
-        return f'grass_{biome}' if biome else 'village_grass'
+        return f'grass_{biome}' if biome else 'city_grass'
     if kind == 'goblin':
         if _in_local_goblin_village(x, y):
             cx, cy = LOCAL_GOBLIN_CENTER
@@ -292,15 +292,9 @@ def ground_kind(key, x, y):
 def wall_kind(key, x, y):
     spec = LOCATIONS.get(key, LOCATIONS['village'])
     kind = spec['kind']
-    if kind == 'village':
+    if kind == 'city':
         if ov.in_village(x, y):
-            if ov.is_statue(x, y):
-                return 'village_statue'
-            if ov.is_stall(x, y):
-                return 'village_stall'
-            if ov.is_torch(x, y):
-                return 'village_torch_post'
-            return 'village_wall'
+            return ov.city_wall_kind(x, y)
         biome = ov.biome_at(x, y) or 'pine'
         return 'rock' if biome == 'rock' else f'tree_{biome}'
     if kind == 'goblin':
@@ -376,7 +370,7 @@ def _reachable(d, start):
     return seen
 
 
-def _spawn_monsters(d, pool, count, avoid=(), min_dist=None):
+def _spawn_monsters(d, pool, count, avoid=(), min_dist=None, safe_zone=None):
     blocked = set(avoid) | set(d.transitions) | set(d.harvestables)
     spots = []
     for y in range(1, d.h - 1):
@@ -386,6 +380,8 @@ def _spawn_monsters(d, pool, count, avoid=(), min_dist=None):
             if (x, y) in blocked or (x, y) in d.items:
                 continue
             if min_dist and (x - min_dist[0]) ** 2 + (y - min_dist[1]) ** 2 <= 64:
+                continue
+            if safe_zone and safe_zone(x, y):
                 continue
             spots.append((x, y))
     random.shuffle(spots)
@@ -459,7 +455,7 @@ def _generate_village():
 
     _clear(d, ov.VILLAGE_CENTER, 7)
 
-    # Дома и площадь — те же координаты, что и в исторической деревне.
+    # Дома и площадь — те же координаты, что и в историческом городе.
     for hx, hy, hw, hh in ov.VILLAGE_HOUSES:
         for yy in range(hy, hy + hh):
             for xx in range(hx, hx + hw):
@@ -473,6 +469,10 @@ def _generate_village():
     for tx, ty in ov.VILLAGE_TORCHES:
         d.tiles[ty][tx] = Tile.WALL
 
+    # Городская стена — сплошное кольцо. Дороги пробивают в ней ворота.
+    for wx, wy in ov.CITY_WALL_CELLS:
+        d.tiles[wy][wx] = Tile.WALL
+
     # Дороги к вратам и сами врата.
     for key, gate in VILLAGE_GATES.items():
         _carve(d, ov.VILLAGE_CENTER, gate, half=1)
@@ -484,16 +484,19 @@ def _generate_village():
         d.transitions[(gx, gy)] = {'to': key, 'entry': VILLAGE_GATE_ENTRY[key],
                                    'side': side}
 
-    # Доска поручений и старейшина должны стоять на полу.
-    for px, py in (ov.QUEST_BOARD_VILLAGE_POS, ov.ELDER_POS):
+    # Доска поручений, старейшина и горожане должны стоять на полу.
+    for px, py in (ov.QUEST_BOARD_VILLAGE_POS, ov.ELDER_POS,
+                   *ov.CITY_NPC_POS.values()):
         d.tiles[py][px] = Tile.FLOOR
 
-    avoid = ({ov.VILLAGE_CENTER, ov.ELDER_POS, ov.QUEST_BOARD_VILLAGE_POS}
+    avoid = ({ov.VILLAGE_CENTER, ov.ELDER_POS, ov.QUEST_BOARD_VILLAGE_POS,
+              *ov.CITY_NPC_POS.values()}
              | road_cells('village'))
     _scatter_items(d, 26, avoid=avoid, pool=('mushroom', 'wood', 'stone'))
     _scatter_bushes(d, 'village', 24, avoid=avoid)
     _spawn_monsters(d, ('deer', 'wolf', 'boar', 'rat', 'slime'), 16,
-                    avoid=avoid, min_dist=ov.VILLAGE_CENTER)
+                    avoid=avoid, min_dist=ov.VILLAGE_CENTER,
+                    safe_zone=lambda x, y: ov.in_city_safe(x, y, margin=6))
     d.rooms = [Room(ov.VILLAGE_CENTER[0] - 1, ov.VILLAGE_CENTER[1] - 1, 3, 3)]
     return d
 

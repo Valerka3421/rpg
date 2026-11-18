@@ -132,7 +132,8 @@ def player_from_dict(d: dict) -> Player:
     p.blueprints = set(d.get('blueprints') or ())
     p.recalc()
     p.hp = min(d['hp'], p.max_hp)
-    p.mana = min(d.get('mana', p.max_mana), p.max_mana)
+    # Мана появилась в v8. Старые сейвы получают полный запас.
+    p.mana = min(int(d.get('mana', p.max_mana)), p.max_mana)
     # Смена правил могла сделать экипировку недоступной — снимаем в сумку.
     for slot, key, _reason in skills.disallowed_equipment(p):
         setattr(p, slot, None)

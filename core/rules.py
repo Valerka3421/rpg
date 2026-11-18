@@ -729,6 +729,22 @@ def best_heal_key(inventory):
     return potions[0][1]
 
 
+def best_mana_key(inventory):
+    """Самое слабое зелье маны в инвентаре."""
+    potions = []
+    for key, count in inventory.items():
+        if count <= 0:
+            continue
+        base, _ = parse_item_key(key)
+        data = ITEMS.get(base, {})
+        if data.get('type') == 'mana':
+            potions.append((data.get('value', 0), key))
+    if not potions:
+        return None
+    potions.sort()
+    return potions[0][1]
+
+
 def _nearest_monster(monsters, x, y, max_dist):
     candidates = [(m, abs(m.x - x) + abs(m.y - y))
                   for m in monsters if m.hp > 0]
@@ -807,6 +823,25 @@ def use_item(player, key, monsters=None, on_hit=None):
         consume(inventory, key)
         return UseResult(True, 'mana', f"{item['name']}: +{restored} маны",
                          restored, item.get('color', (120, 160, 255)))
+
+    if kind == 'food':
+        heal = item.get('heal', 0)
+        mana = item.get('mana', 0)
+        healed = min(heal, max(0, player.max_hp - player.hp))
+        restored = min(mana, max(0, player.max_mana - player.mana))
+        if healed <= 0 and restored <= 0:
+            return UseResult(False, 'full', 'Ты уже сыт и полон сил.')
+        player.hp += healed
+        player.mana += restored
+        consume(inventory, key)
+        parts = []
+        if healed:
+            parts.append(f"+{healed} HP")
+        if restored:
+            parts.append(f"+{restored} маны")
+        return UseResult(True, 'food',
+                         f"{item['name']}: " + ' и '.join(parts),
+                         healed or restored, item.get('color', (210, 170, 110)))
 
     if kind == 'buff':
         status = item.get('status')
@@ -987,7 +1022,8 @@ def buy_from_stock(stock, index, player):
     if not (0 <= index < len(stock)):
         return False, 'index', 0
     entry = stock[index]
-    if entry.get('sold'):
+    infinite = bool(entry.get('infinite'))
+    if entry.get('sold') and not infinite:
         return False, 'sold', 0
     key, price = entry['key'], entry.get('price', 0)
     base, _ = parse_item_key(key)
@@ -997,7 +1033,8 @@ def buy_from_stock(stock, index, player):
         return False, 'gold', price
     player.gold -= price
     player.inventory[key] = player.inventory.get(key, 0) + 1
-    entry['sold'] = True
+    if not infinite:
+        entry['sold'] = True
     return True, 'ok', price
 
 

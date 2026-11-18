@@ -21,6 +21,7 @@ class Entity:
         self.is_npc = False
         self.npc_type: str | None = None
         self.ability = ability
+        self.immortal = False
         self.statuses: dict[str, int] = {}      # {status_key: remaining_turns}
         self.anim_time = 0.0  # накапливается в update
         self.attack_anim = 0.0  # 0..1, убывает после атаки
@@ -182,6 +183,8 @@ class Player(Entity):
         self.skill_xp = {k: v['xp'] for k, v in self.skills.items()}
         self.skill_nodes = set()
         self.blueprints = set()        # прочитанные чертежи особых крафтов
+        # Мана: ресурс для свитков и рун. Новый герой начинает с полным
+        # запасом, чтобы первый же свиток сработал.
         self.mana = 0
         self.max_mana = 0
         self._effects_cache = {}
@@ -261,9 +264,9 @@ class Player(Entity):
             'effects': effects,
         })
         self.max_hp = stats['max_hp']
+        self.max_mana = stats['max_mana']
         self.atk = stats['atk']
         self.df = stats['df']
-        self.max_mana = stats['max_mana']
         self._w_crit_bonus = stats['_w_crit_bonus']
         self._w_dodge_bonus = stats['_w_dodge_bonus']
         self._a_dodge_bonus = stats['_a_dodge_bonus']
