@@ -1,8 +1,9 @@
 """Сущности мира."""
 from dataclasses import dataclass
-from core.config import COL_PLAYER, COL_TEXT, Tile
-from core.data import (ITEMS, CLASSES, parse_item_key, xp_to_next,
-                       default_skills)
+from core.config import (COL_PLAYER, COL_TEXT, Tile,
+                         PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN)
+from core.data import (ITEMS, CLASSES, class_data, class_stats, parse_item_key,
+                      xp_to_next, STATUS_MODS, default_skills)
 
 
 class Entity:
@@ -51,71 +52,84 @@ class Player(Entity):
     # Единая формула статов — используется и в recalc, и в UI превью класса.
     @staticmethod
     def preview_stats(data):
-        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs."""
-        str_ = data.get('str', 5)
-        agi = data.get('agi', 5)
-        vit = data.get('vit', 5)
-        luk = data.get('luk', 5)
-        df_st = data.get('df_stat', 5)
-        weapon = data.get('weapon')
-        armor = data.get('armor')
-        head = data.get('head')
-        legs = data.get('legs')
+        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs,
+        effects (пассивные бонусы класса и навыков), level."""
+        str_   = data.get('str', 5)
+        agi    = data.get('agi', 5)
+        vit    = data.get('vit', 5)
+        luk    = data.get('luk', 5)
+        df_st  = data.get('df_stat', 5)
+        level  = int(data.get('level', 1) or 1)
+        effects = data.get('effects') or {}
+        head = data.get('head', data.get('helmet'))
+        legs = data.get('legs', data.get('leggings'))
 
-        base_w, w_lvl = parse_item_key(weapon) if weapon else (None, 0)
-        base_a, a_lvl = parse_item_key(armor) if armor else (None, 0)
-        base_h, h_lvl = parse_item_key(head) if head else (None, 0)
-        base_l, l_lvl = parse_item_key(legs) if legs else (None, 0)
-        w_data = ITEMS.get(base_w, {}) if base_w else {}
-        a_data = ITEMS.get(base_a, {}) if base_a else {}
-        h_data = ITEMS.get(base_h, {}) if base_h else {}
-        l_data = ITEMS.get(base_l, {}) if base_l else {}
+        wb = ab = hp_extra = 0
+        w_crit = w_dodge = a_dodge = 0.0
+        w_df = 0
+        mana_extra = 0
+        for slot, key in (('weapon', data.get('weapon')),
+                          ('armor', data.get('armor')),
+                          ('head', head), ('legs', legs)):
+            if not key:
+                continue
+            base, lvl = parse_item_key(key)
+            it = ITEMS.get(base, {})
+            value = it.get('value', 0) + lvl
+            if slot == 'weapon':
+                wb = value
+                w_crit = it.get('crit_bonus', 0.0)
+                w_dodge = it.get('dodge_bonus', 0.0)
+                w_df = it.get('df_bonus', 0)
+            else:
+                ab += value
+                a_dodge += it.get('dodge_bonus', 0.0)
+            hp_extra += it.get('hp_bonus', 0)
+            mana_extra += it.get('mana_bonus', 0)
 
-        wb = w_data.get('value', 0) + w_lvl
-        ab = a_data.get('value', 0) + a_lvl
-        hb = h_data.get('value', 0) + h_lvl
-        lb = l_data.get('value', 0) + l_lvl
-        hp_extra = (a_data.get('hp_bonus', 0) + h_data.get('hp_bonus', 0)
-                    + l_data.get('hp_bonus', 0))
-
-        w_crit = w_data.get('crit_bonus', 0.0)
-        w_dodge = w_data.get('dodge_bonus', 0.0)
-        a_dodge = a_data.get('dodge_bonus', 0.0)
-        h_dodge = h_data.get('dodge_bonus', 0.0)
-        l_dodge = l_data.get('dodge_bonus', 0.0)
+        skill_dodge = effects.get('dodge', 0.0)
+        skill_crit = effects.get('crit', 0.0)
 
         dodge_base = min(0.30, agi * 0.015)
         dodge_total = max(0.0, min(0.40, dodge_base + w_dodge + a_dodge
-                                   + h_dodge + l_dodge))
+                                    + skill_dodge))
         crit_base = min(0.40, luk * 0.02)
-        crit_total = min(0.50, crit_base + w_crit)
+        crit_total = min(0.50, crit_base + w_crit + skill_crit)
 
         return {
-            'max_hp': 15 + vit * 2 + hp_extra,
-            'max_mana': 12 + vit // 2 + luk * 2,
-            'atk': 2 + str_ // 2 + wb,
-            'df': df_st // 2 + ab + hb + lb,
+            'max_hp': 15 + vit * 2 + hp_extra + int(effects.get('hp', 0)),
+            'atk': 2 + str_ // 2 + wb + int(effects.get('atk', 0)),
+            'df': df_st // 2 + ab + w_df + int(effects.get('df', 0)),
             'dodge': dodge_total,
             'crit': crit_total,
+            'max_mana': 10 + level * 2 + mana_extra + int(effects.get('mana', 0)),
             '_w_crit_bonus': w_crit,
-            '_w_dodge_bonus': w_dodge + h_dodge + l_dodge,
+            '_w_dodge_bonus': w_dodge,
             '_a_dodge_bonus': a_dodge,
+            '_skill_dodge': skill_dodge,
+            '_skill_crit': skill_crit,
         }
 
     def __init__(self, class_key='default'):
-        cls = CLASSES.get(class_key, CLASSES['default'])
+        if class_key not in CLASSES:
+            class_key = 'default'
+        cls = CLASSES[class_key]
+        stats = class_stats(class_key)
         super().__init__(0, 0, 25, 25, 4, 1, "Герой", "@", COL_PLAYER, 0)
         self.class_key = class_key
         self.class_name = cls['name']
+        self.class_tier = cls.get('tier', 1)
+        self.class_base = cls.get('base', class_key)
+        self.class_changes = max(0, self.class_tier - 1)
         self.level = 1
         self.xp = 0
         self.xp_next = xp_to_next(1)
         self.free_points = 0
-        self.str = cls['str']
-        self.agi = cls['agi']
-        self.vit = cls['vit']
-        self.luk = cls['luk']
-        self.df_stat = cls['df_stat']
+        self.str = stats.get('str', 5)
+        self.agi = stats.get('agi', 5)
+        self.vit = stats.get('vit', 5)
+        self.luk = stats.get('luk', 5)
+        self.df_stat = stats.get('df_stat', 5)
         self.weapon = cls.get('start_weapon')
         self.armor = cls.get('start_armor')
         self.head = None
@@ -134,20 +148,84 @@ class Player(Entity):
         self._w_crit_bonus = 0.0
         self._w_dodge_bonus = 0.0
         self._a_dodge_bonus = 0.0
+        self._skill_dodge = 0.0
+        self._skill_crit = 0.0
+        # Навыки и классовый прогресс
+        self.skill_points = 1
+        self.skill_xp = {k: v['xp'] for k, v in self.skills.items()}
+        self.skill_nodes = set()
         # Мана: ресурс для свитков и рун. Новый герой начинает с полным
         # запасом, чтобы первый же свиток сработал.
         self.mana = 0
         self.max_mana = 0
+        self._effects_cache = {}
         self.recalc()
+        self.mana = self.max_mana
+
+    # ── Совместимость слотов: старые имена helmet/leggings ──
+    @property
+    def helmet(self):
+        return self.head
+
+    @helmet.setter
+    def helmet(self, value):
+        self.head = value
+
+    @property
+    def leggings(self):
+        return self.legs
+
+    @leggings.setter
+    def leggings(self, value):
+        self.legs = value
+
+    # ── Бонусы класса и навыков ──
+    def effects(self):
+        """Активные пассивные бонусы (класс + узлы + статусы)."""
+        from core import skills
+        totals = skills.aggregate(self)
+        for status in self.statuses:
+            for key, value in STATUS_MODS.get(status, {}).items():
+                totals[key] = totals.get(key, 0) + value
+        return totals
+
+    def effect(self, name, default=0):
+        return self.effects().get(name, default)
+
+    @property
+    def lifesteal(self):
+        return self.effect('lifesteal')
+
+    @property
+    def gold_pct(self):
+        return self.effect('gold_pct')
+
+    @property
+    def xp_pct(self):
+        return self.effect('xp_pct')
+
+    @property
+    def quest_gold_pct(self):
+        return self.effect('quest_gold')
+
+    @property
+    def quest_xp_pct(self):
+        return self.effect('quest_xp')
+
+    @property
+    def vision_bonus(self):
+        return int(self.effect('fov'))
 
     def recalc(self):
         old_max = self.max_hp
-        old_max_mana = self.max_mana
+        old_mana = self.max_mana
+        effects = self.effects()
         stats = Player.preview_stats({
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
-            'luk': self.luk, 'df_stat': self.df_stat,
+            'luk': self.luk, 'df_stat': self.df_stat, 'level': self.level,
             'weapon': self.weapon, 'armor': self.armor,
             'head': self.head, 'legs': self.legs,
+            'effects': effects,
         })
         self.max_hp = stats['max_hp']
         self.max_mana = stats['max_mana']
@@ -156,22 +234,51 @@ class Player(Entity):
         self._w_crit_bonus = stats['_w_crit_bonus']
         self._w_dodge_bonus = stats['_w_dodge_bonus']
         self._a_dodge_bonus = stats['_a_dodge_bonus']
+        self._skill_dodge = stats['_skill_dodge']
+        self._skill_crit = stats['_skill_crit']
         if self.max_hp > old_max:
             self.hp += (self.max_hp - old_max)
+        if self.max_mana > old_mana:
+            self.mana += (self.max_mana - old_mana)
         self.hp = min(self.hp, self.max_hp)
-        if self.max_mana > old_max_mana:
-            self.mana += (self.max_mana - old_max_mana)
         self.mana = min(self.mana, self.max_mana)
 
     @property
     def dodge(self):
         base = min(0.30, self.agi * 0.015)
-        return max(0.0, min(0.40, base + self._w_dodge_bonus + self._a_dodge_bonus))
+        return max(0.0, min(0.40, base + self._w_dodge_bonus
+                            + self._a_dodge_bonus + self._skill_dodge))
 
     @property
     def crit(self):
         base = min(0.40, self.luk * 0.02)
-        return min(0.50, base + self._w_crit_bonus)
+        return min(0.50, base + self._w_crit_bonus + self._skill_crit)
+
+    # ── Тайминги с учётом навыков и статусов ──
+    @property
+    def attack_cooldown(self):
+        speed = max(0.0, self.effect('attack_speed'))
+        frenzy = max(0.0, self.effect('frenzy'))
+        if frenzy:
+            missing = 1.0 - (self.hp / max(1, self.max_hp))
+            speed += frenzy * missing
+        return PLAYER_ATTACK_COOLDOWN / (1.0 + speed)
+
+    @property
+    def move_cooldown(self):
+        speed = max(0.0, self.effect('move_speed'))
+        return PLAYER_MOVE_COOLDOWN / (1.0 + speed)
+
+    @property
+    def rage_bonus(self):
+        rage = max(0.0, self.effect('rage'))
+        if rage and self.hp < self.max_hp * 0.5:
+            return 1.0 + rage
+        return 1.0
+
+    @property
+    def has_companion(self):
+        return bool(int(self.effect('summon')))
 
 
 class Room:
@@ -198,6 +305,12 @@ class Dungeon:
         self.transitions = {}
         # Добываемые ресурсы: (x, y) -> запись core.harvest
         self.harvestables = {}
+        # Замурованные выходы арены босса: (x, y). После победы над боссом
+        # эти тайлы возвращаются в FLOOR и сет пустеет.
+        self.barrier_tiles = set()
+        # Босс-комплекс: центр казны и клетки запертой двери
+        self.treasury_pos = None
+        self.boss_door_cells = set()
 
 
 @dataclass

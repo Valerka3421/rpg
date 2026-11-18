@@ -30,12 +30,112 @@ VILLAGE_GATES = {
     'pine':           (8, 8),
     'birch':          (50, 1),
     'rock':           (93, 8),
-    'autumn':         (1, 30),
-    'swamp':          (98, 30),
+    'autumn':         (1, 35),
+    'swamp':          (98, 35),
     'dark':           (8, 61),
     'meadow':         (50, 68),
     'dead':           (93, 61),
     'goblin_village': (98, 45),
+}
+
+
+def _village_inward(gate):
+    """Клетка сразу внутри деревни, рядом с вратами."""
+    gx, gy = gate
+    cx, cy = ov.VILLAGE_CENTER
+    dx = 0 if gx == cx else (1 if gx < cx else -1)
+    dy = 0 if gy == cy else (1 if gy < cy else -1)
+    return (gx + dx, gy + dy)
+
+
+VILLAGE_INWARD = {k: _village_inward(v) for k, v in VILLAGE_GATES.items()}
+
+
+def _village_gate_side(gate):
+    """Сторона врата деревни: по вектору от центра деревни к врату."""
+    gx, gy = gate
+    cx, cy = ov.VILLAGE_CENTER
+    dx, dy = gx - cx, gy - cy
+    if abs(dx) >= abs(dy):
+        return 'e' if dx > 0 else 'w'
+    return 's' if dy > 0 else 'n'
+
+
+# ── Сетка локаций ──
+# Каждая локация занимает клетку сетки: соседние клетки — смежные края,
+# между ними можно ходить пешком через боковые врата со стрелками.
+GRID_POS = {
+    'pine': (0, 0), 'birch': (1, 0), 'rock': (2, 0),
+    'autumn': (0, 1), 'village': (1, 1), 'swamp': (2, 1),
+    'dark': (0, 2), 'meadow': (1, 2), 'dead': (2, 2), 'graveyard': (3, 2),
+}
+
+# Врата на краях карты локации: сторона → позиция врата.
+SIDE_POS = {
+    'n': (LOCATION_W // 2, 1),
+    's': (LOCATION_W // 2, LOCATION_H - 4),
+    'e': (LOCATION_W - 2, LOCATION_H // 2),
+    'w': (1, LOCATION_H // 2),
+}
+
+# Точка появления в 2 клетках внутрь от врата той же стороны.
+SIDE_ENTRY = {
+    'n': (LOCATION_W // 2, 3),
+    's': (LOCATION_W // 2, LOCATION_H - 6),
+    'e': (LOCATION_W - 4, LOCATION_H // 2),
+    'w': (3, LOCATION_H // 2),
+}
+
+# Врата каждой локации: (позиция, сторона, куда, точка появления).
+BIOME_GATES = {
+    'pine': (
+        (SIDE_POS['e'], 'e', 'birch',   SIDE_ENTRY['w']),
+        ((40, LOCATION_H - 4), 's', 'autumn', SIDE_ENTRY['n']),
+        ((LOCATION_W // 2, LOCATION_H - 4), 's', 'village',
+         VILLAGE_INWARD['pine']),
+    ),
+    'birch': (
+        (SIDE_POS['w'], 'w', 'pine', SIDE_ENTRY['e']),
+        (SIDE_POS['e'], 'e', 'rock', SIDE_ENTRY['w']),
+        (SIDE_POS['s'], 's', 'village', VILLAGE_INWARD['birch']),
+    ),
+    'rock': (
+        (SIDE_POS['w'], 'w', 'birch',  SIDE_ENTRY['e']),
+        ((80, LOCATION_H - 4), 's', 'swamp', SIDE_ENTRY['n']),
+        ((LOCATION_W // 2, LOCATION_H - 4), 's', 'village',
+         VILLAGE_INWARD['rock']),
+    ),
+    'autumn': (
+        (SIDE_POS['n'], 'n', 'pine',    (40, LOCATION_H - 6)),
+        (SIDE_POS['s'], 's', 'dark',    SIDE_ENTRY['n']),
+        (SIDE_POS['e'], 'e', 'village', VILLAGE_INWARD['autumn']),
+    ),
+    'swamp': (
+        (SIDE_POS['n'], 'n', 'rock',    (80, LOCATION_H - 6)),
+        (SIDE_POS['s'], 's', 'dead',    SIDE_ENTRY['n']),
+        (SIDE_POS['w'], 'w', 'village', VILLAGE_INWARD['swamp']),
+    ),
+    'dark': (
+        (SIDE_POS['n'], 'n', 'autumn',  SIDE_ENTRY['s']),
+        (SIDE_POS['e'], 'e', 'meadow',  SIDE_ENTRY['w']),
+        ((LOCATION_W // 2, LOCATION_H - 4), 's', 'village',
+         VILLAGE_INWARD['dark']),
+    ),
+    'meadow': (
+        (SIDE_POS['n'], 'n', 'village', VILLAGE_INWARD['meadow']),
+        (SIDE_POS['w'], 'w', 'dark',    SIDE_ENTRY['e']),
+        (SIDE_POS['e'], 'e', 'dead',    SIDE_ENTRY['w']),
+    ),
+    'dead': (
+        (SIDE_POS['n'], 'n', 'swamp',     SIDE_ENTRY['s']),
+        (SIDE_POS['w'], 'w', 'meadow',    SIDE_ENTRY['e']),
+        (SIDE_POS['e'], 'e', 'graveyard', SIDE_ENTRY['w']),
+        ((LOCATION_W // 2, LOCATION_H - 4), 's', 'village',
+         VILLAGE_INWARD['dead']),
+    ),
+    'graveyard': (
+        (SIDE_POS['w'], 'w', 'dead', SIDE_ENTRY['e']),
+    ),
 }
 
 BIOME_POOLS = {
@@ -47,11 +147,18 @@ BIOME_POOLS = {
     'dark':   ('wolf', 'bear', 'slime'),
     'meadow': ('deer', 'boar', 'rat'),
     'dead':   ('wolf', 'bear', 'rat'),
+    'graveyard': ('skeleton', 'wolf', 'rat'),
 }
 
 BIOME_DENSITY = {
     'pine': 0.46, 'birch': 0.36, 'rock': 0.30, 'autumn': 0.40,
     'swamp': 0.30, 'dark': 0.56, 'meadow': 0.17, 'dead': 0.36,
+    'graveyard': 0.12,
+}
+
+# Кусты по биомам: на кладбище и в скалах их нет/мало.
+BIOME_BUSHES = {
+    'rock': 10, 'graveyard': 0,
 }
 
 LOCATIONS = {
@@ -73,6 +180,10 @@ for _biome, _title in ov.BIOME_TITLES.items():
         'title': _title, 'kind': 'biome', 'biome': _biome,
         'w': LOCATION_W, 'h': LOCATION_H,
     }
+LOCATIONS['graveyard'] = {
+    'title': 'Старое кладбище', 'kind': 'biome', 'biome': 'graveyard',
+    'w': LOCATION_W, 'h': LOCATION_H,
+}
 
 
 def _l_path(a, b):
@@ -93,17 +204,42 @@ VILLAGE_ROADS = set()
 for _gate in VILLAGE_GATES.values():
     VILLAGE_ROADS |= _l_path(ov.VILLAGE_CENTER, _gate)
 
-
-def _village_inward(gate):
-    """Клетка сразу внутри деревни, рядом с вратами."""
-    gx, gy = gate
-    cx, cy = ov.VILLAGE_CENTER
-    dx = 0 if gx == cx else (1 if gx < cx else -1)
-    dy = 0 if gy == cy else (1 if gy < cy else -1)
-    return (gx + dx, gy + dy)
+_ROAD_CELLS_CACHE = {}
 
 
-VILLAGE_INWARD = {k: _village_inward(v) for k, v in VILLAGE_GATES.items()}
+def road_cells(key):
+    """Клетки дорог локации (для визуала и запрета спавна на дороге).
+
+    Дорога — соединение центра локации с каждым вратём. На дорогах не
+    спавнятся предметы, кусты и мобы.
+    """
+    cached = _ROAD_CELLS_CACHE.get(key)
+    if cached is None:
+        if key == 'village':
+            cached = set(VILLAGE_ROADS)
+        elif key == 'mine':
+            cached = _l_path((60, 60), (60, LOCATION_H - 4))
+        elif key == 'goblin_village':
+            cached = _l_path(LOCAL_GOBLIN_CENTER,
+                             (LOCAL_GOBLIN_CENTER[0], LOCATION_H - 4))
+        else:
+            cached = set()
+            center = (LOCATION_W // 2, LOCATION_H // 2)
+            for pos, _side, _to, _entry in BIOME_GATES.get(key, ()):
+                cached |= _l_path(center, pos)
+        _ROAD_CELLS_CACHE[key] = cached
+    return cached
+
+
+# Появление в биоме при выходе из деревни: у его врат на деревню.
+VILLAGE_GATE_ENTRY = {
+    'autumn': SIDE_ENTRY['e'],   # врата autumn→village на востоке
+    'swamp': SIDE_ENTRY['w'],    # врата swamp→village на западе
+    'meadow': SIDE_ENTRY['n'],   # врата meadow→village на севере
+    'goblin_village': (LOCATION_W // 2, LOCATION_H - 8),
+}
+for _k in ('pine', 'birch', 'rock', 'dark', 'dead'):
+    VILLAGE_GATE_ENTRY.setdefault(_k, SIDE_ENTRY['s'])
 
 # Куда игрок попадает, выйдя из деревни в локацию.
 LOCATION_ENTRY = (LOCATION_W // 2, LOCATION_H - 8)
@@ -131,13 +267,14 @@ def ground_kind(key, x, y):
             return 'goblin_grass'
         return 'grass_dark'
     if kind == 'mine':
-        return 'dungeon_ground'
+        return 'mine_ground'
     biome = spec.get('biome', 'pine')
-    if biome == 'rock' and (x - 34) ** 2 + (y - 14) ** 2 <= 64:
-        return 'dungeon_ruins'
-    if x == LOCATION_W // 2 and 35 <= y <= LOCATION_H - 4:
-        return 'road'
-    return f'grass_{biome}'
+    if biome == 'graveyard':
+        # Кладбище покрыто выцветшей травой мёртвого леса.
+        base = 'grass_dead'
+    else:
+        base = f'grass_{biome}'
+    return 'road' if (x, y) in road_cells(key) else base
 
 
 def wall_kind(key, x, y):
@@ -153,8 +290,10 @@ def wall_kind(key, x, y):
             return 'goblin_hut'
         return 'tree_dark'
     if kind == 'mine':
-        return 'wall'
+        return 'mine_wall'
     biome = spec.get('biome', 'pine')
+    if biome == 'graveyard':
+        return 'tombstone'
     return 'rock' if biome == 'rock' else f'tree_{biome}'
 
 
@@ -324,18 +463,19 @@ def _generate_village():
         _clear(d, gate, 2)
     for key, gate in VILLAGE_GATES.items():
         gx, gy = gate
+        side = _village_gate_side(gate)
         d.tiles[gy][gx] = Tile.GATE
-        entry = LOCATION_ENTRY if key != 'goblin_village' else (LOCATION_W // 2,
-                                                               LOCATION_H - 8)
-        d.transitions[(gx, gy)] = {'to': key, 'entry': entry}
+        d.transitions[(gx, gy)] = {'to': key, 'entry': VILLAGE_GATE_ENTRY[key],
+                                   'side': side}
 
     # Доска поручений, старейшина и горожане должны стоять на полу.
     for px, py in (ov.QUEST_BOARD_VILLAGE_POS, ov.ELDER_POS,
                    *ov.CITY_NPC_POS.values()):
         d.tiles[py][px] = Tile.FLOOR
 
-    avoid = (ov.VILLAGE_CENTER, ov.ELDER_POS, ov.QUEST_BOARD_VILLAGE_POS,
-             *ov.CITY_NPC_POS.values())
+    avoid = ({ov.VILLAGE_CENTER, ov.ELDER_POS, ov.QUEST_BOARD_VILLAGE_POS,
+              *ov.CITY_NPC_POS.values()}
+             | road_cells('village'))
     _scatter_items(d, 26, avoid=avoid, pool=('mushroom', 'wood', 'stone'))
     _scatter_bushes(d, 'village', 24, avoid=avoid)
     _spawn_monsters(d, ('deer', 'wolf', 'boar', 'rat', 'slime'), 16,
@@ -352,7 +492,6 @@ def _generate_biome(key):
     _fill_floor(d)
     center = (LOCATION_W // 2, LOCATION_H // 2)
     _clear(d, center, 10)
-    gate_pos = (LOCATION_W // 2, LOCATION_H - 4)
 
     density = BIOME_DENSITY.get(biome, 0.4)
     for _ in range(120):
@@ -367,47 +506,47 @@ def _generate_biome(key):
                     continue
                 if (xx - center[0]) ** 2 + (yy - center[1]) ** 2 < 110:
                     continue
-                if xx == LOCATION_W // 2:
-                    continue
                 if random.random() < density:
                     d.tiles[yy][xx] = Tile.WALL
 
-    # Дорога от врат к центру.
-    _carve(d, gate_pos, center, half=1)
-    _clear(d, (gate_pos[0], gate_pos[1] - 2), 2)
-    d.tiles[gate_pos[1]][gate_pos[0]] = Tile.GATE
-    d.transitions[gate_pos] = {'to': 'village',
-                               'entry': VILLAGE_INWARD[key]}
-
-    avoid = {gate_pos, center}
+    avoid = {center}
+    gates = BIOME_GATES.get(key, ())
+    for pos, side, to, entry in gates:
+        _carve(d, center, pos, half=1)
+        _clear(d, pos, 2)
+        d.tiles[pos[1]][pos[0]] = Tile.GATE
+        d.transitions[pos] = {'to': to, 'entry': entry, 'side': side}
+        avoid.add(pos)
 
     if biome == 'rock':
-        # Вход в подземелье на каменном перевале.
-        dungeon_pos = (34, 14)
-        _clear(d, dungeon_pos, 9)
-        d.tiles[dungeon_pos[1]][dungeon_pos[0]] = Tile.STAIRS
-        d.stairs_pos = dungeon_pos
-        for px, py in ((25, 7), (43, 7), (25, 21), (43, 21)):
-            d.tiles[py][px] = Tile.WALL
-        _carve(d, center, dungeon_pos, half=1)
-        d.tiles[dungeon_pos[1]][dungeon_pos[0]] = Tile.STAIRS
-
-        # Вход в шахту — на склоне горы.
+        # Вход в шахту — на склоне горы (север карты).
         mine_pos = (86, 12)
         _clear(d, mine_pos, 5)
         d.tiles[mine_pos[1]][mine_pos[0]] = Tile.GATE
-        d.transitions[mine_pos] = {'to': 'mine', 'entry': (60, 62)}
+        d.transitions[mine_pos] = {'to': 'mine', 'entry': (60, LOCATION_H - 6),
+                                   'side': 'n'}
         _carve(d, center, mine_pos, half=1)
         d.tiles[mine_pos[1]][mine_pos[0]] = Tile.GATE
-        avoid |= {dungeon_pos, mine_pos}
+        avoid |= {mine_pos}
         _add_ore(d, 40)
 
-    _scatter_items(d, 22, avoid=avoid,
+    if biome == 'graveyard':
+        # Вход в главное подземелье — в центре кладбища.
+        dungeon_pos = (60, 33)
+        _clear(d, dungeon_pos, 4)
+        d.tiles[dungeon_pos[1]][dungeon_pos[0]] = Tile.STAIRS
+        d.stairs_pos = dungeon_pos
+        avoid |= {dungeon_pos}
+
+    roads = road_cells(key)
+    _scatter_items(d, 22, avoid=avoid | roads,
                    pool=('stone', 'ore', 'mushroom') if biome == 'rock'
                    else ('mushroom', 'wood', 'stone'))
-    _scatter_bushes(d, key, 26 if biome != 'rock' else 10, avoid=avoid)
+    bushes = BIOME_BUSHES.get(biome, 26)
+    if bushes:
+        _scatter_bushes(d, key, bushes, avoid=avoid | roads)
     _spawn_monsters(d, BIOME_POOLS.get(biome, ('deer', 'wolf')), 14,
-                    avoid=avoid, min_dist=center)
+                    avoid=avoid | roads, min_dist=center)
     d.rooms = [Room(center[0] - 2, center[1] - 2, 5, 5)]
     return d
 
@@ -466,17 +605,18 @@ def _generate_goblin_village():
     _clear(d, (cx, LOCATION_H - 6), 2)
     d.tiles[gate_pos[1]][gate_pos[0]] = Tile.GATE
     d.transitions[gate_pos] = {
-        'to': 'village', 'entry': VILLAGE_INWARD['goblin_village']}
+        'to': 'village', 'entry': VILLAGE_INWARD['goblin_village'],
+        'side': 's'}
 
-    avoid = {gate_pos, campfire}
+    avoid = ({gate_pos, campfire} | road_cells('goblin_village'))
     _scatter_items(d, 18, avoid=avoid, pool=('mushroom', 'wood', 'stone'))
     _scatter_bushes(d, 'goblin_village', 18, avoid=avoid)
     _spawn_monsters(d, ('goblin', 'archer', 'shaman', 'boar', 'wolf'), 20,
                     avoid=avoid, min_dist=LOCAL_GOBLIN_CENTER)
-    # Гарантируем все три вида гоблинов.
+    # Гарантируем все три вида гоблинов (севернее дороги, в центре площади).
     for i, key in enumerate(('goblin', 'archer', 'shaman')):
         m = MONSTERS[key]
-        pos = (cx - 1 + i, cy)
+        pos = (cx - 1 + i, cy - 2)
         d.tiles[pos[1]][pos[0]] = Tile.FLOOR
         if any(o.x == pos[0] and o.y == pos[1] for o in d.monsters):
             continue
@@ -526,11 +666,13 @@ def _generate_mine():
     _clear(d, (60, 60), 3)
     _carve(d, (60, 60), gate_pos, half=1)
     d.tiles[gate_pos[1]][gate_pos[0]] = Tile.GATE
-    d.transitions[gate_pos] = {'to': 'rock', 'entry': (86, 16)}
+    d.transitions[gate_pos] = {'to': 'rock', 'entry': (86, 14), 'side': 's'}
 
+    roads = road_cells('mine')
     _add_ore(d, 70)
-    _scatter_items(d, 14, avoid={gate_pos}, pool=('stone', 'ore', 'mushroom'))
-    _spawn_monsters(d, ('rat', 'goblin'), 12, avoid={gate_pos})
+    _scatter_items(d, 14, avoid={gate_pos} | roads,
+                   pool=('stone', 'ore', 'mushroom'))
+    _spawn_monsters(d, ('rat', 'goblin'), 12, avoid={gate_pos} | roads)
     d.rooms = rooms
     return d
 

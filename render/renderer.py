@@ -37,6 +37,8 @@ class Renderer:
             self.menu.draw_settings(game); return
         if game.screen_mode == 'menu_controls':
             self.menu.draw_controls(game); return
+        if game.screen_mode == 'menu_credits':
+            self.menu.draw_credits(game); return
         if game.screen_mode == 'menu_multiplayer':
             self.menu.draw_menu_multiplayer(game); return
         if game.screen_mode == 'menu_mp_join':
@@ -46,9 +48,11 @@ class Renderer:
 
         self.screen.fill(T.BG)
         self.game.draw_field(game)
-        if game.screen_mode == 'game':
+        if game.screen_mode in ('game', 'trade'):
             self.game.draw_minimap(game)
             self.game.draw_hud(game)
+            if getattr(game, 'player_popup', None):
+                self.game.draw_player_popup(game)
 
         if game.screen_mode == 'stats':
             self.screens.draw_stats(game)
@@ -58,12 +62,18 @@ class Renderer:
             self.screens.draw_shop(game)
         elif game.screen_mode == 'craft':
             self.screens.draw_craft(game)
+        elif game.screen_mode == 'skills':
+            self.screens.draw_skills(game)
         elif game.screen_mode == 'dialogue':
             self.screens.draw_dialogue(game)
         elif game.screen_mode == 'quests':
             self.screens.draw_quests(game)
         elif game.screen_mode == 'stats_run':
             self.screens.draw_run_stats(game)
+        elif game.screen_mode == 'trade':
+            self.screens.draw_trade(game)
+        elif game.screen_mode == 'dev_console':
+            self.screens.draw_dev_console(game)
 
         if game.dead:
             self.overlay.draw_death(game)

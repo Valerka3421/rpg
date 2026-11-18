@@ -298,13 +298,20 @@ def test_stats_digit_allocates(make_game):
 
 
 def test_craft_digit_creates(make_game):
+    from core.config import CRAFT_PAGE_SIZE
     g = make_game()
     g.player.level = 5
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     g.screen_mode = 'craft'
     idx = next(i for i, c in enumerate(g.craftable_list()) if c[0] == 'bone_sword')
-    g.handle_key(getattr(pygame, f'K_{idx + 1}'))
-    assert g.player.inventory.get('bone_sword') == 1
+    # Крафт листается страницами: переходим на нужную и жмём цифру.
+    g.craft.page = idx // CRAFT_PAGE_SIZE
+    slot = idx % CRAFT_PAGE_SIZE
+    g.handle_key(getattr(pygame, f'K_{slot + 1}'))
+    made = sum(c for k, c in g.player.inventory.items()
+               if k == 'bone_sword' or k.startswith('bone_sword+'))
+    assert made == 1
 
 
 # ════════════════════ 6. Бой и баланс ════════════════════
@@ -413,8 +420,9 @@ def test_mp_elder_dialogue_opens_and_draws(renderer):
     view.handle_key(pygame.K_t)
     assert view.screen_mode == 'dialogue'
     assert view.dialogue.npc_type == 'elder'
-    # квестов в MP нет — остаются «поговорить» и «уйти»
-    assert [opt[0] for opt in view.dialogue.options] == ['talk', 'close']
+    # старейшина в MP тоже открывает свои квесты (журнал общий)
+    assert [opt[0] for opt in view.dialogue.options] == ['talk', 'quests',
+                                                         'close']
     renderer.draw(view)                       # рисуется без ошибок
     assert view._modal_close_rect is not None
 
@@ -426,6 +434,7 @@ def test_mp_elder_dialogue_talks_and_closes(renderer):
     view.handle_key(pygame.K_RETURN)          # «Поговорить о мире»
     assert view.screen_mode == 'dialogue'
     assert view.dialogue.current_line != first
+    view.handle_key(pygame.K_DOWN)            # «Квесты»
     view.handle_key(pygame.K_DOWN)            # «Уйти»
     view.handle_key(pygame.K_RETURN)
     assert view.screen_mode == 'game'
@@ -477,13 +486,12 @@ def test_view_origin_centers_field_above_hud():
             ox, oy = config.view_origin()
             field_w = config.VIEW_W * config.TILE
             field_h = config.VIEW_H * config.TILE
-            # поле не вылезает за экран и за пределы области над HUD
-            assert ox >= 0 and oy >= 0
+            # поле занимает всё место над HUD: рисуем от верха экрана
+            assert oy == 0
             assert ox + field_w <= width
             assert oy + field_h <= height - config.HUD_HEIGHT
-            # остаток пикселей делится на два края, а не уходит в один
+            # горизонтальный остаток делится на два края, а не уходит в один
             assert abs(ox - (width - field_w - ox)) <= 1
-            assert abs(oy - (height - config.HUD_HEIGHT - field_h - oy)) <= 1
     finally:
         config.set_resolution(*original)
 
@@ -755,9 +763,10 @@ def test_unequip_head_and_legs(make_game):
 
 def test_exit_dungeon_spawns_near_entrance(make_game):
     g = make_game()
-    g.travel_to('rock')
+    # Вход в главное подземелье теперь на кладбище, а не на скалах
+    g.travel_to('graveyard')
     ex, ey = g.dungeon.stairs_pos
     g.enter_dungeon()
     g.exit_to_overworld()
-    assert g.location == 'rock'
+    assert g.location == 'graveyard'
     assert max(abs(g.player.x - ex), abs(g.player.y - ey)) <= 3

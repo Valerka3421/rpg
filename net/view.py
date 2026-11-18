@@ -6,8 +6,9 @@ import pygame
 from core import config
 from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE, INVENTORY_PAGE_SIZE
 from core.entities import Player, Entity, Dungeon, Message
+from core.quests import QuestLog
 from core.world import compute_fov
-from core.data import ITEMS, parse_item_key
+from core.data import ITEMS, parse_item_key, QUESTS, item_display_name
 from game.dialogue_controller import DialogueController
 
 # За сколько секунд клиент «догоняет» позицию из снапшота
@@ -52,8 +53,14 @@ class ClientView:
         # Стабы для модалок
         self.menu = None
         self.dialogue = DialogueController(self)
-        self.quests = _QuestStub()
+        self.quest_log = QuestLog()
+        self.quests = _MPQuestController(self)
         self.craft = _CraftStub(self)
+        # Попап другого игрока: {'pid', 'name'} или None
+        self.player_popup = None
+        self._player_popup_hits = []
+        # Активный обмен (снапшот сервера) или None
+        self.trade = None
         # UI
         self._modal_content_rect = (0, 0, 0, 0)
         self._modal_close_rect = None
@@ -207,6 +214,8 @@ class ClientView:
         """Открыть диалог с NPC, стоящим рядом. True — диалог открыт."""
         if self.world_mode == 'overworld' and self._npc_adjacent(self.elder):
             self.dialogue.open('elder')
+            # Разговор со старейшиной открывает его квесты всему отряду
+            self.send_fn({'type': 'quest_talk'})
             return True
         if self.world_mode == 'dungeon' and self._npc_adjacent(self.merchant):
             self.dialogue.open('merchant')
@@ -222,6 +231,13 @@ class ClientView:
     def handle_key(self, key):
         if self.screen_mode == 'dialogue':
             self.dialogue.handle_key(key)
+            return
+        if self.screen_mode == 'trade':
+            if key in (pygame.K_ESCAPE, pygame.K_t):
+                self.send_fn({'type': 'trade_cancel'})
+                self.screen_mode = 'game'
+            elif key in (pygame.K_RETURN, pygame.K_SPACE):
+                self.send_fn({'type': 'trade_ready'})
             return
         if self.screen_mode == 'shop':
             self._handle_shop_key(key)
@@ -239,6 +255,10 @@ class ClientView:
                 self.screen_mode = 'game'
             return
 
+        if self.player_popup:
+            if key in (pygame.K_ESCAPE, pygame.K_t):
+                self.player_popup = None
+                return
         if key == pygame.K_i:
             self.screen_mode = 'inventory'
         elif key == pygame.K_c:
@@ -258,6 +278,13 @@ class ClientView:
             if potions:
                 potions.sort()
                 self.send_fn({'type': 'use_item', 'key': potions[0][1]})
+        elif key == pygame.K_e:
+            # «E» — добыча ресурса под курсором (или смежного)
+            msg = {'type': 'harvest'}
+            target = self._map_tile_under(self.mouse_pos)
+            if target:
+                msg['x'], msg['y'] = target
+            self.send_fn(msg)
         elif key in (pygame.K_t, pygame.K_RETURN):
             # Диалог с NPC в MP: старейшина на поверхности, торговец
             # в подземелье. Дальше — выбор реплик/торговли в диалоге.
@@ -301,6 +328,20 @@ class ClientView:
 
         # Тулбар — только в игровом режиме
         if self.screen_mode == 'game':
+            # Попап другого игрока поверх поля
+            for action, rect in self._player_popup_hits:
+                if self._hit(rect, pos):
+                    if action == 'close':
+                        self.player_popup = None
+                    elif action == 'trade':
+                        pid = self.player_popup.get('pid')
+                        self.player_popup = None
+                        self.send_fn({'type': 'trade_request', 'target': pid})
+                    elif action == 'duel':
+                        pid = self.player_popup.get('pid')
+                        self.player_popup = None
+                        self.send_fn({'type': 'duel_request', 'target': pid})
+                    return True
             for name, rect in self._toolbar_rects():
                 if self._hit(rect, pos):
                     if name == 'inventory':
@@ -312,7 +353,7 @@ class ClientView:
                     elif name == 'quests':
                         self.screen_mode = 'quests'
                     return True
-            return False
+            return self._click_map_player(pos)
 
         # Клики внутри модалок
         if self.screen_mode == 'inventory':
@@ -323,9 +364,89 @@ class ClientView:
             return self._click_craft(pos)
         if self.screen_mode == 'shop':
             return self._click_shop(pos)
+        if self.screen_mode == 'trade':
+            return self._click_trade(pos)
         if self.screen_mode == 'dialogue':
             return self.dialogue.handle_mouse_click(pos)
         return False
+
+    def _click_map_player(self, pos):
+        """Клик по другому игроку на поле — попап «Обмен / Дуэль»."""
+        from core.config import TILE
+        hit = self._map_tile_under(pos)
+        if hit is None:
+            self.player_popup = None
+            return False
+        tx, ty = hit
+        for pid, p in self.remote_players.items():
+            if pid == self.my_id:
+                continue
+            rx = int(getattr(p, 'render_x', p.x))
+            ry = int(getattr(p, 'render_y', p.y))
+            if (rx, ry) == (tx, ty):
+                self.player_popup = {'pid': pid, 'name': p.class_name}
+                return True
+        self.player_popup = None
+        return False
+
+    def _map_tile_under(self, pos):
+        """Клетка карты под курсором или None (вне игрового поля)."""
+        from core.config import TILE
+        ox, oy = config.view_origin()
+        field_w = config.VIEW_W * TILE
+        field_h = config.VIEW_H * TILE
+        mx, my = pos
+        if not (ox <= mx < ox + field_w and oy <= my < oy + field_h):
+            return None
+        p = self.player
+        w_cells = getattr(self.dungeon, 'w', MAP_W)
+        h_cells = getattr(self.dungeon, 'h', MAP_H)
+        cam_x = max(0, min(int(getattr(p, 'render_x', p.x)) - config.VIEW_W // 2,
+                           max(0, w_cells - config.VIEW_W)))
+        cam_y = max(0, min(int(getattr(p, 'render_y', p.y)) - config.VIEW_H // 2,
+                           max(0, h_cells - config.VIEW_H)))
+        return ((mx - ox) // TILE + cam_x, (my - oy) // TILE + cam_y)
+
+    def _click_trade(self, pos):
+        for action, rect in self._ui_hits.get('trade', []):
+            if not self._hit(rect, pos):
+                continue
+            if action == 'ready':
+                self.send_fn({'type': 'trade_ready'})
+            elif action == 'cancel':
+                self.send_fn({'type': 'trade_cancel'})
+                self.screen_mode = 'game'
+            elif action == 'accept':
+                self.send_fn({'type': 'trade_accept'})
+            elif action == 'decline':
+                self.send_fn({'type': 'trade_decline'})
+                self.screen_mode = 'game'
+            elif action == 'gold+10':
+                self.send_fn({'type': 'trade_gold',
+                              'amount': self._my_gold_offer() + 10})
+            elif action == 'gold+100':
+                self.send_fn({'type': 'trade_gold',
+                              'amount': self._my_gold_offer() + 100})
+            elif action == 'gold-10':
+                self.send_fn({'type': 'trade_gold',
+                              'amount': self._my_gold_offer() - 10})
+            elif action == 'gold_reset':
+                self.send_fn({'type': 'trade_gold', 'amount': 0})
+            elif isinstance(action, tuple):
+                kind, key = action
+                if kind == 'add':
+                    self.send_fn({'type': 'trade_offer_add', 'key': key,
+                                  'count': 1})
+                elif kind == 'remove':
+                    self.send_fn({'type': 'trade_offer_remove', 'key': key,
+                                  'count': 1})
+            return True
+        return False
+
+    def _my_gold_offer(self):
+        trade = self.trade or {}
+        gold = trade.get('gold', {})
+        return gold.get(str(self.my_id), 0)
 
     def _hit(self, rect, pos):
         x, y, w, h = rect
@@ -394,8 +515,12 @@ class ClientView:
     def _apply_player_data(self, p, pd):
         p.x, p.y = pd['x'], pd['y']
         p.hp, p.max_hp = pd['hp'], pd['max_hp']
+        p.mana = pd.get('mana', getattr(p, 'mana', 0))
+        p.max_mana = pd.get('max_mana', getattr(p, 'max_mana', 0))
         p.level = pd['level']
         p.class_name = pd['name']
+        p.class_key = pd.get('class', getattr(p, 'class_key', 'warrior'))
+        p.class_tier = pd.get('class_tier', getattr(p, 'class_tier', 1))
         p.gold = pd.get('gold', 0)
         # Сервер присылает инвентарь только при изменении — иначе
         # сохраняем уже известный, а не обнуляем его.
@@ -408,6 +533,9 @@ class ClientView:
         p.atk = pd.get('atk', p.atk)
         p.df = pd.get('df', p.df)
         p.free_points = pd.get('free_points', 0)
+        p.skill_points = pd.get('skill_points', getattr(p, 'skill_points', 0))
+        if 'skills' in pd:
+            p.skills = dict(pd['skills'])
         p.xp = pd.get('xp', 0)
         p.xp_next = pd.get('xp_next', 10)
         p.str = pd.get('str', 5)
@@ -417,15 +545,21 @@ class ClientView:
         p.df_stat = pd.get('df_stat', 5)
         p.weapon = pd.get('weapon')
         p.armor = pd.get('armor')
-        p.head = pd.get('head')
-        p.legs = pd.get('legs')
+        p.head = pd.get('head', pd.get('helmet'))
+        p.legs = pd.get('legs', pd.get('leggings'))
         if 'skills' in pd:
             from core.data import default_skills
+            from core import skills as sk
             p.skills = default_skills()
             for skill, val in (pd.get('skills') or {}).items():
-                if skill in p.skills and isinstance(val, dict):
-                    p.skills[skill]['level'] = max(1, int(val.get('level', 1)))
-                    p.skills[skill]['xp'] = max(0, int(val.get('xp', 0)))
+                skill = sk.canon_skill(skill)
+                if skill in p.skills:
+                    if isinstance(val, dict):
+                        p.skills[skill]['level'] = max(1, int(val.get('level', 1)))
+                        p.skills[skill]['xp'] = max(0, int(val.get('xp', 0)))
+                    else:
+                        p.skills[skill]['level'] = max(1, int(val))
+            p.skill_xp = {k: v['xp'] for k, v in p.skills.items()}
         return p
 
     def update_from_snapshot(self, snap, tiles, my_pid):
@@ -491,6 +625,22 @@ class ClientView:
                               for d in snap.get('items', [])}
         self.shop_stock = snap.get('shop_stock', [])
 
+        # Общие квесты отряда
+        if 'quests' in snap:
+            self.quest_log = QuestLog.from_dict(snap['quests'] or {})
+
+        # Ресурсы (кусты/деревья/руда): обновляем только изменившиеся
+        if 'harvestables' in snap:
+            self.dungeon.harvestables = {
+                (int(k.split(',')[0]), int(k.split(',')[1])):
+                    {'kind': v.get('kind'), 'has': v.get('has', True),
+                     'hp': v.get('hp', 0), 'max_hp': v.get('max_hp', 0)}
+                for k, v in (snap['harvestables'] or {}).items()
+            }
+
+        # Обмен между игроками
+        self._apply_trade(snap.get('trade'))
+
         md = snap.get('merchant')
         if md:
             if self.merchant is None:
@@ -515,6 +665,16 @@ class ClientView:
 
         self.update_fov()
         self._detect_sounds(snap)
+
+    def _apply_trade(self, trade):
+        """Синхронизирует окно обмена с сервером."""
+        self.trade = trade
+        my = str(self.my_id)
+        if trade and my in trade.get('players', []):
+            if self.screen_mode not in ('trade', 'dialogue'):
+                self.screen_mode = 'trade'
+        elif self.screen_mode == 'trade' and not trade:
+            self.screen_mode = 'game'
 
     def _detect_sounds(self, snap):
         """Сравнивает с прошлым snapshot и играет звуки при изменениях."""
@@ -591,24 +751,87 @@ class _ShopStub:
         self.page = max(0, self.page - 1)
 
 
-class _QuestStub:
-    """Пустой экран квестов для MP."""
-    selection = 0
+class _MPQuestController:
+    """Экран квестов в MP: журнал общий (сервер), награды персональные.
 
-    def visible_quests(self):
-        return []
-
-    def button_rects(self):
-        return []
-
-    def handle_key(self, key, scancode=0):
-        pass
-
-    def handle_mouse_click(self, pos):
-        return False
+    Взять/сдать можно только у старейшины — сервер проверяет близость,
+    клиент лишь отправляет запрос.
+    """
+    def __init__(self, view):
+        self.view = view
+        self.selection = 0
 
     def open(self):
-        pass
+        self.selection = 0
+        self.view.screen_mode = 'quests'
+
+    def visible_quests(self):
+        ql = self.view.quest_log
+        result = []
+        for key in QUESTS:
+            if key in ql.turned_in:
+                continue
+            if key in ql.available:
+                state = 'available'
+            elif key in ql.active:
+                state = 'active'
+            elif key in ql.completed:
+                state = 'completed'
+            else:
+                continue
+            result.append((key, state))
+        return result
+
+    def activate(self, idx):
+        items = self.visible_quests()
+        if idx < 0 or idx >= len(items):
+            return
+        key, state = items[idx]
+        q = QUESTS.get(key, {})
+        if state == 'available':
+            self.view.send_fn({'type': 'quest_accept', 'key': key})
+            self.view.log(f"Запрос квеста: {q.get('name', key)}",
+                          (240, 220, 120))
+        elif state == 'completed':
+            self.view.send_fn({'type': 'quest_turn_in', 'key': key})
+        self.selection = min(self.selection, max(0, len(items) - 1))
+
+    def handle_key(self, key, scancode=0):
+        v = self.view
+        if key in (pygame.K_ESCAPE, pygame.K_l):
+            v.screen_mode = 'game'
+            return
+        items = self.visible_quests()
+        n = len(items)
+        if n == 0:
+            return
+        if key in (pygame.K_UP, pygame.K_w):
+            self.selection = (self.selection - 1) % n
+        elif key in (pygame.K_DOWN, pygame.K_s):
+            self.selection = (self.selection + 1) % n
+        elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            self.activate(self.selection)
+
+    def button_rects(self):
+        from core.config import (MODAL_MARGIN_X, MODAL_CONTENT_PAD,
+                                 MODAL_TOP_PAD)
+        panel_x = MODAL_MARGIN_X
+        panel_w = config.SCREEN_W - MODAL_MARGIN_X * 2
+        bw = panel_w - MODAL_CONTENT_PAD * 2
+        bh = 76
+        bx = panel_x + MODAL_CONTENT_PAD
+        by = MODAL_TOP_PAD + 56 + 32 + 24
+        return [(i, (bx, by + i * (bh + 8), bw, bh))
+                for i in range(len(self.visible_quests()))]
+
+    def handle_mouse_click(self, pos):
+        for idx, rect in self.button_rects():
+            x, y, w, h = rect
+            if x <= pos[0] <= x + w and y <= pos[1] <= y + h:
+                self.selection = idx
+                self.activate(idx)
+                return True
+        return False
 
 
 class _CraftStub:

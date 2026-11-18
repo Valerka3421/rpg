@@ -119,6 +119,8 @@ class GameRenderer(BaseRenderer):
             # (игрок, мобы, лут, NPC) всегда остаются ПОВЕРХ текстур мира.
             # 4) Всплывающие цифры — поверх всего
             self._draw_floats(game, cam_x, cam_y)
+            # 5) Подсветка ресурса под курсором
+            self._draw_hover_highlight(game, cam_x, cam_y)
         finally:
             self.screen = previous
             self.icons.screen = previous_icons_screen
@@ -192,6 +194,11 @@ class GameRenderer(BaseRenderer):
                     self._draw_upstairs(px, py, light)
                 elif tile == Tile.GATE:
                     self._draw_gate(game, px, py, mx, my, light)
+                elif tile == Tile.LOCKED_DOOR:
+                    self.screen.blit(Tiles.get('locked_door', 0, light),
+                                     (px, py))
+                elif tile == Tile.CHEST:
+                    self.screen.blit(Tiles.get('chest', 0, light), (px, py))
         if not self._is_overworld:
             self._draw_darkness(game, cam_x, cam_y)
             self._draw_wall_shadows(game, cam_x, cam_y)
@@ -349,10 +356,40 @@ class GameRenderer(BaseRenderer):
         self.screen.blit(Tiles.get('exit', 0, light), (px, py))
 
     def _draw_gate(self, game, px, py, mx, my, light=1.0):
-        """Врата локации. Вход в шахту выглядит как пещера."""
+        """Переход между локациями: стрелка в сторону назначения.
+
+        Вход в шахту остаётся пещерой; обычные врата рисуются стрелкой
+        (n/e/s/w) по стороне перехода.
+        """
         trans = game.dungeon.transitions.get((mx, my), {})
-        kind = 'cave' if trans.get('to') == 'mine' else 'gate'
-        self.screen.blit(Tiles.get(kind, 0, light), (px, py))
+        if trans.get('to') == 'mine':
+            self.screen.blit(Tiles.get('cave', 0, light), (px, py))
+            return
+        side = trans.get('side') or 's'
+        self.screen.blit(Tiles.get(f'arrow_{side}', 0, light), (px, py))
+
+    def _draw_hover_highlight(self, game, cam_x, cam_y):
+        """Рамка вокруг ресурса под курсором: золотая — в пределах шага."""
+        tile_under = getattr(game, 'map_tile_under', None)
+        kind_at = getattr(game, 'harvestable_kind_at', None)
+        if tile_under is None or kind_at is None:
+            return
+        pos = tile_under(getattr(game, 'mouse_pos', (-1, -1)))
+        if not pos:
+            return
+        mx, my = pos
+        if not (cam_x <= mx < cam_x + config.VIEW_W
+                and cam_y <= my < cam_y + config.VIEW_H):
+            return
+        player = getattr(game, 'player', None)
+        if kind_at(mx, my) is None:
+            return
+        reach = (player is not None
+                 and max(abs(mx - player.x), abs(my - player.y)) <= 1)
+        color = (226, 192, 112) if reach else (120, 110, 92)
+        rect = ((mx - cam_x) * TILE + 2, (my - cam_y) * TILE + 2,
+                TILE - 4, TILE - 4)
+        pygame.draw.rect(self.screen, color, rect, 2)
 
     def _draw_harvestables(self, game, cam_x, cam_y):
         """Кусты ягод: с ягодами или пустые, если ягоды уже собрали."""
@@ -558,8 +595,45 @@ class GameRenderer(BaseRenderer):
             img = Tiles.get('quest_board')
         self.screen.blit(img, (px, py))
     # ════════════════════════ HUD ════════════════════════
+    def draw_player_popup(self, game):
+        """Попап над другим игроком: «Обмен» / «Вызов на дуэль»."""
+        popup = getattr(game, 'player_popup', None)
+        hits = []
+        if popup:
+            w, h = 250, 128
+            x = (config.SCREEN_W - w) // 2
+            y = max(8, config.VIEW_H * TILE // 2 - h // 2)
+            panel = pygame.Surface((w, h), pygame.SRCALPHA)
+            panel.fill((24, 20, 16, 235))
+            pygame.draw.rect(panel, (206, 166, 82), (0, 0, w, h), 2,
+                             border_radius=8)
+            self.screen.blit(panel, (x, y))
+
+            title = T.render(f"{popup.get('name', 'Игрок')}",
+                             (240, 210, 120), T.FONT_BODY)
+            self.screen.blit(title, (x + (w - title.get_width()) // 2, y + 10))
+
+            bw, bh = w - 40, 28
+            bx, by = x + 20, y + 42
+            for action, label, color in (
+                    ('trade', 'Обмен', (240, 200, 100)),
+                    ('duel', 'Вызов на дуэль', (230, 120, 90)),
+                    ('close', 'Закрыть', (150, 150, 160))):
+                rect = (bx, by, bw, bh)
+                mx, my = game.mouse_pos
+                hover = bx <= mx <= bx + bw and by <= my <= by + bh
+                bg = (66, 54, 38) if hover else (40, 34, 26)
+                pygame.draw.rect(self.screen, bg, rect, border_radius=6)
+                pygame.draw.rect(self.screen, color, rect, 1, border_radius=6)
+                surf = T.render(label, color, T.FONT_SMALL)
+                self.screen.blit(surf, (bx + (bw - surf.get_width()) // 2,
+                                        by + (bh - surf.get_height()) // 2))
+                hits.append((action, rect))
+                by += bh + 6
+        game._player_popup_hits = hits
+
     def draw_hud(self, game):
-        y0 = config.SCREEN_H - config.HUD_HEIGHT
+        y0 = config.SCREEN_H - config.hud_height()
         pygame.draw.rect(self.screen, T.BG_HUD, (0, y0, config.SCREEN_W, config.SCREEN_H - y0))
         pygame.draw.line(self.screen, T.PANEL_BORDER_DARK, (0, y0), (config.SCREEN_W, y0), 1)
 
@@ -584,19 +658,21 @@ class GameRenderer(BaseRenderer):
                                 bar_rect[1] + 4))
         self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
 
-        # Мана: ресурс свитков и рун.
-        max_mana = max(1, getattr(p, 'max_mana', 1))
+        # Мана — ресурс свитков и рун.
+        max_mana = max(1, getattr(p, 'max_mana', 0))
         mana = getattr(p, 'mana', 0)
-        self.text("MP", x, y + 30, (150, 180, 250), font=T.FONT_SMALL)
-        mana_rect = (x + 30, y + 26, 180, 16)
-        T.bar(self.screen, mana_rect, mana / max_mana, (96, 140, 236),
-              bg_color=(22, 26, 48))
+        self.text("MP", x, y + 30, (120, 160, 255), font=T.FONT_SMALL)
+        mana_rect = (x + 30, y + 27, 180, 12)
+        T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
+              bg_color=(20, 24, 48))
         msurf = T.render(f"{mana}/{max_mana}", (235, 242, 255), T.FONT_TINY)
         self.screen.blit(msurf, (mana_rect[0] + (mana_rect[2] - msurf.get_width()) // 2,
-                                 mana_rect[1] + 2))
+                                 mana_rect[1] + 1))
+        self.text(getattr(p, 'class_name', 'Приключенец'), x + 218, y + 26,
+                  T.TEXT_DIM, font=T.FONT_SMALL)
 
-        self.text(f"Ур.{p.level}", x, y + 50, T.TEXT, font=T.FONT_BODY)
-        xp_rect = (x + 70, y + 54, 160, 10)
+        self.text(f"Ур.{p.level}", x, y + 48, T.TEXT, font=T.FONT_BODY)
+        xp_rect = (x + 70, y + 52, 160, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
         self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 50, T.XP, font=T.FONT_SMALL)
@@ -604,13 +680,23 @@ class GameRenderer(BaseRenderer):
         self.text(f"DEF {p.df}", x + 100, y + 76, T.TEXT, font=T.FONT_BODY)
         if game.world_mode == 'overworld':
             fn = getattr(game, 'location_title', None)
-            loc = fn() if fn else ov.location_title(game.player.x,
-                                                    game.player.y)
+            if fn:
+                loc = fn()
+            elif getattr(game, 'location', None) == 'mine':
+                loc = "Шахта"
+            else:
+                loc = ov.location_title(game.player.x, game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(loc, x + 200, y + 76, T.TEXT_DIM, font=T.FONT_SMALL)
+        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
+        badge_y = y + 86
         if p.free_points > 0:
-            T.badge(self.screen, x, y + 104, f"● {p.free_points} очков (C)",
+            T.badge(self.screen, x, badge_y, f"● {p.free_points} очков (C)",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+            badge_y += 24
+        if getattr(p, 'skill_points', 0) > 0:
+            T.badge(self.screen, x, badge_y,
+                    f"● {p.skill_points} навыков (N)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
                   x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
@@ -635,6 +721,7 @@ class GameRenderer(BaseRenderer):
             'inventory': 'Инв',
             'craft': 'Крафт',
             'stats': 'Статы',
+            'skills': 'Навыки',
             'quests': 'Квесты',
         }
         mx, my = game.mouse_pos

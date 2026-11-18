@@ -92,7 +92,7 @@ def _flood_fill_reachable(d, start):
                 continue
             if (nx, ny) in seen:
                 continue
-            if d.tiles[ny][nx] == Tile.WALL:
+            if d.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR):
                 continue
             seen.add((nx, ny))
             q.append((nx, ny))
@@ -328,6 +328,107 @@ def place_entry_tile(d, depth):
     return None
 
 
+# ════════════════════════ БОСС-КОМПЛЕКС ════════════════════════
+def _carve_treasury(d, rooms, arena, cx_max, cy_max):
+    """Казначейская комната 5×5: свободное место рядом с ареной босса.
+
+    Возвращает Room казны. Место ищется в центральной зоне подземелья
+    (вне всех комнат), ближайшее к арене — тогда коридор короткий.
+    """
+    candidates = []
+    for y in range(2, cy_max - 6):
+        for x in range(2, cx_max - 6):
+            treasury = Room(x, y, 5, 5)
+            if treasury.intersects(arena, pad=2):
+                continue
+            if any(treasury.intersects(r, pad=2) for r in rooms):
+                continue
+            ax, ay = arena.center()
+            tx, ty = treasury.center()
+            candidates.append(((ax - tx) ** 2 + (ay - ty) ** 2, treasury))
+    if not candidates:
+        # Фолбэк: казна прямо под ареной, даже если что-то пересечётся.
+        treasury = Room(arena.x, min(d.h - 6, arena.y + arena.h + 2), 5, 5)
+        candidates.append((0, treasury))
+    candidates.sort(key=lambda pair: pair[0])
+    treasury = candidates[0][1]
+    for yy in range(treasury.y, treasury.y + treasury.h):
+        for xx in range(treasury.x, treasury.x + treasury.w):
+            d.tiles[yy][xx] = Tile.FLOOR
+    return treasury
+
+
+def _wall_arena_exits(d, arena, treasury):
+    """Замуровать все выходы из арены (Tile.WALL) и запомнить их."""
+    for y in range(max(0, arena.y - 1), min(d.h, arena.y + arena.h + 1)):
+        for x in range(max(0, arena.x - 1), min(d.w, arena.x + arena.w + 1)):
+            inside = (arena.x <= x < arena.x + arena.w
+                      and arena.y <= y < arena.y + arena.h)
+            if inside or (x, y) in d.barrier_tiles:
+                continue
+            if d.tiles[y][x] != Tile.WALL:
+                d.tiles[y][x] = Tile.WALL
+                d.barrier_tiles.add((x, y))
+
+
+def _carve_treasury_corridor(d, arena, treasury):
+    """Коридор арена→казна шириной 2 + дверь перед входом в казну.
+
+    Дверь (Tile.LOCKED_DOOR) ставится на клетки коридора, примыкающие к
+    казне снаружи. Возвращает координаты двери.
+    """
+    ax, ay = arena.center()
+    tx, ty = treasury.center()
+    door_cells = []
+    # Горизонтальный участок коридора от арены до казны
+    for xx in range(min(ax, tx), max(ax, tx) + 1):
+        if 0 <= xx < d.w:
+            d.tiles[ay][xx] = Tile.FLOOR
+            if ay + 1 < d.h:
+                d.tiles[ay + 1][xx] = Tile.FLOOR
+    # Вертикальный участок
+    for yy in range(min(ay, ty), max(ay, ty) + 1):
+        if 0 <= yy < d.h:
+            d.tiles[yy][tx] = Tile.FLOOR
+            if tx + 1 < d.w:
+                d.tiles[yy][tx + 1] = Tile.FLOOR
+
+    # Дверь: клетки снаружи казны, через которые в неё входят
+    for y in range(treasury.y - 1, treasury.y + treasury.h + 1):
+        for x in range(treasury.x - 1, treasury.x + treasury.w + 1):
+            inside = (treasury.x <= x < treasury.x + treasury.w
+                      and treasury.y <= y < treasury.y + treasury.h)
+            if inside or not (0 <= x < d.w and 0 <= y < d.h):
+                continue
+            if d.tiles[y][x] == Tile.WALL:
+                continue
+            touches = any(
+                treasury.x <= x + dx < treasury.x + treasury.w
+                and treasury.y <= y + dy < treasury.y + treasury.h
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            if touches:
+                d.tiles[y][x] = Tile.LOCKED_DOOR
+                door_cells.append((x, y))
+    return door_cells
+
+
+def clear_boss_barriers(d):
+    """После победы над боссом: открыть замурованные выходы арены.
+
+    Возвращает True, если тайлы изменились (для перерисовки карты).
+    """
+    barrier = getattr(d, 'barrier_tiles', None)
+    if not barrier:
+        return False
+    changed = False
+    for (x, y) in list(barrier):
+        if 0 <= x < d.w and 0 <= y < d.h and d.tiles[y][x] == Tile.WALL:
+            d.tiles[y][x] = Tile.FLOOR
+            changed = True
+    d.barrier_tiles = set()
+    return changed
+
+
 def generate_dungeon(depth, _attempt=0):
     """Комнаты в центральной зоне 60×40, подключение к ближайшей."""
     d = Dungeon(MAP_W, MAP_H)
@@ -387,9 +488,22 @@ def generate_dungeon(depth, _attempt=0):
         return generate_dungeon(depth, _attempt + 1)
 
     d.rooms = rooms
-    sx, sy = rooms[-1].center()
-    d.tiles[sy][sx] = Tile.STAIRS
-    d.stairs_pos = (sx, sy)
+    arena = rooms[-1]
+
+    # ── Босс-комплекс ──
+    # Арена = последняя комната: входы замуровываются, пока босс жив.
+    # Казна (сундук + лестница вниз) стоит рядом и отпирается ключом,
+    # который босс роняет со 100% шансом.
+    treasury = _carve_treasury(d, rooms, arena, cx_max, cy_max)
+    _wall_arena_exits(d, arena, treasury)
+    door_cells = _carve_treasury_corridor(d, arena, treasury)
+
+    ax, ay = arena.center()
+    tx, ty = treasury.center()
+    d.tiles[ty][tx] = Tile.STAIRS
+    d.stairs_pos = (tx, ty)
+    d.treasury_pos = (tx, ty)
+    d.boss_door_cells = set(door_cells)
     # Лестница назад: на глубине 1 — выход на поверхность, глубже — вверх.
     place_entry_tile(d, depth)
 
@@ -408,7 +522,7 @@ def generate_dungeon(depth, _attempt=0):
             hp, atk, df = scale_stats(m['hp'], m['atk'], m['df'], depth)
             mx = random.randint(room.x, room.x + room.w - 1)
             my = random.randint(room.y, room.y + room.h - 1)
-            if (mx, my) == (sx, sy):
+            if (mx, my) == (ax, ay) or (mx, my) == (tx, ty):
                 continue
             if any(o.x == mx and o.y == my for o in d.monsters):
                 continue
@@ -417,11 +531,11 @@ def generate_dungeon(depth, _attempt=0):
                        ability=m.get('ability'))       # ← ability
             d.monsters.append(e)
 
-    # Босс
+    # Босс — в центре арены
     if boss_here:
         hp, atk, df = scale_boss_stats(boss_data['hp'], boss_data['atk'],
                                        boss_data['df'], depth)
-        d.monsters.append(Entity(sx, sy, hp, hp, atk, df,
+        d.monsters.append(Entity(ax, ay, hp, hp, atk, df,
                                  boss_data['name'], boss_data['ch'],
                                  boss_data['color'], boss_data['xp'], boss=True))
 
@@ -436,9 +550,18 @@ def generate_dungeon(depth, _attempt=0):
                     and v['type'] != 'resource']
             ix = random.randint(room.x, room.x + room.w - 1)
             iy = random.randint(room.y, room.y + room.h - 1)
-            if (ix, iy) == (sx, sy):
+            if (ix, iy) in ((ax, ay), (tx, ty)):
                 continue
             d.items[(ix, iy)] = random.choice(pool)
+
+    # Казна: сундук рядом с лестницей вниз
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        cx, cy = tx + dx, ty + dy
+        if (0 <= cx < d.w and 0 <= cy < d.h
+                and d.tiles[cy][cx] == Tile.FLOOR
+                and (cx, cy) not in d.items):
+            d.tiles[cy][cx] = Tile.CHEST
+            break
 
     return d
 
@@ -503,7 +626,7 @@ def bfs_toward_player(d, start, player_pos, blocked):
                 continue
             if (nx, ny) in came:
                 continue
-            if d.tiles[ny][nx] == Tile.WALL:
+            if d.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR):
                 continue
             if (nx, ny) in blocked:
                 continue

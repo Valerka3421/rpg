@@ -319,7 +319,7 @@ def test_mountain_has_mine_and_mine_has_ore(make_game):
     assert len(ore) >= 20
 
 
-def test_ore_is_harvested_by_attack(make_game):
+def test_ore_is_harvested_by_e_key(make_game):
     g = make_game()
     g.travel_to('mine')
     dungeon = g.dungeon
@@ -339,12 +339,13 @@ def test_ore_is_harvested_by_attack(make_game):
     px, py, ox, oy = spot
     g.player.x, g.player.y = px, py
     g.player.atk = 10
-    g.player_attack()
+    # Возобновляемые ресурсы добываются только клавишей «E»
+    g.harvest_adjacent()
     assert g.player.inventory.get('ore', 0) >= 2
     assert not dungeon.harvestables[(ox, oy)]['has']
 
 
-def test_tree_is_harvested_by_attack(make_game):
+def test_tree_is_harvested_by_e_key(make_game):
     g = make_game()
     g.travel_to('pine')
     dungeon = g.dungeon
@@ -368,9 +369,9 @@ def test_tree_is_harvested_by_attack(make_game):
     px, py, tx, ty = spot
     g.player.x, g.player.y = px, py
     g.player.atk = 10
-    g.player_attack()
+    g.harvest_adjacent()
     assert g.player.inventory.get('wood', 0) >= 2
-    # Удар мог выбрать любое соседнее дерево — проверяем, что срублено
+    # «E» могло выбрать любое соседнее дерево — проверяем, что срублено
     # именно дерево по соседству.
     felled = [rec for pos, rec in dungeon.harvestables.items()
               if rec['kind'] == 'tree' and rec['has'] is False
@@ -437,3 +438,539 @@ def test_resolution_change_exits_fullscreen(make_game, monkeypatch):
     g.menu.adjust_setting(1)
     assert g.settings['fullscreen'] is False
     assert g.pending_resolution is not None
+
+
+# ── Счётчик предметов и кнопка «Назад» ──
+def test_inventory_count_badge_is_top_right(renderer):
+    rect = renderer.screens._draw_count_badge(100, 60, 120, 100, 5)
+    bx, by, bw, bh = rect
+    # Бейдж «×N» — в правом верхнем углу ячейки
+    assert (bx, by) == (100 + 120 - bw - 3, 63)
+    # Бейдж не вылезает за ячейку.
+    assert bx + bw <= 100 + 120
+    assert by + bh <= 60 + 100
+
+
+def test_back_button_exists_in_every_submenu(make_game):
+    g = make_game()
+    for mode in ('menu_saves', 'menu_settings', 'menu_controls',
+                 'menu_credits', 'class_select', 'menu_multiplayer',
+                 'menu_mp_join'):
+        g.screen_mode = mode
+        assert g.menu.back_button_rect() is not None, mode
+    # У главного меню родителя нет — кнопка «Назад» не нужна.
+    g.screen_mode = 'menu'
+    assert g.menu.back_button_rect() is None
+
+
+def test_back_button_returns_from_submenus(make_game, monkeypatch):
+    import core.settings as settings_mod
+    monkeypatch.setattr(settings_mod, 'save_settings', lambda *a, **k: None)
+    g = make_game()
+
+    def click_back(mode):
+        g.screen_mode = mode
+        rect = g.menu.back_button_rect()
+        assert rect
+        return g.menu.handle_mouse_click(rect[:2])
+
+    assert click_back('menu_saves') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_settings') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_controls') is True
+    assert g.screen_mode == 'menu_settings'
+
+    assert click_back('menu_multiplayer') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('menu_mp_join') is True
+    assert g.screen_mode == 'menu_multiplayer'
+
+    assert click_back('menu_credits') is True
+    assert g.screen_mode == 'menu'
+
+    assert click_back('class_select') is True
+    assert g.screen_mode == 'menu'
+    assert g.current_slot == 1
+
+
+def test_submenus_render_back_button_without_errors(make_game, renderer):
+    g = make_game()
+    for mode in ('menu_saves', 'menu_settings', 'menu_controls',
+                 'menu_credits', 'class_select', 'menu_multiplayer',
+                 'menu_mp_join'):
+        g.screen_mode = mode
+        renderer.draw(g)
+
+
+def test_credits_tab_in_main_menu(make_game, renderer):
+    import pygame
+    g = make_game()
+    g.screen_mode = 'menu'
+    labels = g.menu.labels()
+    assert 'Создатели' in labels
+
+    idx = labels.index('Создатели')
+    g.screen_mode = 'menu'
+    g.menu.selection = idx
+    g.menu.activate()
+    assert g.screen_mode == 'menu_credits'
+
+    renderer.draw(g)
+    # Enter/Space/Esc возвращают в главное меню
+    g.menu.handle_key(pygame.K_ESCAPE)
+    assert g.screen_mode == 'menu'
+    g.screen_mode = 'menu_credits'
+    g.menu.handle_key(pygame.K_RETURN)
+    assert g.screen_mode == 'menu'
+
+
+# ── Полноэкранный режим мультиплеера не должен ронять игру ──
+def test_display_falls_back_to_window_on_error(monkeypatch):
+    import pygame
+    import core.display as display_mod
+    import core.settings as settings_mod
+
+    class FakeSurface:
+        def get_size(self):
+            return (100, 100)
+
+        def get_flags(self):
+            return 0
+
+    def fake_get_surface():
+        return FakeSurface()
+
+    def fake_set_mode(size, flags=0):
+        # Полный экран ломается и в видеорежиме, и в borderless-окне
+        if flags & (pygame.FULLSCREEN | pygame.NOFRAME):
+            raise pygame.error("ChangeDisplaySettingsEx() failed")
+        return FakeSurface()
+
+    monkeypatch.setattr(display_mod.pygame.display, 'get_surface',
+                        fake_get_surface)
+    monkeypatch.setattr(display_mod.pygame.display, 'set_mode', fake_set_mode)
+    saved = []
+    monkeypatch.setattr(settings_mod, 'save_settings',
+                        lambda s: saved.append(dict(s)))
+
+    settings = {'fullscreen': True}
+    surf = display_mod.set_mode((800, 600), True, settings)
+    assert surf is not None
+    # Настройки честно поправлены: следующий запуск не повторит ошибку.
+    assert settings['fullscreen'] is False
+    assert saved and saved[-1]['fullscreen'] is False
+
+
+def test_display_reuses_matching_surface(monkeypatch):
+    import pygame
+    import core.display as display_mod
+
+    class FakeSurface:
+        def get_size(self):
+            return (800, 600)
+
+        def get_flags(self):
+            return pygame.FULLSCREEN
+
+    def fail(*args, **kwargs):
+        raise AssertionError("set_mode не должен вызываться лишний раз")
+
+    monkeypatch.setattr(display_mod.pygame.display, 'get_surface',
+                        lambda: FakeSurface())
+    monkeypatch.setattr(display_mod.pygame.display, 'set_mode', fail)
+    assert display_mod.set_mode((800, 600), True) is not None
+
+
+# ════════════════════ Босс-комплекс: арена, казна, дверь ════════════════════
+def test_boss_complex_has_locked_treasury():
+    from core.world import generate_dungeon
+    d = generate_dungeon(3)
+    locked = sum(1 for row in d.tiles for t in row if t == Tile.LOCKED_DOOR)
+    chests = sum(1 for row in d.tiles for t in row if t == Tile.CHEST)
+    assert locked == 2 and chests == 1
+    assert d.barrier_tiles and d.boss_door_cells and d.treasury_pos
+    # Сундук в казне рядом с лестницей вниз (казна ведёт глубже)
+    tx, ty = d.treasury_pos
+    assert d.tiles[ty][tx] == Tile.STAIRS
+    radius = 2
+    chest_near = any(
+        d.tiles[ty + dy][tx + dx] == Tile.CHEST
+        for dy in range(-radius, radius + 1)
+        for dx in range(-radius, radius + 1)
+        if 0 <= tx + dx < d.w and 0 <= ty + dy < d.h)
+    assert chest_near
+    # Босс ждёт в центре арены на максимальной глубине
+    deep = generate_dungeon(5)
+    assert any(m.boss for m in deep.monsters)
+
+
+def test_boss_key_drops_always_and_unlocks_door(make_game):
+    g = make_game()
+    g.enter_dungeon()
+    g.depth = 3
+    monster = SimpleNamespace(ch='X', boss=True, name='Босс', xp_value=10)
+    reward = rules.roll_kill_reward(monster, 3)
+    assert 'boss_key' in reward.drops
+    # Дверь заперта без ключа и открывается с ним
+    for (x, y) in g.dungeon.boss_door_cells:
+        if g.dungeon.tiles[y][x] != Tile.LOCKED_DOOR:
+            continue
+        assert g.move_player(x - g.player.x, y - g.player.y) is False
+        g.player.inventory['boss_key'] = 1
+        assert g.move_player(x - g.player.x, y - g.player.y) is True
+        assert g.dungeon.tiles[y][x] == Tile.FLOOR
+        break
+    else:
+        assert False, 'не нашли запертую дверь'
+
+
+def test_boss_barriers_open_after_kill():
+    from core.world import generate_dungeon, clear_boss_barriers
+    d = generate_dungeon(3)
+    assert clear_boss_barriers(d) is True
+    assert not d.barrier_tiles
+    assert clear_boss_barriers(d) is False
+
+
+# ════════════════════ Кладбище и сетка локаций ════════════════════
+def test_graveyard_location_and_walkable_grid(make_game):
+    g = make_game()
+    dead = g.get_location('dead')
+    gates = {t['to']: t for t in dead.transitions.values()}
+    assert 'graveyard' in gates
+    gy = g.get_location('graveyard')
+    assert gy.stairs_pos is not None
+    # У каждой локации все переходы имеют сторону появления
+    for key in ('pine', 'dead', 'graveyard', 'village'):
+        loc = g.get_location(key)
+        for tr in loc.transitions.values():
+            assert tr.get('side') in ('n', 'e', 's', 'w'), (key, tr)
+
+
+def test_gate_side_spawn_matches_side(make_game):
+    g = make_game()
+    # Нижний переход в деревню → появление в биоме у его «северных» врат
+    g.travel_to('pine')
+    entry = g.dungeon.transitions[(60, 66)]['entry']
+    # врата деревни pine (8,8): сторона w → появление у восточных врат pine
+    assert entry in (locations.SIDE_ENTRY['e'], locations.VILLAGE_INWARD['pine'])
+
+
+def test_side_gate_walk_between_adjacent_locations(make_game):
+    g = make_game()
+    g.travel_to('pine')
+    gate = locations.BIOME_GATES['pine'][0][0]      # восточные врата → birch
+    assert g.dungeon.transitions[gate]['to'] == 'birch'
+    g.player.x, g.player.y = gate[0] - 1, gate[1]
+    g.move_player(1, 0)                      # шаг на врата = переход
+    assert g.location == 'birch'
+    # Вошли с запада — появились у западного края
+    assert g.player.x <= 4 and g.player.y == locations.SIDE_ENTRY['w'][1]
+
+
+def test_roads_have_no_items_harvestables_or_monsters(make_game):
+    g = make_game()
+    for key in ('pine', 'birch', 'dead', 'mine', 'village',
+                'goblin_village'):
+        loc = g.get_location(key)
+        roads = locations.road_cells(key)
+        assert not (set(loc.items) & roads), key
+        assert not (set(loc.harvestables) & roads), key
+        assert all((m.x, m.y) not in roads for m in loc.monsters), key
+
+
+def test_every_gate_spawns_next_to_its_return_gate(make_game):
+    """Из любых врат выходишь рядом с вратами назад, а не на другом краю."""
+    g = make_game()
+
+    def dist_to_return(start_key):
+        back = [p for p, tr in g.dungeon.transitions.items()
+                if tr.get('to') == start_key]
+        assert back, f'нет обратных врат в {start_key}'
+        return min(max(abs(p[0] - g.player.x), abs(p[1] - g.player.y))
+                   for p in back)
+
+    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'dark',
+                'meadow', 'dead', 'graveyard'):
+        for pos, _side, to, _entry in locations.BIOME_GATES.get(key, ()):
+            g.travel_to(key)
+            entry = g.dungeon.transitions[pos]['entry']
+            assert g.travel_to(to, entry)
+            dist = dist_to_return(key)
+            assert dist <= 5, (key, to, pos, entry,
+                               (g.player.x, g.player.y), dist)
+
+    for key, gate in locations.VILLAGE_GATES.items():
+        g.travel_to('village')
+        entry = g.dungeon.transitions[gate]['entry']
+        assert g.travel_to(key, entry)
+        dist = dist_to_return('village')
+        assert dist <= 5, (key, (g.player.x, g.player.y), dist)
+
+    # Вход в шахту с горы и обратно.
+    g.travel_to('rock')
+    mine_gate = next(p for p, tr in g.dungeon.transitions.items()
+                     if tr['to'] == 'mine')
+    assert g.travel_to('mine', g.dungeon.transitions[mine_gate]['entry'])
+    assert dist_to_return('rock') <= 5
+
+    # Деревня гоблинов: туда и обратно.
+    g.travel_to('village')
+    goblin_gate = locations.VILLAGE_GATES['goblin_village']
+    entry = g.dungeon.transitions[goblin_gate]['entry']
+    assert g.travel_to('goblin_village', entry)
+    assert dist_to_return('village') <= 5
+    back_gate = next(p for p, tr in g.dungeon.transitions.items()
+                     if tr['to'] == 'village')
+    assert g.travel_to('village', g.dungeon.transitions[back_gate]['entry'])
+
+    # Кладбище → подземелье → обратно к тем же ступеням.
+    g.travel_to('graveyard')
+    sx, sy = g.dungeon.stairs_pos
+    g.player.x, g.player.y = sx, sy - 1
+    g.move_player(0, 1)
+    assert g.world_mode == 'dungeon'
+    g.exit_to_overworld()
+    assert g.location == 'graveyard'
+    assert g.world_mode == 'overworld'
+    assert max(abs(g.player.x - sx), abs(g.player.y - sy)) <= 1
+
+
+def _tile_screen_pos(g, tx, ty):
+    from core import config
+    from core.config import TILE
+    ox, oy = config.view_origin()
+    w = getattr(g.dungeon, 'w', 140)
+    h = getattr(g.dungeon, 'h', 70)
+    cam_x = max(0, min(g.player.x - config.VIEW_W // 2,
+                       max(0, w - config.VIEW_W)))
+    cam_y = max(0, min(g.player.y - config.VIEW_H // 2,
+                       max(0, h - config.VIEW_H)))
+    return (ox + (tx - cam_x) * TILE + TILE // 2,
+            oy + (ty - cam_y) * TILE + TILE // 2)
+
+
+def test_harvest_prefers_resource_under_cursor(make_game):
+    g = make_game()
+    px, py = g.player.x, g.player.y
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            g.dungeon.tiles[py + dy][px + dx] = Tile.FLOOR
+            g.dungeon.harvestables.pop((px + dx, py + dy), None)
+    left = (px - 1, py)
+    right = (px + 1, py)
+    g.dungeon.harvestables[left] = harvest.make_harvestable('bush')
+    g.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+
+    g.mouse_pos = _tile_screen_pos(g, *right)
+    assert g.map_tile_under(g.mouse_pos) == right
+    assert g.harvest_adjacent() is True
+    assert not g.dungeon.harvestables[right]['has']
+    assert g.dungeon.harvestables[left]['has']
+
+    # Курсор далеко от игрока — добывается ближайший соседний ресурс.
+    g.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+    g.mouse_pos = _tile_screen_pos(g, px + 6, py)
+    assert g.map_tile_under(g.mouse_pos) == (px + 6, py)
+    assert g.harvest_adjacent() is True
+    assert sum(1 for pos in (left, right)
+               if not g.dungeon.harvestables[pos]['has']) == 1
+
+
+def test_new_visual_tiles_registered():
+    from render import tiles
+    for kind in ('arrow_n', 'arrow_e', 'arrow_s', 'arrow_w',
+                 'mine_wall', 'mine_ground', 'locked_door', 'chest',
+                 'tombstone'):
+        assert kind in tiles._BUILDERS, kind
+        assert tiles._VARIANTS.get(kind, 0) >= 1, kind
+
+
+# ════════════════════ MP: обмен и общие квесты ════════════════════
+def _mp_core(players=2):
+    from net.core import GameCore
+    core = GameCore(seed=42)
+    for pid in range(players):
+        core.add_player(pid, 'warrior' if pid == 0 else 'rogue')
+    return core
+
+
+def test_mp_harvest_prefers_requested_tile():
+    core = _mp_core(1)
+    p = core.players[0]
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            core.dungeon.tiles[p.y + dy][p.x + dx] = Tile.FLOOR
+            core.dungeon.harvestables.pop((p.x + dx, p.y + dy), None)
+    left = (p.x - 1, p.y)
+    right = (p.x + 1, p.y)
+    core.dungeon.harvestables[left] = harvest.make_harvestable('bush')
+    core.dungeon.harvestables[right] = harvest.make_harvestable('bush')
+    core.apply_input(0, {'type': 'harvest',
+                         'x': right[0], 'y': right[1]})
+    assert not core.dungeon.harvestables[right]['has']
+    assert core.dungeon.harvestables[left]['has']
+
+
+def test_trade_executes_offers_and_gold():
+    core = _mp_core()
+    a, b = core.players[0], core.players[1]
+    a.x = b.x + 1            # встать рядом
+    a.inventory['potion_s'] = 2
+    b.inventory['wood'] = 3
+    b.gold = 50
+    core.trade_request(0, 1)
+    core.trade_accept(1)
+    core.trade_offer_add(0, 'potion_s', 2)
+    core.trade_offer_add(1, 'wood', 2)
+    core.trade_gold(1, 40)
+    core.trade_ready(0)
+    core.trade_ready(1)
+    assert core.trade is None
+    assert a.inventory['wood'] == 2 and 'potion_s' not in a.inventory
+    assert b.inventory['potion_s'] == 2 and b.inventory['wood'] == 1
+    assert b.gold == 10 and a.gold >= 40
+
+
+def test_trade_snapshot_serializes_pids():
+    core = _mp_core()
+    a, b = core.players[0], core.players[1]
+    a.x = b.x + 1
+    core.trade_request(0, 1)
+    snap = core.get_snapshot()
+    assert snap['trade']['players'] == ['0', '1']
+
+
+def test_duel_request_only_logs():
+    core = _mp_core()
+    core.duel_request(0, 1)
+    snap = core.get_snapshot()
+    texts = [e['text'] for e in snap['events']]
+    assert any('дуэль' in t for t in texts)
+
+
+def test_mp_quests_shared_progress():
+    core = _mp_core()
+    log = core.quest_log
+    p = core.players[0]
+    # Разговор со старейшиной открывает его квесты (нужно стоять рядом)
+    assert core.elder is not None
+    p.x, p.y = core.elder.x + 1, core.elder.y
+    core.quest_talk(0)
+    assert log.available, 'старейшина не открыл квесты'
+    key = next(iter(log.available))
+    core.quest_accept(0, key)
+    assert key in log.active
+    # Прогресс общий: журнал в снапшоте у всего отряда
+    assert key in core.get_snapshot()['quests']['active']
+
+
+# ════════════════════ Древо навыков: ветки классов ════════════════════
+def test_class_tree_is_unique_per_class():
+    from core import skills
+    from core.data import CLASSES, class_data
+
+    warrior = skills.class_tree('warrior')
+    squire = skills.class_tree('squire')
+    knight = skills.class_tree('knight')
+    assert len(warrior) == len(squire) == len(knight) == 7
+    assert [n['name'] for n in warrior] != [n['name'] for n in squire]
+    assert [n['effects'] for n in squire] != [n['effects'] for n in knight]
+    assert all(n['class_key'] == 'squire' for n in squire)
+    assert squire[0]['name'] == f"Путь: {class_data('squire')['name']}"
+    assert squire[-1]['name'] == f"Венец: {class_data('squire')['name']}"
+
+    # У каждой играбельной ветки собственный набор узлов, и в одной
+    # ветке нет двух узлов с одинаковым названием.
+    seen = {}
+    for key in CLASSES:
+        if key == 'default':
+            continue
+        names = [n['name'] for n in skills.class_tree(key)]
+        assert len(set(names)) == len(names), (key, names)
+        signature = tuple(names)
+        assert signature not in seen, (key, seen.get(signature))
+        seen[signature] = key
+
+
+def test_change_class_resets_branch_and_refunds_points(make_game):
+    from core import skills
+
+    g = make_game()
+    p = g.player
+    p.class_key, p.class_name, p.class_tier = 'warrior', 'Воин', 1
+    p.level = 5
+    p.skill_points = 0
+    p.skill_nodes = {'warrior:0', 'warrior:3', 'warrior:6'}
+    p.recalc()
+
+    ok, reason = skills.change_class(p, 'squire')
+    assert ok, reason
+    assert p.class_key == 'squire'
+    assert p.skill_nodes == set(), 'узлы прежнего класса остались'
+    # 2 очка за повышение + 1 за каждый снятый узел.
+    assert p.skill_points == 2 + 3
+    rows = skills.available_nodes(p)
+    assert rows[0]['key'].startswith('squire:')
+    assert rows[0]['name'].startswith('Путь:')
+
+
+def test_skills_screen_draws_centered_tabs_and_graph(make_game, renderer):
+    from core import skills
+
+    g = make_game()
+    g.screen_mode = 'skills'
+    g.skills_ui.open()
+    g.player.class_key, g.player.class_name, g.player.class_tier = (
+        'warrior', 'Воин', 1)
+    g.player.level = 15
+    g.player.skill_points = 2
+    g.player.recalc()
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    assert len(hits['rows']) == len(skills.class_tree('warrior')) == 7
+    cx0, cy0, cw, ch = g._modal_content_rect
+    first = hits['tabs'][0][1]
+    last = hits['tabs'][-1][1]
+    left_gap = first[0] - cx0
+    right_gap = cx0 + cw - (last[0] + last[2])
+    assert abs(left_gap - right_gap) <= 2, (left_gap, right_gap)
+
+    # Узлы разложены по площади, а не столбиком: разные y и широкий размах.
+    ys = {rect[1] for _i, rect in hits['rows']}
+    xs = sorted(rect[0] for _i, rect in hits['rows'])
+    assert len(ys) >= 3
+    assert xs[-1] - xs[0] > cw // 2
+    # Все узлы внутри панели.
+    for _i, rect in hits['rows']:
+        assert cx0 <= rect[0] and rect[0] + rect[2] <= cx0 + cw
+        assert cy0 <= rect[1] and rect[1] + rect[3] <= cy0 + ch
+
+
+def test_skill_node_click_selects_then_learns(make_game, renderer):
+    g = make_game()
+    g.screen_mode = 'skills'
+    g.skills_ui.open()
+    g.player.class_key, g.player.class_name = 'warrior', 'Воин'
+    g.player.level = 15
+    g.player.skill_points = 3
+    g.player.skill_nodes = set()
+    g.player.recalc()
+    g.skills_ui.selection = 3
+    renderer.draw(g)
+
+    rect = dict(g._ui_hits['skills']['rows'])[0]
+    pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    # Первый клик только выбирает узел и показывает его описание.
+    assert g._handle_skills_click(pos)
+    assert g.skills_ui.selection == 0
+    assert not g.player.skill_nodes
+    # Повторный клик по выбранному узлу изучает его.
+    assert g._handle_skills_click(pos)
+    assert 'warrior:0' in g.player.skill_nodes
+    assert g.player.skill_points == 2

@@ -11,6 +11,12 @@ from core.entities import Entity
 from render import Renderer
 
 
+def caught_bone(game, base_key):
+    """Сколько предметов с учётом качества («+N») лежит в рюкзаке."""
+    return sum(count for key, count in game.player.inventory.items()
+               if key == base_key or key.startswith(base_key + '+'))
+
+
 def test_new_game_state(make_game):
     g = make_game()
     assert g.world_mode == 'overworld'
@@ -95,10 +101,13 @@ def test_start_in_overworld(make_game):
 
 def test_overworld_has_entrance(make_game):
     g = make_game()
+    # Вход в главное подземелье — на кладбище; на скалах только шахта
+    graveyard = g.get_location('graveyard')
+    assert graveyard.stairs_pos is not None
+    ex, ey = graveyard.stairs_pos
+    assert graveyard.tiles[ey][ex] == Tile.STAIRS
     rock = g.get_location('rock')
-    assert rock.stairs_pos is not None
-    ex, ey = rock.stairs_pos
-    assert rock.tiles[ey][ex] == Tile.STAIRS
+    assert any(t.get('to') == 'mine' for t in rock.transitions.values())
 
 
 def test_enter_dungeon(make_game):
@@ -609,13 +618,14 @@ def test_craftable_list_returns_recipes(make_game):
 def test_craft_bone_sword(make_game):
     g = make_game()
     g.player.level = 5                  # костяной меч требует 3-й уровень
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     craftable = g.craftable_list()
     bone_idx = next((i for i, c in enumerate(craftable) if c[0] == 'bone_sword'), None)
     assert bone_idx is not None
     assert craftable[bone_idx][3] is True
     g.craft_item(bone_idx)
-    assert g.player.inventory.get('bone_sword') == 1
+    assert caught_bone(g, 'bone_sword') == 1
     assert 'bone' not in g.player.inventory
     assert 'wood' not in g.player.inventory
 
@@ -648,6 +658,7 @@ def test_craft_via_click(make_game):
     from core.config import HAMMER_SIZE
     g = make_game()
     g.player.level = 5
+    g.player.skills['smithing'] = 3
     g.player.inventory = {'bone': 2, 'wood': 1}
     g.screen_mode = 'craft'
     craftable = g.craftable_list()
@@ -657,7 +668,7 @@ def test_craft_via_click(make_game):
         (bone_idx, (100, 100, HAMMER_SIZE, HAMMER_SIZE))
     ]}}
     g.handle_mouse_click((110, 110))
-    assert g.player.inventory.get('bone_sword') == 1
+    assert caught_bone(g, 'bone_sword') == 1
 
 
 def test_craft_missing_materials_keeps_inventory(make_game):
@@ -988,7 +999,7 @@ def test_class_selection_screen(make_game):
     g.menu.class_selection = 1
     g.class_select_confirm()
     assert g.screen_mode == 'game'
-    assert g.player.class_key == 'assassin'
+    assert g.player.class_key == 'mage'
 
 
 def test_class_saved_and_loaded(make_game, tmp_path):
@@ -1003,12 +1014,15 @@ def test_class_saved_and_loaded(make_game, tmp_path):
 
 def test_preview_stats_matches_recalc(make_game):
     from core.entities import Player
-    for class_key in ('warrior', 'assassin', 'rogue', 'paladin', 'default'):
+    for class_key in ('warrior', 'mage', 'rogue', 'artisan',
+                      'assassin', 'paladin', 'default'):
         p = Player(class_key=class_key)
         stats = Player.preview_stats({
             'str': p.str, 'agi': p.agi, 'vit': p.vit,
             'luk': p.luk, 'df_stat': p.df_stat,
             'weapon': p.weapon, 'armor': p.armor,
+            'helmet': p.helmet, 'leggings': p.leggings,
+            'level': p.level, 'effects': p.effects(),
         })
         assert stats['max_hp'] == p.max_hp
         assert stats['atk'] == p.atk

@@ -13,7 +13,12 @@ class MenuRenderer(BaseRenderer):
 
     # ════════════════════════ ГЛАВНОЕ МЕНЮ ════════════════════════
     def draw_main(self, game):
-        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
+        from render.menu_background import MenuBackground
+        MenuBackground.draw(self.screen)
+        overlay = pygame.Surface((config.SCREEN_W, config.SCREEN_H),
+                                 pygame.SRCALPHA)
+        overlay.fill((6, 5, 4, 70))
+        self.screen.blit(overlay, (0, 0))
         cx = config.SCREEN_W // 2
         title_text = "ЭТЕЛЬГАРД"
         title_surf = T.render(title_text, (214, 178, 98), T.FONT_H1)
@@ -44,6 +49,29 @@ class MenuRenderer(BaseRenderer):
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
+
+    # ════════════════════════ КНОПКА «НАЗАД» ════════════════════════
+    def draw_back_button(self, game):
+        """Единая кнопка возврата на шаг вверх для всех подменю (стрелка)."""
+        rect = game.menu.back_button_rect()
+        if not rect:
+            return
+        x, y, w, h = rect
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        hover = x <= mx <= x + w and y <= my <= y + h
+        self.draw_button_bg(rect, hover, radius=8)
+        color = (238, 222, 188) if hover else (200, 190, 170)
+        cx, cy = x + w // 2, y + h // 2
+        shaft = max(8, min(w, h) // 4)
+        head = max(6, min(w, h) // 5)
+        tip = cx - shaft - head // 2
+        pygame.draw.line(self.screen, color, (cx + shaft, cy),
+                         (tip + head // 2, cy), 3)
+        pygame.draw.polygon(self.screen, color, [
+            (tip, cy),
+            (tip + head, cy - head),
+            (tip + head, cy + head),
+        ])
 
     # ════════════════════════ Мультиплеер ════════════════════════
     def draw_menu_multiplayer(self, game):
@@ -82,6 +110,7 @@ class MenuRenderer(BaseRenderer):
 
         self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     def draw_menu_mp_join(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
@@ -108,7 +137,7 @@ class MenuRenderer(BaseRenderer):
                   cx, field_y + field_h + 14,
                   T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
 
-        btn_labels = ["Подключиться", "Назад"]
+        btn_labels = ["Подключиться"]
         for i, (idx, rect) in enumerate(game.menu.button_rects()):
             if i >= len(btn_labels):
                 break
@@ -123,6 +152,7 @@ class MenuRenderer(BaseRenderer):
         self.text("Enter — подключиться · Ctrl+V — вставить · Esc — назад",
                   cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     # ════════════════════════ СОХРАНЕНИЯ ════════════════════════
     def draw_saves(self, game):
@@ -148,6 +178,7 @@ class MenuRenderer(BaseRenderer):
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
+        self.draw_back_button(game)
 
     def _draw_slot(self, rect, slot, info, selected, mode, game=None):
         from datetime import datetime
@@ -295,6 +326,7 @@ class MenuRenderer(BaseRenderer):
                 rb = val_right + 16
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(rb, ay - 7), (rb + 10, ay), (rb, ay + 7)])
+        self.draw_back_button(game)
 
     def draw_controls(self, game):
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
@@ -322,6 +354,7 @@ class MenuRenderer(BaseRenderer):
                 ("H", "Быстрое зелье"),
                 ("M", "Мини-карта вкл/выкл"),
                 ("F5 / F9", "Сохранить / загрузить"),
+                ("F12 / `", "Консоль разработчика (по паролю)"),
                 ("Магазин", "1–9 — купить · S — продать · R — обновить"),
             ]),
         ]
@@ -340,6 +373,39 @@ class MenuRenderer(BaseRenderer):
 
         self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
+
+    # ════════════════════════ СОЗДАТЕЛИ ════════════════════════
+    def draw_credits(self, game):
+        self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
+        cx = config.SCREEN_W // 2
+        title = T.render("СОЗДАТЕЛИ", (214, 178, 98), T.FONT_H1)
+        self.screen.blit(title, (cx - title.get_width() // 2, 56))
+
+        self.text("Игра разработана командой EVA", cx, 128,
+                  T.TEXT_DIM, font=T.FONT_BODY, center=True)
+
+        sections = [
+            ("Создатели", ["Dodik", "Don't talk to people", "Kariov"]),
+            ("Художник", ["Лизабет еБатори"]),
+        ]
+        y = 190
+        for cat, names in sections:
+            self.text(cat, cx, y, (214, 178, 98), font=T.FONT_H2, center=True)
+            y += 40
+            for name in names:
+                self.text(name, cx, y, T.TEXT, font=T.FONT_BODY, center=True)
+                y += 32
+            y += 16
+
+        self.text("Все права на изображения принадлежат ей", cx, y + 8,
+                  T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
+
+        self.text("от 11.2026", cx, config.SCREEN_H - 84, (206, 166, 82),
+                  font=T.FONT_BODY, center=True)
+        self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+        self.draw_back_button(game)
 
     # ════════════════════════ ВЫБОР КЛАССА ════════════════════════
     def draw_class_select(self, game):
@@ -357,25 +423,28 @@ class MenuRenderer(BaseRenderer):
             cls = CLASSES[key]
             selected = (i == game.menu.class_selection)
             self.draw_button_bg(rect, selected)
-            self._draw_class_card(rect, cls, selected)
+            self._draw_class_card(rect, cls, selected, key)
             if selected:
                 ax = rect[0] - 22
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
+        self.draw_back_button(game)
 
-
-    def _draw_class_card(self, rect, cls, selected):
+    def _draw_class_card(self, rect, cls, selected, class_key='default'):
+        from core.data import class_stats
         x, y, w, h = rect
         color = cls['color']
         name_color = color if selected else T.TEXT_DIM
         self.text(cls['name'], x + 24, y + 14, name_color, font=T.FONT_H2)
 
-        atk, df, hp, dodge, crit = self._preview_stats(cls)
+        atk, df, hp, dodge, crit = self._preview_stats(cls, class_key)
         self.text(f"ATK {atk}   DEF {df}   HP {hp}   Укл {dodge}%   Крит {crit}%",
                   x + 24, y + 44, T.TEXT, font=T.FONT_SMALL)
-        self.text(f"STR {cls['str']}   AGI {cls['agi']}   VIT {cls['vit']}   "
-                  f"LUK {cls['luk']}   DEF {cls['df_stat']}",
+        st = class_stats(class_key)
+        self.text(f"STR {st.get('str', 5)}   AGI {st.get('agi', 5)}   "
+                  f"VIT {st.get('vit', 5)}   "
+                  f"LUK {st.get('luk', 5)}   DEF {st.get('df_stat', 5)}",
                   x + 24, y + 64, T.TEXT_MUTED, font=T.FONT_TINY)
 
         self.text(cls['desc'], x + w - 24, y + 14, T.TEXT_DIM,
@@ -393,13 +462,17 @@ class MenuRenderer(BaseRenderer):
                   x + w - 24, y + 44, T.TEXT_MUTED,
                   font=T.FONT_SMALL, align_right=True)
 
-    def _preview_stats(self, cls):
+    def _preview_stats(self, cls, class_key='default'):
         from core.entities import Player
+        from core.data import class_stats
+        st = class_stats(class_key)
         stats = Player.preview_stats({
-            'str': cls['str'], 'agi': cls['agi'], 'vit': cls['vit'],
-            'luk': cls['luk'], 'df_stat': cls['df_stat'],
+            'str': st.get('str', 5), 'agi': st.get('agi', 5),
+            'vit': st.get('vit', 5), 'luk': st.get('luk', 5),
+            'df_stat': st.get('df_stat', 5), 'level': 1,
             'weapon': cls.get('start_weapon'),
             'armor': cls.get('start_armor'),
+            'effects': cls.get('effects', {}),
         })
         return (stats['atk'], stats['df'], stats['max_hp'],
                 int(stats['dodge'] * 100), int(stats['crit'] * 100))

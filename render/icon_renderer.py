@@ -80,9 +80,9 @@ class IconRenderer(BaseRenderer):
             self._potion(s, (240, 50, 70), big=False, sparkle=True)
         elif key == 'potion_l':
             self._potion(s, (200, 20, 60), big=True, sparkle=True)
-        elif key == 'mana_potion_s':
+        elif key == 'mana_s':
             self._potion(s, (110, 160, 250), big=False, sparkle=False)
-        elif key == 'mana_potion_l':
+        elif key == 'mana_m':
             self._potion(s, (132, 108, 240), big=True, sparkle=True)
         elif key in ('fried_mushrooms', 'berry_compote', 'roast_venison',
                      'roast_boar', 'roast_bear'):
@@ -2147,6 +2147,19 @@ class IconRenderer(BaseRenderer):
                              (cx - hw // 2 + 3, cy - int(11 * k)),
                              (cx + hw // 2 - 3, cy - int(11 * k)),
                              int(1 * k))
+        elif name == 'skills':
+            # Три узла ветки навыков
+            pygame.draw.line(s, dim, (cx, cy + int(10 * k)),
+                             (cx, cy - int(2 * k)), int(2 * k))
+            pygame.draw.line(s, dim, (cx, cy - int(2 * k)),
+                             (cx - int(11 * k), cy - int(13 * k)), int(2 * k))
+            pygame.draw.line(s, dim, (cx, cy - int(2 * k)),
+                             (cx + int(11 * k), cy - int(13 * k)), int(2 * k))
+            for nx, ny in ((cx, cy + int(12 * k)),
+                           (cx - int(11 * k), cy - int(15 * k)),
+                           (cx + int(11 * k), cy - int(15 * k))):
+                pygame.draw.circle(s, (40, 34, 24), (nx, ny), int(6 * k))
+                pygame.draw.circle(s, col, (nx, ny), int(6 * k), int(2 * k))
         elif name == 'stats':
             bar_w = int(7 * k)
             gap = int(4 * k)

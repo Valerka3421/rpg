@@ -115,32 +115,37 @@ class BaseRenderer:
     def compare_item(game, new_key, slot):
         from core.entities import Player
         p = game.player
-        current_key = p.weapon if slot == 'weapon' else p.armor
+        equipped = {
+            'weapon': p.weapon,
+            'armor': p.armor,
+            'helmet': getattr(p, 'helmet', None),
+            'leggings': getattr(p, 'leggings', None),
+        }
+        if slot not in equipped:
+            return []
+        current_key = equipped[slot]
         if current_key == new_key:
             return []
         base = {
             'str': p.str, 'agi': p.agi, 'vit': p.vit,
             'luk': p.luk, 'df_stat': p.df_stat,
+            'level': p.level, 'effects': p.effects(),
         }
-        cur = Player.preview_stats({
-            **base,
-            'weapon': current_key if slot == 'weapon' else p.weapon,
-            'armor': current_key if slot == 'armor' else p.armor,
-        })
-        new = Player.preview_stats({
-            **base,
-            'weapon': new_key if slot == 'weapon' else p.weapon,
-            'armor': new_key if slot == 'armor' else p.armor,
-        })
+        cur = Player.preview_stats({**base, **equipped})
+        preview = dict(equipped)
+        preview[slot] = new_key
+        new = Player.preview_stats({**base, **preview})
         deltas = []
         da = new['atk'] - cur['atk']
         dd = new['df'] - cur['df']
         dh = new['max_hp'] - cur['max_hp']
+        dm = new.get('max_mana', 0) - cur.get('max_mana', 0)
         dodge = (new['dodge'] - cur['dodge']) * 100
         crit = (new['crit'] - cur['crit']) * 100
         if da != 0: deltas.append(('ATK', da, False))
         if dd != 0: deltas.append(('DEF', dd, False))
         if dh != 0: deltas.append(('HP', dh, False))
+        if dm != 0: deltas.append(('Мана', dm, False))
         if abs(dodge) >= 1: deltas.append(('Укл', int(round(dodge)), True))
         if abs(crit) >= 1: deltas.append(('Крит', int(round(crit)), True))
         return deltas

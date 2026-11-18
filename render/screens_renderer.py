@@ -1,5 +1,6 @@
 """Экраны поверх игры: статы, инвентарь, магазин, крафт, диалог, квесты, статистика."""
 from core import config
+import math
 import pygame
 from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
 from core.data import (ITEMS, parse_item_key, item_display_name,
@@ -148,13 +149,10 @@ class ScreensRenderer(BaseRenderer):
 
         y = T.section(self.screen, cx0, y, cw, "Экипировка")
         from core.data import ITEMS, parse_item_key, item_display_name, item_display_color
-        slots = [
-            ("Голова", p.head, "DEF"),
-            ("Руки", p.weapon, "ATK"),
-            ("Тело", p.armor, "DEF"),
-            ("Ноги", p.legs, "DEF"),
-        ]
-        for label, key, stat in slots:
+        for label, key, stat in (("Оружие", p.weapon, "ATK"),
+                                 ("Броня", p.armor, "DEF"),
+                                 ("Шлем", p.head, "DEF"),
+                                 ("Поножи", p.legs, "DEF")):
             if key:
                 base, lvl = parse_item_key(key)
                 it = ITEMS.get(base, {})
@@ -228,7 +226,7 @@ class ScreensRenderer(BaseRenderer):
         self.text("ИНВЕНТАРЬ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
                   align_right=True)
-        self.text("Q/E — страницы   U/V/H/B — снять экипировку",
+        self.text("Q/E — страницы   H/B — снять шлем/поножи",
                   self._modal_right(game), cy0 + 34, T.TEXT_MUTED,
                   font=T.FONT_SMALL, align_right=True)
 
@@ -390,32 +388,35 @@ class ScreensRenderer(BaseRenderer):
         color = item_display_color(key)
         if lvl_req > 1 and player_level < lvl_req:
             color = T.HP_CRIT
-        label = self.fit_text(item_display_name(key), w - 8, T.FONT_TINY)
-        self.text(label, x + w // 2, y + h - 16, color,
-                  font=T.FONT_TINY, center=True)
+        from core.data import class_can_use
+        if not class_can_use(game.player.class_key, key)[0]:
+            color = T.HP_CRIT
+        label = self.fit_text(item_display_name(key), w - 14, T.FONT_SMALL)
+        self.text(label, x + w // 2, y + h - 22, color,
+                  font=T.FONT_SMALL, center=True)
 
-        # Улучшенный бейдж количества — в правом нижнем углу
+        # Бейдж количества — в правом верхнем углу ячейки
         if count > 1:
             self._draw_count_badge(x, y, w, h, count)
 
     def _draw_count_badge(self, x, y, w, h, count):
-        """Красивый бейдж количества в правом нижнем углу ячейки."""
-        txt = "99+" if count >= 100 else str(count)
+        """Счётчик предметов: золотая капсула в правом верхнем углу."""
+        txt = "×99+" if count >= 100 else f"×{count}"
         font = T.FONT_SMALL
-        surf = font.render(txt, True, (255, 250, 240))
+        surf = font.render(txt, True, (32, 24, 12))
 
         if count < 10:
-            bg, border = (52, 44, 22), (206, 166, 82)
+            bg, border = (240, 195, 105), (150, 110, 40)
         elif count < 50:
-            bg, border = (90, 62, 22), (240, 195, 105)
+            bg, border = (240, 160, 80), (150, 90, 30)
         else:
-            bg, border = (105, 38, 28), (240, 130, 100)
+            bg, border = (240, 120, 100), (150, 60, 40)
 
         tw, th = surf.get_size()
-        bw = max(tw + 16, 30)
+        bw = max(tw + 14, 30)
         bh = max(th + 6, 24)
         bx = x + w - bw - 3
-        by = y + h - bh - 3
+        by = y + 3
 
         # Тень
         shadow = pygame.Surface((bw, bh), pygame.SRCALPHA)
@@ -436,6 +437,7 @@ class ScreensRenderer(BaseRenderer):
         # Текст
         self.screen.blit(surf, (bx + (bw - tw) // 2,
                                 by + (bh - th) // 2 - 1))
+        return (bx, by, bw, bh)
 
     def _draw_page_button(self, label, rect, enabled, hover):
         bg = T.ROW_HOVER if enabled and hover else (30, 27, 21)
@@ -465,12 +467,16 @@ class ScreensRenderer(BaseRenderer):
             ok = game.player.level >= lvl_req
             lines.append((f"Требуется уровень {lvl_req}",
                           T.TEXT_DIM if ok else T.HP_CRIT, T.FONT_SMALL))
+        from core.data import class_can_use
+        can_use, why = class_can_use(game.player.class_key, key)
+        if not can_use:
+            lines.append((f"Класс не может: {why}", T.HP_CRIT, T.FONT_SMALL))
         if kind == 'equip':
             stat = "ATK" if it.get('type') == 'weapon' else "DEF"
             bonus = it.get('value', 0) + parse_item_key(key)[1]
             if bonus:
                 lines.append((f"+{bonus} {stat}", T.HEAL, T.FONT_SMALL))
-        elif it.get('type') in ('weapon', 'armor'):
+        elif it.get('type') in ('weapon', 'armor', 'helmet', 'leggings'):
             deltas = self.compare_item(game, key, it['type'])
             dt, dc = self.format_delta(deltas)
             if dt:
@@ -577,7 +583,8 @@ class ScreensRenderer(BaseRenderer):
                       T.GOLD if can_afford else T.TEXT_MUTED, align_right=True)
             self.text(it.get('desc', ''), x0 + 36, y + 24, T.TEXT_MUTED,
                       font=T.FONT_TINY)
-            if it.get('type') in ('weapon', 'armor'):
+            if it.get('type') in ('weapon', 'armor', 'head', 'legs',
+                                  'helmet', 'leggings'):
                 deltas = self.compare_item(game, key, it['type'])
                 dt, dc = self.format_delta(deltas)
                 if dt:
@@ -623,11 +630,434 @@ class ScreensRenderer(BaseRenderer):
                       self._modal_right(game), y + 6, T.TEXT_DIM,
                       font=T.FONT_SMALL, align_right=True)
 
+    # ════════════════════════ ДРЕВО НАВЫКОВ ════════════════════════
+    def draw_skills(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        from core import skills as sk
+        from core.data import class_data
+        p = game.player
+        ctrl = game.skills_ui
+        game._ui_hits['skills'] = {'tabs': [], 'rows': [], 'promotion': []}
+
+        cls = class_data(p.class_key)
+        self.text("ДРЕВО НАВЫКОВ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
+        self.text(f"{p.class_name} · Уровень {p.level}",
+                  self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
+        if p.skill_points:
+            T.badge(self.screen, cx0, cy0 + 34, f"● {p.skill_points} очков навыков",
+                    color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
+
+        y = cy0 + 66
+        y, tabs = self._draw_tabs(game, sk.TABS, ctrl.tab, cx0, y, cw,
+                                  'skills')
+        game._ui_hits['skills']['tabs'] = tabs
+
+        if ctrl.tab == sk.TAB_CLASS:
+            self._draw_class_tab(game, cx0, y, cw, ch, cls, ctrl,
+                                 sk, class_data)
+        else:
+            self._draw_craft_tab(game, cx0, y, cw, ch, ctrl, sk)
+
+        hints = "↑/↓ — выбор · Enter — изучить · Q/E — вкладки · N/Esc — закрыть"
+        self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+
+    # ── Графическая ветка класса ──
+    # Цвет значка по главному эффекту узла — как цветные иконки на референсе.
+    _GLYPH_COLORS = {
+        'atk': (230, 124, 88), 'crit': (238, 192, 92),
+        'hp': (214, 98, 98), 'df': (148, 176, 204),
+        'dodge': (166, 202, 176), 'mana': (108, 154, 232),
+        'lifesteal': (204, 92, 124), 'attack_speed': (242, 212, 108),
+        'move_speed': (146, 208, 188), 'gold_pct': (238, 196, 88),
+        'xp_pct': (148, 196, 242), 'craft_xp': (208, 170, 116),
+        'craft_quality': (224, 188, 126), 'quest_gold': (228, 200, 128),
+        'quest_xp': (168, 200, 236), 'summon': (188, 166, 222),
+        'rage': (230, 110, 92), 'frenzy': (232, 136, 96),
+    }
+
+    @staticmethod
+    def _hex_points(cx, cy, r):
+        """Точки шестиугольника «вершиной вверх»."""
+        return [(cx + r * math.cos(math.radians(60 * i - 90)),
+                 cy + r * math.sin(math.radians(60 * i - 90)))
+                for i in range(6)]
+
+    def _dotted_line(self, a, b, color, width=2, dash=6, gap=5):
+        ax, ay = a
+        bx, by = b
+        dx, dy = bx - ax, by - ay
+        dist = math.hypot(dx, dy)
+        if dist <= 0.1:
+            return
+        ux, uy = dx / dist, dy / dist
+        pos = 0.0
+        while pos < dist:
+            end = min(pos + dash, dist)
+            pygame.draw.line(self.screen, color,
+                             (ax + ux * pos, ay + uy * pos),
+                             (ax + ux * end, ay + uy * end), width)
+            pos = end + gap
+
+    def _draw_skill_glyph(self, effects, cx, cy, r, color, strength=1.0):
+        """Процедурный значок узла по его главному эффекту."""
+        key = next((k for k in (
+            'atk', 'crit', 'lifesteal', 'attack_speed', 'mana', 'hp', 'df',
+            'dodge', 'move_speed', 'gold_pct', 'xp_pct', 'craft_xp',
+            'craft_quality', 'quest_gold', 'quest_xp', 'summon', 'rage',
+            'frenzy') if effects.get(k)), None)
+        color = T.shade(self._GLYPH_COLORS.get(key, color), strength)
+        s = max(0.55, r / 26.0)
+        w = max(1, int(round(2 * s)))
+        if key == 'atk':
+            pygame.draw.line(self.screen, color, (cx, cy - 11 * s), (cx, cy + 5 * s), w)
+            pygame.draw.line(self.screen, color, (cx - 7 * s, cy + 2 * s),
+                             (cx + 7 * s, cy + 2 * s), w)
+            pygame.draw.line(self.screen, color, (cx, cy + 5 * s), (cx, cy + 10 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy + 11 * s)), max(1, int(2 * s)))
+        elif key == 'crit':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(9 * s), w)
+            pygame.draw.line(self.screen, color, (cx - 12 * s, cy), (cx + 12 * s, cy), w)
+            pygame.draw.line(self.screen, color, (cx, cy - 12 * s), (cx, cy + 12 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), max(1, int(2 * s)))
+        elif key in ('lifesteal', 'mana'):
+            pygame.draw.polygon(self.screen, color, [
+                (cx, cy - 11 * s), (cx + 8 * s, cy + 1 * s),
+                (cx + 4 * s, cy + 9 * s), (cx - 4 * s, cy + 9 * s),
+                (cx - 8 * s, cy + 1 * s)])
+            if key == 'lifesteal':
+                pygame.draw.line(self.screen, (24, 20, 18),
+                                 (cx - 3 * s, cy + 2 * s), (cx + 3 * s, cy + 2 * s), w)
+        elif key == 'attack_speed':
+            pygame.draw.polygon(self.screen, color, [
+                (cx + 3 * s, cy - 11 * s), (cx - 7 * s, cy + 1 * s),
+                (cx - 1 * s, cy + 1 * s), (cx - 3 * s, cy + 11 * s),
+                (cx + 8 * s, cy - 2 * s), (cx + 2 * s, cy - 2 * s)])
+        elif key == 'hp':
+            rr = max(2, int(5 * s))
+            pygame.draw.circle(self.screen, color, (int(cx - 4 * s), int(cy - 3 * s)), rr)
+            pygame.draw.circle(self.screen, color, (int(cx + 4 * s), int(cy - 3 * s)), rr)
+            pygame.draw.polygon(self.screen, color, [
+                (cx - 9 * s, cy - 1 * s), (cx + 9 * s, cy - 1 * s),
+                (cx, cy + 10 * s)])
+        elif key == 'df':
+            shield = [(cx, cy - 11 * s), (cx + 9 * s, cy - 6 * s),
+                      (cx + 7 * s, cy + 5 * s), (cx, cy + 11 * s),
+                      (cx - 7 * s, cy + 5 * s), (cx - 9 * s, cy - 6 * s)]
+            pygame.draw.polygon(self.screen, color, shield, w)
+            pygame.draw.line(self.screen, color, (cx, cy - 7 * s), (cx, cy + 7 * s), 1)
+        elif key == 'dodge':
+            rect = pygame.Rect(int(cx - 10 * s), int(cy - 10 * s),
+                               int(20 * s), int(20 * s))
+            pygame.draw.arc(self.screen, color, rect,
+                            math.radians(25), math.radians(300), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)),
+                               max(1, int(2.5 * s)))
+        elif key == 'move_speed':
+            for off in (-4, 5):
+                pygame.draw.lines(self.screen, color, False, [
+                    (cx + off * s - 4 * s, cy - 7 * s),
+                    (cx + off * s + 3 * s, cy),
+                    (cx + off * s - 4 * s, cy + 7 * s)], w)
+        elif key == 'gold_pct':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(10 * s), w)
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy)), int(4 * s), w)
+            pygame.draw.line(self.screen, color, (cx, cy - 10 * s), (cx, cy - 13 * s), w)
+        elif key == 'xp_pct':
+            pts = []
+            for i in range(10):
+                ang = math.radians(-90 + i * 36)
+                rad = r * (0.72 if i % 2 == 0 else 0.3)
+                pts.append((cx + rad * math.cos(ang), cy + rad * math.sin(ang)))
+            pygame.draw.polygon(self.screen, color, pts)
+        elif key in ('craft_xp', 'craft_quality'):
+            pygame.draw.polygon(self.screen, color, [
+                (cx - 11 * s, cy - 5 * s), (cx + 11 * s, cy - 5 * s),
+                (cx + 6 * s, cy + 1 * s), (cx + 3 * s, cy + 1 * s),
+                (cx + 4 * s, cy + 6 * s), (cx + 8 * s, cy + 10 * s),
+                (cx - 8 * s, cy + 10 * s), (cx - 4 * s, cy + 6 * s),
+                (cx - 3 * s, cy + 1 * s), (cx - 6 * s, cy + 1 * s)])
+        elif key in ('quest_gold', 'quest_xp'):
+            pygame.draw.rect(self.screen, color, (int(cx - 8 * s), int(cy - 9 * s),
+                                                  int(16 * s), int(18 * s)), w)
+            pygame.draw.line(self.screen, color, (cx - 4 * s, cy - 3 * s),
+                             (cx + 4 * s, cy - 3 * s), 1)
+            pygame.draw.line(self.screen, color, (cx - 4 * s, cy + 2 * s),
+                             (cx + 4 * s, cy + 2 * s), 1)
+        elif key == 'summon':
+            pygame.draw.circle(self.screen, color, (int(cx), int(cy - 2 * s)), int(8 * s), w)
+            pygame.draw.rect(self.screen, color, (int(cx - 4 * s), int(cy + 4 * s),
+                                                  int(8 * s), int(5 * s)), w)
+            pygame.draw.circle(self.screen, color, (int(cx - 3 * s), int(cy - 3 * s)),
+                               max(1, int(2 * s)))
+            pygame.draw.circle(self.screen, color, (int(cx + 3 * s), int(cy - 3 * s)),
+                               max(1, int(2 * s)))
+        else:
+            pygame.draw.polygon(self.screen, color, [
+                (cx, cy - 11 * s), (cx + 9 * s, cy),
+                (cx, cy + 11 * s), (cx - 9 * s, cy)], w)
+
+    def _draw_node_counter(self, nx, ny, count, total, learned):
+        label = f"{count}/{total}"
+        color = (126, 166, 226) if learned else (196, 184, 158)
+        fw = T.FONT_TINY.size(label)[0]
+        box = (nx - fw // 2 - 5, ny, fw + 10, 15)
+        T.rounded_rect(self.screen, (14, 12, 10), box, radius=3,
+                       border_color=(64, 56, 42))
+        self.text(label, nx, ny + 7, color, font=T.FONT_TINY, center=True)
+
+    def _draw_skill_node(self, nx, ny, r, node, selected, mouse):
+        state = node.get('state')
+        learned = bool(node.get('learned'))
+        if learned:
+            fill, border, glyph = (30, 38, 27), (208, 172, 86), (238, 216, 152)
+        elif state == 'available':
+            fill, border, glyph = (32, 29, 22), (170, 140, 70), (224, 202, 148)
+        else:
+            fill, border, glyph = (22, 20, 18), (66, 58, 45), (108, 98, 82)
+        rect = (nx - r - 7, ny - r - 17, r * 2 + 14, r * 2 + 40)
+        hover = self._in_rect(rect, mouse)
+        if selected:
+            border = (246, 228, 172)
+        elif hover:
+            border = T.shade(border, 1.3)
+        pygame.draw.polygon(self.screen, (10, 9, 8), self._hex_points(nx, ny, r + 6))
+        pygame.draw.polygon(self.screen, fill, self._hex_points(nx, ny, r))
+        pygame.draw.polygon(self.screen, T.shade(fill, 1.6),
+                            self._hex_points(nx, ny, r - 6), 1)
+        pygame.draw.polygon(self.screen, border, self._hex_points(nx, ny, r + 3), 3)
+        if selected:
+            pygame.draw.polygon(self.screen, (252, 238, 196),
+                                self._hex_points(nx, ny, r + 6), 1)
+        strength = 1.0 if learned else (0.82 if state == 'available' else 0.5)
+        self._draw_skill_glyph(node.get('effects', {}), nx, ny, r * 0.74,
+                               glyph, strength)
+        self._draw_node_counter(nx, ny + r + 8, 1 if learned else 0, 1, learned)
+        return rect
+
+    def _draw_class_hub(self, cls, cx, cy, r, learned, total):
+        border = T.GOLD
+        pygame.draw.polygon(self.screen, (9, 8, 7), self._hex_points(cx, cy, r + 8))
+        pygame.draw.polygon(self.screen, (44, 36, 23), self._hex_points(cx, cy, r + 3))
+        pygame.draw.polygon(self.screen, (28, 25, 19), self._hex_points(cx, cy, r))
+        pygame.draw.polygon(self.screen, border, self._hex_points(cx, cy, r + 3), 3)
+        pygame.draw.polygon(self.screen, T.shade(border, 0.55),
+                            self._hex_points(cx, cy, r - 6), 1)
+        pygame.draw.circle(self.screen, T.shade(border, 0.4),
+                           (int(cx), int(cy)), int(r * 0.64), 1)
+        self._draw_skill_glyph(cls.get('effects') or {'hp': 1},
+                               cx, cy - 2, r * 0.6, (232, 208, 154))
+        self._draw_node_counter(cx, cy + r + 8, learned, total, True)
+
+    def _draw_class_tree(self, game, nodes, cls, ctrl, x, y, cw, tree_bottom):
+        """Шестиугольное древо: центральный узел класса и две ветви."""
+        top = y
+        tree_h = max(200, tree_bottom - top)
+        cx = x + cw // 2
+        cy = top + int(tree_h * 0.54)
+        r = max(20, min(28, int(tree_h * 0.075)))
+        dx = min(152, int(cw * 0.13))
+        dy = min(92, int(tree_h * 0.24))
+        # Крылья поднимаются от класса вверх, венец — над центральным узлом.
+        positions = [
+            (cx - dx * 0.85, cy + dy * 0.78),
+            (cx - dx * 1.68, cy + dy * 0.04),
+            (cx - dx * 2.45, cy - dy * 0.88),
+            (cx + dx * 0.85, cy + dy * 0.78),
+            (cx + dx * 1.68, cy + dy * 0.04),
+            (cx + dx * 2.45, cy - dy * 0.88),
+            (cx, top + r + 12),
+        ]
+        pos = [positions[i % len(positions)] for i in range(len(nodes))]
+        hub = (cx, cy)
+        learned_count = sum(1 for n in nodes if n.get('learned'))
+
+        # Тусклый декоративный круг под древом — как фон-орнамент.
+        ring = int(min(tree_h * 0.46, cw * 0.3))
+        pygame.draw.circle(self.screen, (44, 38, 29), (int(cx), int(cy)), ring, 1)
+        pygame.draw.circle(self.screen, (33, 29, 23), (int(cx), int(cy)),
+                           int(ring * 0.72), 1)
+
+        # Связи: золотые к изученным узлам, тусклые пунктирные — к прочим.
+        pairs = ((None, 0), (0, 1), (1, 2), (None, 3), (3, 4), (4, 5),
+                 (None, 6))
+        for a, b in pairs:
+            if b >= len(pos) or (a is not None and a >= len(pos)):
+                continue
+            pa = hub if a is None else pos[a]
+            pb = pos[b]
+            done = bool(nodes[b].get('learned')) and (
+                a is None or nodes[a].get('learned'))
+            if done:
+                pygame.draw.line(self.screen, (198, 162, 74), pa, pb, 3)
+                pygame.draw.circle(self.screen, (236, 208, 132),
+                                   (int(pb[0]), int(pb[1])), 2)
+            else:
+                self._dotted_line(pa, pb, (92, 79, 56), 2, 7, 6)
+
+        game._ui_hits['skills']['rows'] = []
+        mouse = getattr(game, 'mouse_pos', (-1, -1))
+        for i, node in enumerate(nodes):
+            nx, ny = pos[i]
+            rect = self._draw_skill_node(int(nx), int(ny), r, node,
+                                         i == ctrl.selection, mouse)
+            game._ui_hits['skills']['rows'].append((i, rect))
+        self._draw_class_hub(cls, cx, cy, r + 12, learned_count, len(nodes))
+
+    def _draw_selected_node_panel(self, sk, nodes, ctrl, x, y, cw, ch, p):
+        panel = (x, y, cw, ch)
+        T.rounded_rect(self.screen, (24, 21, 17), panel, radius=8,
+                       border_color=T.PANEL_BORDER)
+        node = nodes[ctrl.selection] if nodes else None
+        if not node:
+            self.text("Нет узлов в этой ветке.", x + 16, y + 12,
+                      T.TEXT_MUTED, font=T.FONT_SMALL)
+            return
+        state = node.get('state')
+        self.text(self.fit_text(node['name'], cw - 200, T.FONT_H2),
+                  x + 16, y + 8, T.TITLE_LIGHT, font=T.FONT_H2)
+        need = node['level']
+        self.text(f"Уровень {need}", x + cw - 16, y + 12,
+                  T.GOLD if p.level >= need else T.HP_CRIT,
+                  font=T.FONT_SMALL, align_right=True)
+        effects = sk.describe_effects(node.get('effects', {}))
+        self.text(self.fit_text(effects or "Пассивных бонусов нет.",
+                                cw - 32, T.FONT_SMALL),
+                  x + 16, y + 37, T.TEXT, font=T.FONT_SMALL)
+        status = {
+            'learned': ("✓ Изучено", (120, 208, 120)),
+            'available': ("Доступно · Enter или повторный клик — изучить за 1 очко",
+                          (240, 210, 96)),
+            'level': (f"Откроется на {need} уровне", (176, 162, 132)),
+            'points': ("Нет очков навыков", (212, 158, 112)),
+        }.get(state, ("", T.TEXT_DIM))
+        self.text(status[0], x + 16, y + 60, status[1], font=T.FONT_SMALL)
+
+    def _draw_class_tab(self, game, x, y, cw, ch, cls, ctrl, sk, class_data):
+        p = game.player
+        bottom = game._modal_content_rect[1] + ch
+        perk = cls.get('perk', '')
+        if perk:
+            self.text(self.fit_text(perk, cw, T.FONT_SMALL), x, y,
+                      (200, 180, 130), font=T.FONT_SMALL)
+            y += 24
+
+        # ── Смена класса ──
+        options = ctrl.promotion_options()
+        req = ctrl.change_class_requirement()
+        if options:
+            ready = req is not None and p.level >= req
+            label = "Смена класса"
+            if req is not None and not ready:
+                label += f" (с {req} ур.)"
+            self.text(label, x, y + 5, T.TITLE if ready else T.TEXT_MUTED,
+                      font=T.FONT_SMALL)
+            bx = x + T.FONT_SMALL.size(label)[0] + 14
+            for i, key in enumerate(options):
+                name = class_data(key).get('name', key)
+                text = f"{i + 1}. {name}"
+                w = max(92, T.FONT_SMALL.size(text)[0] + 18)
+                rect = (bx, y, w, 26)
+                hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
+                T.rounded_rect(self.screen, T.ROW_HOVER if hover else
+                               (32, 28, 22), rect, radius=6,
+                               border_color=T.TITLE if ready else
+                               T.PANEL_BORDER_DARK)
+                self.text(self.fit_text(text, w - 12, T.FONT_SMALL),
+                          bx + 7, y + 4,
+                          T.TITLE_LIGHT if ready else T.TEXT_MUTED,
+                          font=T.FONT_SMALL)
+                game._ui_hits['skills']['promotion'].append((i, rect))
+                bx += w + 8
+            y += 34
+
+        nodes = ctrl.rows()
+        panel_h = 84
+        panel_y = bottom - panel_h - 30
+        self._draw_class_tree(game, nodes, cls, ctrl, x, y + 2, cw,
+                              panel_y - 6)
+        self._draw_selected_node_panel(sk, nodes, ctrl, x, panel_y, cw,
+                                       panel_h, p)
+
+    def _draw_craft_tab(self, game, x, y, cw, ch, ctrl, sk):
+        p = game.player
+        tab = ctrl.tab
+        level, need, ratio = sk.tab_progress(p, tab)
+        T.section(self.screen, x, y, cw, sk.TAB_NAMES.get(tab, tab))
+        y += 28
+        T.bar(self.screen, (x, y, 280, 12), ratio, (120, 180, 110))
+        label = f"Уровень {level} / {sk.SKILL_CAP}"
+        if need:
+            label += f" · {sk.craft_xp(p, tab)}/{need}"
+        self.text(label, x + 294, y - 2, T.TEXT_DIM, font=T.FONT_SMALL)
+        y += 26
+        desc = sk.CRAFT_TREES.get(tab, {}).get('desc', '')
+        if desc:
+            self.text(desc, x, y, T.TEXT_MUTED, font=T.FONT_TINY)
+            y += 22
+
+        nodes = sk.craft_tree(tab)
+        row_h = 40
+        for i, node in enumerate(nodes):
+            if y + row_h > ch + 30:
+                break
+            rect = (x, y, cw, row_h - 6)
+            selected = i == ctrl.selection
+            if selected:
+                T.rounded_rect(self.screen, T.ROW_HOVER, rect, radius=6,
+                               border_color=T.ROW_BORDER)
+            unlocked = level >= node['level']
+            mark = '✓' if unlocked else '×'
+            color = (120, 220, 120) if unlocked else T.TEXT_MUTED
+            self.text(f"{mark}  {node['name']}", x + 10, y + 4, color,
+                      font=T.FONT_BODY)
+            self.text(f"ур. {node['level']}", x + 300, y + 6,
+                      T.GOLD if unlocked else T.HP_CRIT, font=T.FONT_SMALL)
+            effects = sk.describe_effects(node.get('effects', {}))
+            if effects:
+                self.text(effects, x + 390, y + 6, T.TEXT_DIM,
+                          font=T.FONT_SMALL)
+            recipes = sk.recipes_for_level(tab, node['level'])
+            if recipes:
+                names = ', '.join(r[1].get('name', r[0]) for r in recipes)
+                self.text(self.fit_text("Рецепты: " + names, cw - 520,
+                                        T.FONT_TINY),
+                          x + 390, y + 20, T.TEXT_MUTED, font=T.FONT_TINY)
+            game._ui_hits['skills']['rows'].append((i, rect))
+            y += row_h
+
     # ════════════════════════ КРАФТ ════════════════════════
+    def _draw_tabs(self, game, tabs, active, x, y, cw, prefix):
+        """Общий ряд вкладок по центру. Возвращает (новый_y, hits)."""
+        from core import skills as sk
+        hits = []
+        labels = [sk.TAB_SHORT.get(tab, tab) for tab in tabs]
+        max_w = (cw - 8 * (len(tabs) - 1)) // max(1, len(tabs))
+        widths = [min(max_w, max(96, T.FONT_SMALL.size(label)[0] + 44))
+                  for label in labels]
+        total = sum(widths) + 8 * (len(tabs) - 1)
+        tx = x + max(0, (cw - total) // 2)
+        for tab, label, tab_w in zip(tabs, labels, widths):
+            rect = (tx, y, tab_w, 30)
+            is_active = tab == active
+            hover = self._in_rect(rect, getattr(game, 'mouse_pos', (-1, -1)))
+            bg = T.ROW_HOVER if is_active or hover else (30, 27, 21)
+            border = T.TITLE if is_active else T.PANEL_BORDER
+            T.rounded_rect(self.screen, bg, rect, radius=6,
+                           border_color=border)
+            self.text(label, tx + tab_w // 2, y + 15,
+                      T.TITLE_LIGHT if is_active else T.TEXT_DIM,
+                      font=T.FONT_SMALL, center=True)
+            hits.append((tab, rect))
+            tx += tab_w + 8
+        return y + 40, hits
+
     def draw_craft(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core.config import HAMMER_SIZE
+        from core import skills as sk
         game._ui_hits['craft'] = {'hammer': [], 'tabs': []}
 
         self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
@@ -635,7 +1065,7 @@ class ScreensRenderer(BaseRenderer):
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
 
         # ── Вкладки: все крафты и три навыка ──
-        tab_y = cy0 + 50
+        tab_y = cy0 + 44
         tx = cx0
         current_tab = getattr(game.craft, 'tab', 'all')
         for tab_key, label in game.craft_tabs():
@@ -651,8 +1081,34 @@ class ScreensRenderer(BaseRenderer):
             game._ui_hits['craft']['tabs'].append((tab_key, rect))
             tx += tw + 6
 
-        y = tab_y + 42
-        y = T.section(self.screen, cx0, y, cw, "Рецепты")
+        y = tab_y + 38
+
+        # ── Прогресс ветки и бонус качества ──
+        skill_tab = current_tab if current_tab != 'all' else None
+        if skill_tab:
+            level, need, ratio = sk.tab_progress(game.player, skill_tab)
+            quality_bonus = sk.craft_quality_bonus(game.player)
+            T.section(self.screen, cx0, y, cw,
+                      sk.TAB_NAMES.get(skill_tab, skill_tab))
+            y += 28
+            T.bar(self.screen, (cx0, y, 260, 12), ratio, (120, 180, 110))
+            progress = f"Ур. {level}"
+            if need:
+                progress += f" · {sk.craft_xp(game.player, skill_tab)}/{need}"
+            self.text(progress, cx0 + 272, y - 2, T.TEXT_DIM,
+                      font=T.FONT_SMALL)
+            if quality_bonus:
+                self.text(f"качество +{quality_bonus}",
+                          self._modal_right(game), y - 2, (240, 210, 90),
+                          font=T.FONT_SMALL, align_right=True)
+            y += 28
+        else:
+            y = T.section(self.screen, cx0, y, cw, "Все рецепты")
+            y += 6
+
+        if game.craft.minigame_active:
+            self._draw_minigame(game, cx0, y, cw)
+            return
 
         recipes = game.craft_page_items()
         offset = game.craft.page_offset()
@@ -660,10 +1116,12 @@ class ScreensRenderer(BaseRenderer):
             self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED,
                       font=T.FONT_SMALL)
         for i, entry in enumerate(recipes):
-            key, it, recipe, can, _category, _ri, out_count = entry
+            key, it, recipe, can, category, _ri, out_count = entry
             lvl_req = it.get('level_req', 1)
             lvl_ok = game.player.level >= lvl_req
-            can_full = can and lvl_ok
+            skill_req = int(it.get('skill_req', 1))
+            skill_ok = sk.craft_level(game.player, category) >= skill_req
+            can_full = can and lvl_ok and skill_ok
             color = T.HEAL if can_full else T.TEXT_MUTED
             row_y = y
 
@@ -672,8 +1130,12 @@ class ScreensRenderer(BaseRenderer):
             if out_count > 1:
                 name += f" ×{out_count}"
             self.text(name, cx0 + 36, row_y + 4, color)
-            self.text(f"Ур.{lvl_req}", cx0 + 340, row_y + 4,
-                      T.GOLD if lvl_ok else T.HP_CRIT, font=T.FONT_SMALL)
+            req_text = f"Ур.{lvl_req}"
+            if skill_req > 1:
+                req_text += f" · навык {skill_req}"
+            self.text(req_text, cx0 + 300, row_y + 4,
+                      T.GOLD if (lvl_ok and skill_ok) else T.HP_CRIT,
+                      font=T.FONT_SMALL)
             y += 22
 
             ix = cx0 + 36
@@ -689,7 +1151,8 @@ class ScreensRenderer(BaseRenderer):
             hx = self._modal_right(game) - HAMMER_SIZE + 4
             hy = row_y
             mx, my = game.mouse_pos
-            hover = (hx <= mx <= hx + HAMMER_SIZE and hy <= my <= hy + HAMMER_SIZE)
+            hover = (hx <= mx <= hx + HAMMER_SIZE
+                     and hy <= my <= hy + HAMMER_SIZE)
             bg_h = (60, 90, 60) if (can_full and hover) else \
                 (40, 70, 40) if can_full else (40, 40, 50)
             border_h = (120, 170, 104) if can_full else (78, 66, 48)
@@ -717,17 +1180,142 @@ class ScreensRenderer(BaseRenderer):
                 T.rounded_rect(self.screen, (30, 27, 22), rect,
                                radius=5, border_color=(78, 66, 48))
                 cx = rect[0] + rect[2] // 2
-                cy = rect[1] + rect[3] // 2
+                cyy = rect[1] + rect[3] // 2
                 col = T.GOLD if enabled else T.TEXT_MUTED
                 if direction < 0:
-                    pts = [(cx + 4, cy - 6), (cx + 4, cy + 6), (cx - 5, cy)]
+                    pts = [(cx + 4, cyy - 6), (cx + 4, cyy + 6), (cx - 5, cyy)]
                 else:
-                    pts = [(cx - 4, cy - 6), (cx - 4, cy + 6), (cx + 5, cy)]
+                    pts = [(cx - 4, cyy - 6), (cx - 4, cyy + 6), (cx + 5, cyy)]
                 pygame.draw.polygon(self.screen, col, pts)
             self.text(f"Стр. {page + 1}/{total}", cx0 + 170, py + 4,
                       T.TEXT_DIM, font=T.FONT_SMALL)
             game._ui_hits['craft']['prev'] = prev_rect
             game._ui_hits['craft']['next'] = next_rect
+
+        hints = "Q/E — вкладки · ←/→ — страницы · 1–8 — создать · K/Esc — закрыть"
+        if game.craft.minigame_active:
+            hints = "Создание запускает мини-игру качества. " + hints
+        self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, center=True)
+
+    def _draw_minigame(self, game, x, y, cw):
+        mg = game.craft.minigame
+        item_key = mg['key'] if mg else ''
+        self.text("МИНИ-ИГРА КАЧЕСТВА", x, y, T.TITLE, font=T.FONT_H2)
+        y += 30
+        self.text(f"Создаётся: {item_display_name(item_key)}", x, y,
+                  T.TEXT, font=T.FONT_BODY)
+        y += 30
+        bar = (x, y, cw - 20, 26)
+        T.rounded_rect(self.screen, (28, 26, 20), bar, radius=6,
+                       border_color=T.PANEL_BORDER)
+        # Зелёная зона точности по центру
+        zx = x + int((cw - 20) * 0.35)
+        zw = int((cw - 20) * 0.30)
+        T.rounded_rect(self.screen, (52, 96, 52), (zx, y + 2, zw, 22),
+                       radius=4, border_color=(120, 200, 120))
+        pos = x + int((cw - 20) * mg['pos']) if mg else x
+        pygame.draw.line(self.screen, (250, 240, 180),
+                         (pos, y - 6), (pos, y + 32), 3)
+        y += 40
+        self.text("Пробел / клик — остановить в зелёной зоне. Esc — отмена.",
+                  x + cw // 2, y, T.TEXT_DIM, font=T.FONT_SMALL, center=True)
+
+    # ════════════════════════ КОНСОЛЬ РАЗРАБОТЧИКА ════════════════════════
+    @staticmethod
+    def _wrap_console(text, font, max_w):
+        lines = []
+        for raw in str(text).split('\n'):
+            words = raw.split(' ')
+            current = ''
+            for word in words:
+                candidate = word if not current else current + ' ' + word
+                if not current or font.size(candidate)[0] <= max_w:
+                    current = candidate
+                else:
+                    lines.append(current)
+                    current = word
+            lines.append(current)
+        return lines or ['']
+
+    def draw_dev_console(self, game):
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        ctrl = game.dev_console
+        accent = (224, 120, 88)
+        self.text("КОНСОЛЬ РАЗРАБОТЧИКА", cx0, cy0, accent, font=T.FONT_H1)
+        self.text("F12 / ` — закрыть", self._modal_right(game), cy0 + 8,
+                  T.TEXT_MUTED, font=T.FONT_SMALL, align_right=True)
+        y = cy0 + 56
+
+        locked = ctrl.locked_for()
+        if locked > 0:
+            self.text("Доступ временно заблокирован.", cx0, y, T.HP_CRIT,
+                      font=T.FONT_BODY)
+            self.text(f"Осталось: {int(locked) + 1} с.", cx0, y + 28,
+                      T.TEXT_DIM, font=T.FONT_SMALL)
+            self.text("Esc — закрыть.", cx0, y + 58, T.TEXT_MUTED,
+                      font=T.FONT_SMALL)
+            return
+
+        if not ctrl.unlocked:
+            self.text("Введите пароль разработчика.", cx0, y, T.TEXT,
+                      font=T.FONT_BODY)
+            box = (cx0, y + 30, min(cw, 560), 38)
+            T.rounded_rect(self.screen, (18, 16, 13), box, radius=6,
+                           border_color=(110, 86, 58))
+            masked = '*' * len(ctrl.buffer)
+            shown = self.fit_text(masked, box[2] - 56, T.FONT_BODY)
+            self.text(shown, box[0] + 12, box[1] + 9,
+                      T.TEXT, font=T.FONT_BODY)
+            caret_x = box[0] + 12 + T.FONT_BODY.size(shown)[0]
+            if caret_x < box[0] + box[2] - 20:
+                self.text("_", caret_x + 2, box[1] + 8, T.GOLD,
+                          font=T.FONT_BODY)
+            if ctrl.error:
+                self.text(ctrl.error, cx0, box[1] + box[3] + 10, T.HP_CRIT,
+                          font=T.FONT_SMALL)
+            self.text("Enter — проверить · Esc — закрыть",
+                      cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
+                      font=T.FONT_SMALL, center=True)
+            return
+
+        # ── Вывод консоли ──
+        pad = 10
+        out_rect = (cx0, y - 6, cw, (cy0 + ch) - (y - 6) - 46)
+        T.rounded_rect(self.screen, (14, 13, 11), out_rect, radius=6,
+                       border_color=(76, 64, 46))
+        text_w = out_rect[2] - pad * 2
+        wrapped = []
+        for text, color in ctrl.lines:
+            for part in self._wrap_console(text, T.FONT_SMALL, text_w):
+                wrapped.append((part, color))
+        max_lines = max(1, (out_rect[3] - pad * 2) // 18)
+        visible = wrapped[-max_lines:]
+        ly = out_rect[1] + pad
+        for text, color in visible:
+            self.text(self.fit_text(text, text_w, T.FONT_SMALL),
+                      out_rect[0] + pad, ly, color, font=T.FONT_SMALL)
+            ly += 18
+
+        # ── Строка ввода ──
+        input_rect = (cx0, cy0 + ch - 34, cw, 30)
+        T.rounded_rect(self.screen, (22, 20, 16), input_rect, radius=6,
+                       border_color=(110, 86, 58))
+        prompt = ctrl.prompt
+        self.text(prompt, input_rect[0] + 8, input_rect[1] + 6,
+                  T.GOLD, font=T.FONT_BODY)
+        prompt_w = T.FONT_BODY.size(prompt)[0]
+        shown = self.fit_text(ctrl.buffer, cw - prompt_w - 40, T.FONT_BODY)
+        self.text(shown, input_rect[0] + 8 + prompt_w, input_rect[1] + 6,
+                  T.TEXT, font=T.FONT_BODY)
+        caret_x = input_rect[0] + 10 + prompt_w + T.FONT_BODY.size(shown)[0]
+        if caret_x < input_rect[0] + cw - 12:
+            self.text("_", caret_x, input_rect[1] + 6, T.GOLD,
+                      font=T.FONT_BODY)
+        self.text("Enter — выполнить · ↑/↓ — история · Tab — дописать",
+                  cx0 + cw // 2, cy0 + ch - 46, T.TEXT_MUTED,
+                  font=T.FONT_TINY, center=True)
 
     # ════════════════════════ ДИАЛОГ ════════════════════════
     def draw_dialogue(self, game):
@@ -945,3 +1533,124 @@ class ScreensRenderer(BaseRenderer):
             y_col += 34
         if not has:
             self.text("(пока никого)", right_x, y_col, T.TEXT_MUTED, font=T.FONT_SMALL)
+
+    # ════════════════════════ ОБМЕН МЕЖДУ ИГРОКАМИ ════════════════════════
+    def draw_trade(self, game):
+        """Окно обмена: предложения сторон, золото, подтверждение."""
+        self._modal_bg(game)
+        cx0, cy0, cw, ch = game._modal_content_rect
+        self.text("ОБМЕН", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
+        hits = []
+        game._ui_hits['trade'] = hits
+        trade = getattr(game, 'trade', None)
+        if not trade:
+            self.text("Обмен не активен", cx0 + cw // 2, cy0 + 120,
+                      T.TEXT_MUTED, font=T.FONT_H2, center=True)
+            return
+
+        my = str(game.my_id)
+        players = trade.get('players', [])
+        partner_id = None
+        if my in players:
+            partner_id = players[1] if players[0] == my else players[0]
+        partner = game.remote_players.get(int(partner_id)) \
+            if partner_id is not None else None
+
+        # Фаза запроса: второй игрок ещё не принял
+        if my not in trade.get('accepted', []):
+            name = partner.class_name if partner else 'Игрок'
+            self.text(f"{name} предлагает обмен", cx0 + cw // 2, cy0 + 110,
+                      (238, 222, 188), font=T.FONT_H2, center=True)
+            bw, bh = 220, 46
+            for i, (action, label, color) in enumerate(
+                    (('accept', 'Принять', (134, 190, 118)),
+                     ('decline', 'Отказаться', (230, 120, 90)))):
+                rect = (cx0 + cw // 2 - bw + i * (bw + 20), cy0 + 170, bw, bh)
+                self._trade_button(label, rect, color)
+                hits.append((action, rect))
+            return
+
+        my_offer = trade.get('offers', {}).get(my, {})
+        other_offer = trade.get('offers', {}).get(partner_id, {})
+        my_gold = trade.get('gold', {}).get(my, 0)
+        other_gold = trade.get('gold', {}).get(partner_id, 0)
+        ready = trade.get('ready', [])
+
+        col_w = (cw - 60) // 2
+        col_h = 320
+        cols = (
+            (cx0, 'Вы выкладываете', my_offer, my_gold, my in ready),
+            (cx0 + col_w + 60, partner.class_name if partner else 'Соперник',
+             other_offer, other_gold, partner_id in ready),
+        )
+        for col_x, title, offer, gold, is_ready in cols:
+            T.rounded_rect(self.screen, (26, 22, 18), (col_x, cy0 + 56,
+                                                       col_w, col_h),
+                           radius=8, border_color=(90, 74, 48))
+            self.text(title, col_x + 12, cy0 + 64, (238, 222, 188),
+                      font=T.FONT_H2)
+            self.text(f"Золото: {gold}", col_x + 12, cy0 + 96,
+                      (240, 210, 90), font=T.FONT_BODY)
+            y = cy0 + 128
+            if is_ready:
+                self.text("✔ Подтверждено", col_x + col_w - 12, cy0 + 96,
+                          (134, 190, 118), font=T.FONT_BODY, align_right=True)
+            if not offer:
+                self.text("(пусто)", col_x + 12, y, T.TEXT_MUTED,
+                          font=T.FONT_SMALL)
+                y += 24
+            for key, count in sorted(offer.items()):
+                self.text(f"{item_display_name(key)} ×{count}",
+                          col_x + 12, y, T.TEXT, font=T.FONT_SMALL)
+                if col_x == cx0:      # свои предметы можно убрать
+                    rect = (col_x + col_w - 32, y - 2, 26, 22)
+                    self._trade_button('−', rect, (230, 120, 90))
+                    hits.append((('remove', key), rect))
+                y += 26
+            if col_x == cx0 and y < cy0 + 56 + col_h - 30:
+                # Кнопки золота
+                by = cy0 + 56 + col_h - 96
+                for i, (action, label) in enumerate(
+                        (('gold-10', '-10'), ('gold+10', '+10'),
+                         ('gold+100', '+100'), ('gold_reset', 'Сброс'))):
+                    rect = (col_x + 12 + i * 78, by, 70, 26)
+                    self._trade_button(label, rect, (206, 166, 82))
+                    hits.append((action, rect))
+
+        # Свои предметы: добавить по клику (до 12 позиций)
+        self.text("Инвентарь (клик — добавить):", cx0, cy0 + 56 + col_h + 16,
+                  (190, 172, 138), font=T.FONT_SMALL)
+        inv = [(k, c) for k, c in sorted(game.player.inventory.items()) if c > 0]
+        per_col = 6
+        for i, (key, count) in enumerate(inv[:per_col * 2]):
+            col = i // per_col
+            row = i % per_col
+            ix = cx0 + col * (col_w + 60)
+            iy = cy0 + 56 + col_h + 40 + row * 26
+            label = self.fit_text(f"{item_display_name(key)} ×{count}",
+                                  col_w - 40, T.FONT_SMALL)
+            self.text(label, ix, iy, T.TEXT, font=T.FONT_SMALL)
+            rect = (ix + col_w - 34, iy - 3, 28, 22)
+            self._trade_button('+', rect, (134, 190, 118))
+            hits.append((('add', key), rect))
+
+        # Кнопки внизу
+        bw, bh = 220, 46
+        bottom = cy0 + ch - bh - 8
+        is_ready = my in ready
+        ready_label = 'Готов ✔' if is_ready else 'Подтвердить'
+        rect = (cx0, bottom, bw, bh)
+        self._trade_button(ready_label, rect, (134, 190, 118))
+        hits.append(('ready', rect))
+        rect = (cx0 + cw - bw, bottom, bw, bh)
+        self._trade_button('Отменить', rect, (230, 120, 90))
+        hits.append(('cancel', rect))
+
+    def _trade_button(self, label, rect, color):
+        mx, my = pygame.mouse.get_pos()
+        x, y, w, h = rect
+        hover = x <= mx <= x + w and y <= my <= y + h
+        bg = (66, 54, 38) if hover else (40, 34, 26)
+        T.rounded_rect(self.screen, bg, rect, radius=6, border_color=color)
+        self.text(label, x + w // 2, y + h // 2 - 2, color,
+                  font=T.FONT_BODY, center=True)

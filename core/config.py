@@ -1,4 +1,5 @@
 """Константы, цвета, enum'ы. Ни от чего не зависит."""
+import hashlib
 import os
 import sys
 from enum import IntEnum
@@ -77,16 +78,35 @@ def set_resolution(width, height):
     VIEW_H = (height - HUD_HEIGHT) // TILE
 
 
+class Tile(IntEnum):
+    WALL = 0
+    FLOOR = 1
+    STAIRS = 2        # вниз, на следующий этаж
+    EXIT = 3          # выход из подземелья на поверхность (глубина 1)
+    UPSTAIRS = 4      # вверх, на предыдущий этаж (глубина 2+)
+    GATE = 5          # переход на другую карту локации (дорога/вход)
+    LOCKED_DOOR = 6   # запертая дверь босс-комплекса (нужен ключ босса)
+    CHEST = 7         # сундук казны: открывается по «E», стоя рядом
+
+
+def hud_height():
+    """Высота HUD-полосы: весь остаток экрана под игровым полем.
+
+    Поле занимает VIEW_H целых тайлов; раньше снизу оставались чёрные
+    полосы высотой до TILE-1 пикселей между полем и HUD. Теперь HUD
+    забирает весь остаток — полос больше нет.
+    """
+    return SCREEN_H - VIEW_H * TILE
+
+
 def view_origin():
     """Левый верхний угол игрового поля.
 
-    Поле — целое число тайлов, поэтому при некоторых разрешениях остаётся
-    несколько пикселей. Центрируем его в области над HUD, иначе карта
-    прижимается к левому верхнему углу и смотрится «съехавшей».
+    Поле прижато к верхней кромке экрана, а весь остаток высоты отдан
+    HUD (см. :func:`hud_height`): чёрные полосы сверху/снизу исчезли.
+    По горизонтали поле центрируется, если ширина не делится на тайлы.
     """
-    return ((SCREEN_W - VIEW_W * TILE) // 2,
-            (SCREEN_H - HUD_HEIGHT - VIEW_H * TILE) // 2)
-
+    return ((SCREEN_W - VIEW_W * TILE) // 2, 0)
 
 # ── Игровые параметры ──
 FOV_RADIUS = 9
@@ -105,6 +125,26 @@ MINIMAP_SCALE = 2
 MINIMAP_MARGIN = 8
 
 SAVE_VERSION = 8
+
+# ── Консоль разработчика ──
+# Пароль хранится хешем, чтобы он не лежал в сейвах/настройках открытым
+# текстом. Пароль по умолчанию — «ethelgard»; его можно переопределить
+# переменной окружения ETHELGARD_DEV_PASSWORD (или сразу хешем через
+# ETHELGARD_DEV_PASSWORD_HASH).
+DEV_CONSOLE_PASSWORD_HASH = (
+    '0670b05790a5a75f60c941b10e7866c3347b3261b216e4881145c4bb5f172f4a'
+)
+DEV_CONSOLE_MAX_ATTEMPTS = 3
+DEV_CONSOLE_LOCK_SECONDS = 30
+
+
+def dev_console_password_hash():
+    """Хеш пароля консоли с учётом переменных окружения."""
+    plain = os.environ.get('ETHELGARD_DEV_PASSWORD')
+    if plain:
+        return hashlib.sha256(plain.encode('utf-8')).hexdigest()
+    return os.environ.get('ETHELGARD_DEV_PASSWORD_HASH',
+                          DEV_CONSOLE_PASSWORD_HASH)
 
 # ── Real-time таймеры ──
 PLAYER_MOVE_COOLDOWN   = 0.12
@@ -170,12 +210,3 @@ COL_HEAL    = (120, 240, 120)
 COL_DODGE   = (180, 180, 255)
 COL_WIN     = (255, 220, 80)
 COL_MERCH   = (240, 200, 100)
-
-
-class Tile(IntEnum):
-    WALL = 0
-    FLOOR = 1
-    STAIRS = 2        # вниз, на следующий этаж
-    EXIT = 3          # выход из подземелья на поверхность (глубина 1)
-    UPSTAIRS = 4      # вверх, на предыдущий этаж (глубина 2+)
-    GATE = 5          # переход на другую карту локации (дорога/вход)

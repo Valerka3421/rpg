@@ -138,15 +138,15 @@ def test_city_shop_buy_and_no_reroll(make_game):
     g.open_city_shop('alchemist')
     g.player.gold = 1000
     idx = next(i for i, entry in enumerate(g.shop_stock)
-               if entry['key'] == 'mana_potion_s')
+               if entry['key'] == 'mana_s')
     price = g.shop_stock[idx]['price']
     g.shop.buy(idx)
-    assert g.player.inventory.get('mana_potion_s') == 1
+    assert g.player.inventory.get('mana_s') == 1
     assert g.player.gold == 1000 - price
     # Товары горожан можно покупать повторно.
     assert not g.shop_stock[idx].get('sold')
     g.shop.buy(idx)
-    assert g.player.inventory.get('mana_potion_s') == 2
+    assert g.player.inventory.get('mana_s') == 2
     assert g.player.gold == 1000 - price * 2
 
     before = list(g.shop_stock)
@@ -161,7 +161,7 @@ def test_innkeeper_sells_food_and_alchemist_mana(make_game):
     assert {'fried_mushrooms', 'berry_compote',
             'roast_venison', 'roast_boar', 'roast_bear'} <= food
     potions = {key for key, _ in CITY_SHOP_STOCK['alchemist']}
-    assert {'mana_potion_s', 'mana_potion_l'} <= potions
+    assert {'mana_s', 'mana_m'} <= potions
     smith = {key for key, _ in CITY_SHOP_STOCK['blacksmith']}
     assert {'iron_ingot', 'steel_ingot', 'ore'} <= smith
 
@@ -172,12 +172,12 @@ def test_mana_potion_restores_mana():
     p = Player()
     p.mana = max(0, p.max_mana - 20)
     before = p.mana
-    p.inventory['mana_potion_s'] = 1
-    res = use_item(p, 'mana_potion_s')
+    p.inventory['mana_s'] = 1
+    res = use_item(p, 'mana_s')
     assert res.ok
     assert p.mana > before
-    assert p.mana - before == min(15, p.max_mana - before)
-    assert 'mana_potion_s' not in p.inventory
+    assert p.mana - before == min(12, p.max_mana - before)
+    assert 'mana_s' not in p.inventory
 
 
 def test_food_restores_hp_and_mana():
@@ -281,7 +281,7 @@ def test_city_npcs_survive_save_load(make_game, tmp_path):
 
 
 def test_new_item_icons_render(renderer):
-    for key in ('mana_potion_s', 'mana_potion_l', 'fried_mushrooms',
+    for key in ('mana_s', 'mana_m', 'fried_mushrooms',
                 'berry_compote', 'roast_venison', 'roast_boar',
                 'roast_bear'):
         renderer.icons.draw_item(key, 0, 0, size=32)

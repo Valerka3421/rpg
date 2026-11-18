@@ -13,12 +13,12 @@ from game.stats_controller import StatsController
 from core.config import (
     TILE, MAP_W, MAP_H, MAX_DEPTH, MERCHANT_FLOORS, Tile, INVENTORY_PAGE_SIZE,
     PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN, SAVE_VERSION,
-    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL,
+    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL, FOV_RADIUS,
     COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
     COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
 )
 from core.data import (BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH,
-                       CITY_NPC_NAMES, CITY_NPC_GLYPHS, is_city_shop_npc)
+                       ITEMS, CITY_NPC_NAMES, CITY_NPC_GLYPHS, is_city_shop_npc)
 from core.entities import Player, Entity, Message, FloatText
 from core.world import (generate_dungeon, generate_overworld, place_entry_tile,
                         has_los, compute_fov, bfs_toward_player)
@@ -32,6 +32,8 @@ from core.settings import load_settings, save_settings
 from game.menu_controller import MenuController
 from game.shop_controller import ShopController
 from game.craft_controller import CraftController
+from game.skills_controller import SkillsController
+from game.dev_console_controller import DevConsoleController
 
 
 # Порядок характеристик для цифровых клавиш в окне статов
@@ -50,6 +52,8 @@ class Game:
         self.menu = MenuController(self)
         self.shop = ShopController(self)
         self.craft = CraftController(self)
+        self.skills_ui = SkillsController(self)
+        self.dev_console = DevConsoleController(self)
 
         self.dialogue = DialogueController(self)
         self.quests = QuestController(self)
@@ -75,6 +79,14 @@ class Game:
             self.shop = ShopController(self)
         if not hasattr(self, 'craft'):
             self.craft = CraftController(self)
+        if not hasattr(self, 'skills_ui'):
+            self.skills_ui = SkillsController(self)
+        if not hasattr(self, 'dev_console'):
+            self.dev_console = DevConsoleController(self)
+        else:
+            self.dev_console.return_mode = 'game'
+            self.dev_console.buffer = ''
+            self.dev_console.error = ''
         if not hasattr(self, 'dialogue'):
             self.dialogue = DialogueController(self)
         if not hasattr(self, 'quests'):
@@ -511,7 +523,10 @@ class Game:
             d = self.dungeon
             self.visible = {(x, y) for y in range(d.h) for x in range(d.w)}
         else:
-            self.visible = compute_fov(self.dungeon, self.player.x, self.player.y)
+            radius = FOV_RADIUS + max(
+                0, int(getattr(self.player, 'vision_bonus', 0)))
+            self.visible = compute_fov(self.dungeon, self.player.x,
+                                       self.player.y, radius)
         self.explored |= self.visible
 
     # ════════════════════════ SAVE / LOAD ════════════════════════
@@ -738,15 +753,15 @@ class Game:
         if target:
             self.attack(self.player, target)
             return True
-        # Кусты и руда лежат на проходимых клетках: идти в них нельзя,
-        # но удар добывает ресурс. Деревья — это стены.
+        # Ресурсы добываются только клавишей «E» — идти в клетку ресурса
+        # нельзя. Деревья/кусты/руда стоят на месте.
         if (nx, ny) in self.dungeon.harvestables:
-            self.harvest_at(nx, ny)
-            return True
+            return False
         tile = self.dungeon.tiles[ny][nx]
-        if tile == Tile.WALL:
-            if self.harvest_at(nx, ny):
-                return True
+        if tile in (Tile.WALL, Tile.LOCKED_DOOR, Tile.CHEST):
+            if tile == Tile.LOCKED_DOOR:
+                # Запертая дверь босс-комплекса: отпирается ключом босса.
+                return self._try_unlock_door(nx, ny)
             return False
         self.player.x, self.player.y = nx, ny
         if (nx, ny) in self.dungeon.items:
@@ -790,22 +805,98 @@ class Game:
         if target:
             self.attack(self.player, target)
             return
-        # Рудные камни, деревья и кусты: атака добывает ближайший ресурс.
-        candidates = list(self.dungeon.harvestables)
+        # Ресурсы добываются только клавишей «E» (harvest_adjacent):
+        # пробел бьёт только по монстрам.
+
+    def map_tile_under(self, pos):
+        """Клетка карты под курсором или None (курсор вне игрового поля)."""
+        from core.config import TILE, MAP_W, MAP_H
+        ox, oy = config.view_origin()
+        mx, my = pos
+        if not (ox <= mx < ox + config.VIEW_W * TILE
+                and oy <= my < oy + config.VIEW_H * TILE):
+            return None
+        w_cells = getattr(self.dungeon, 'w', MAP_W)
+        h_cells = getattr(self.dungeon, 'h', MAP_H)
+        cam_x = max(0, min(self.player.x - config.VIEW_W // 2,
+                           max(0, w_cells - config.VIEW_W)))
+        cam_y = max(0, min(self.player.y - config.VIEW_H // 2,
+                           max(0, h_cells - config.VIEW_H)))
+        return ((mx - ox) // TILE + cam_x, (my - oy) // TILE + cam_y)
+
+    def harvest_adjacent(self):
+        """Добыча ресурса или открытие сундука («E»).
+
+        Приоритет — клетка под курсором, если она в пределах шага; иначе
+        выбирается ближайший смежный ресурс (как раньше).
+        """
+        px, py = self.player.x, self.player.y
+        hovered = self.map_tile_under(getattr(self, 'mouse_pos', (-1, -1)))
+        if hovered is not None and max(abs(hovered[0] - px),
+                                       abs(hovered[1] - py)) > 1:
+            hovered = None
+
+        def is_chest(x, y):
+            return (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h
+                    and self.dungeon.tiles[y][x] == Tile.CHEST)
+
+        if hovered and is_chest(*hovered):
+            self._open_chest(*hovered)
+            return True
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tx, ty = px + dx, py + dy
+            if is_chest(tx, ty):
+                self._open_chest(tx, ty)
+                return True
+        if self.world_mode != 'overworld':
+            return False
+        # Ресурс под курсором — даже если рядом есть другие.
+        if hovered and self.harvestable_kind_at(*hovered) is not None:
+            return self.harvest_at(*hovered)
+        best = None
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 if dx == 0 and dy == 0:
                     continue
-                pos = (self.player.x + dx, self.player.y + dy)
-                if pos not in candidates and self.harvestable_kind_at(*pos):
-                    candidates.append(pos)
-        candidates.sort(key=lambda p: max(abs(p[0] - self.player.x),
-                                          abs(p[1] - self.player.y)))
-        for pos in candidates:
-            if max(abs(pos[0] - self.player.x),
-                   abs(pos[1] - self.player.y)) <= 1:
-                if self.harvest_at(*pos):
-                    return
+                pos = (px + dx, py + dy)
+                if self.harvestable_kind_at(*pos) is None:
+                    continue
+                dist = max(abs(dx), abs(dy))
+                if best is None or dist < best[0]:
+                    best = (dist, pos)
+        if best:
+            return self.harvest_at(*best[1])
+        return False
+
+    def _open_chest(self, x, y):
+        """Сундук казны: золото + пара предметов по глубине."""
+        from audio import Audio
+        Audio.play('pickup')
+        depth = max(1, self.depth)
+        gold = 20 + depth * 8
+        self.player.gold += gold
+        self.total_gold_earned += gold
+        self.log(f"Сундук открыт: +{gold} золота", COL_GOLD)
+        self.add_float(x, y, f"+{gold}g", COL_GOLD)
+        tier = min(3, max(1, (depth + 1) // 3))
+        pool = [k for k, v in ITEMS.items()
+                if v.get('tier', 1) <= tier
+                and v.get('type') not in ('book', 'resource', 'key')]
+        for _ in range(random.randint(2, 3)):
+            self._place_drop(x, y, random.choice(pool))
+        self.dungeon.tiles[y][x] = Tile.FLOOR
+        self.render_revision = getattr(self, 'render_revision', 0) + 1
+
+    def _try_unlock_door(self, x, y):
+        """Запертая дверь: тратит ключ босса и открывается."""
+        if self.player.inventory.get('boss_key', 0) > 0:
+            rules.consume(self.player.inventory, 'boss_key')
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            self.render_revision = getattr(self, 'render_revision', 0) + 1
+            self.log("Ключ босса отпирает дверь.", COL_GOLD)
+            return True
+        self.log("Дверь заперта: нужен ключ босса.", COL_DIM)
+        return False
 
     def harvestable_kind_at(self, x, y):
         """'bush'/'tree'/'ore' для клетки или None."""
@@ -910,6 +1001,24 @@ class Game:
             if result.amount:
                 self.add_float(self.player.x, self.player.y,
                                f"+{result.amount}", COL_GOLD)
+        elif result.kind == 'mana':
+            Audio.play('heal')
+            self.log(result.message, result.color)
+            self.add_float(self.player.x, self.player.y,
+                           f"+{result.amount}", result.color)
+        elif result.kind == 'buff':
+            Audio.play('heal')
+            self.log(result.message, result.color)
+        elif result.kind in ('poison', 'lightning'):
+            Audio.play('fireball' if result.kind == 'lightning' else 'hit')
+            for monster, damage in result.victims:
+                self.log(f"{result.message}", result.color)
+                self.add_float(monster.x, monster.y, str(damage), result.color)
+                if monster.hp <= 0:
+                    self._kill_monster(monster)
+        elif result.kind == 'ward':
+            Audio.play('heal')
+            self.log(result.message, result.color)
         elif result.kind == 'fireball':
             Audio.play('fireball')
             for monster, damage in result.victims:
@@ -959,47 +1068,37 @@ class Game:
                  'luk': 'Удача', 'df_stat': 'Защита'}
         self.log(f"{names[name]} +1 ({p.free_points} очков)", COL_GOLD)
 
-    def unequip_weapon(self):
+    def unequip_slot(self, slot):
         p = self.player
-        if not p.weapon:
-            self.log("Оружие не надето.", COL_DIM); return
-        key = p.weapon
-        p.weapon = None
+        slot = {'helmet': 'head', 'leggings': 'legs'}.get(slot, slot)
+        key = getattr(p, slot, None)
+        if not key:
+            names = {'weapon': 'Оружие', 'armor': 'Броня',
+                     'head': 'Шлем', 'legs': 'Поножи'}
+            self.log(f"{names.get(slot, 'Слот')}: пусто.", COL_DIM)
+            return
+        setattr(p, slot, None)
         p.inventory[key] = p.inventory.get(key, 0) + 1
         p.recalc()
         self.log(f"Снято: {item_display_name(key)}", COL_DIM)
+
+    def unequip_weapon(self):
+        self.unequip_slot('weapon')
 
     def unequip_armor(self):
-        p = self.player
-        if not p.armor:
-            self.log("Броня не надета.", COL_DIM); return
-        key = p.armor
-        p.armor = None
-        p.inventory[key] = p.inventory.get(key, 0) + 1
-        p.recalc()
-        self.log(f"Снято: {item_display_name(key)}", COL_DIM)
+        self.unequip_slot('armor')
+
+    def unequip_helmet(self):
+        self.unequip_slot('head')
+
+    def unequip_leggings(self):
+        self.unequip_slot('legs')
 
     def unequip_head(self):
-        p = self.player
-        if not p.head:
-            self.log("Шлем не надет.", COL_DIM);
-            return
-        key = p.head
-        p.head = None
-        p.inventory[key] = p.inventory.get(key, 0) + 1
-        p.recalc()
-        self.log(f"Снято: {item_display_name(key)}", COL_DIM)
+        self.unequip_slot('head')
 
     def unequip_legs(self):
-        p = self.player
-        if not p.legs:
-            self.log("Штаны не надеты.", COL_DIM);
-            return
-        key = p.legs
-        p.legs = None
-        p.inventory[key] = p.inventory.get(key, 0) + 1
-        p.recalc()
-        self.log(f"Снято: {item_display_name(key)}", COL_DIM)
+        self.unequip_slot('legs')
 
     # ════════════════════════ БОЙ ════════════════════════
     def attack(self, a, b):
@@ -1062,12 +1161,21 @@ class Game:
         self.add_float(monster.x, monster.y, f"+{monster.xp_value} XP", COL_XP)
 
         reward = rules.roll_kill_reward(monster, self.depth, self.player.greedy)
+        gold_pct = float(getattr(self.player, 'gold_pct', 0.0) or 0.0)
+        reward.gold = int(round(reward.gold * (1.0 + gold_pct)))
         self.player.gold += reward.gold
         self.total_gold_earned += reward.gold
         self.log(f"+{reward.gold} золота", COL_GOLD)
         self.add_float(monster.x, monster.y - 0.6, f"+{reward.gold}g", COL_GOLD)
         for item_key in reward.drops:
             self._place_drop(monster.x, monster.y, item_key)
+
+        if monster.boss:
+            # Погиб босс: замурованные выходы его арены открываются.
+            from core.world import clear_boss_barriers
+            if clear_boss_barriers(self.dungeon):
+                self.render_revision = getattr(self, 'render_revision', 0) + 1
+                self.log("Выходы арены открыты.", COL_WIN)
 
         if monster.boss and self.depth == MAX_DEPTH:
             self.victory = True
@@ -1090,7 +1198,8 @@ class Game:
         from audio import Audio
         Audio.play('level_up')
         p = self.player
-        self.log(f"Уровень {level}! +5 очков, HP восстановлено.", COL_GOLD)
+        self.log(f"Уровень {level}! +5 очков, +1 очко навыка, HP восстановлено.",
+                 COL_GOLD)
         n = self._lvl_float_idx % 4
         self._lvl_float_idx = n + 1
         self.add_float(p.x, p.y - n * 0.8, f"LVL {level}", COL_GOLD)
@@ -1225,7 +1334,8 @@ class Game:
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
                 continue
-            if self.dungeon.tiles[ny][nx] == Tile.WALL:
+            if self.dungeon.tiles[ny][nx] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                              Tile.CHEST):
                 continue
             if any(o is not m and o.hp > 0 and o.x == nx and o.y == ny
                    for o in self.dungeon.monsters):
@@ -1303,7 +1413,8 @@ class Game:
         from core.config import Tile
         if not (0 <= x < self.dungeon.w and 0 <= y < self.dungeon.h):
             return False
-        if self.dungeon.tiles[y][x] == Tile.WALL:
+        if self.dungeon.tiles[y][x] in (Tile.WALL, Tile.LOCKED_DOOR,
+                                        Tile.CHEST):
             return False
         if (x, y) in self.dungeon.harvestables:
             return False
@@ -1320,16 +1431,34 @@ class Game:
 
     # ════════════════════════ МАРШРУТИЗАЦИЯ INPUT ════════════════════════
     def handle_key(self, key, scancode=0, unicode='', mods=0):
+        # Консоль разработчика — раньше любых экранов, чтобы её нельзя было
+        # «застрять» в модалке. F12 переключает, ` открывает.
+        if key == pygame.K_F12:
+            if self.screen_mode == 'dev_console':
+                self.dev_console.close()
+            else:
+                self.dev_console.open()
+            return
+        if key == pygame.K_BACKQUOTE and self.screen_mode != 'dev_console':
+            self.dev_console.open()
+            return
+        if self.screen_mode == 'dev_console':
+            self.dev_console.handle_key(key, unicode, mods)
+            return
+
         # Меню и все его подэкраны
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             self.menu.handle_key(key, scancode, unicode, mods);
             return
         if self.screen_mode == 'shop':
             self.shop.handle_key(key); return
         if self.screen_mode == 'craft':
             self.craft.handle_key(key); return
+        if self.screen_mode == 'skills':
+            self.skills_ui.handle_key(key, scancode); return
         if self.screen_mode == 'dialogue':
             self.dialogue.handle_key(key, scancode);
             return
@@ -1379,10 +1508,14 @@ class Game:
                 self.screen_mode = 'game'
             elif key == pygame.K_c:
                 self.screen_mode = 'stats'
-            elif key == pygame.K_u: self.unequip_weapon()
-            elif key == pygame.K_v: self.unequip_armor()
-            elif key == pygame.K_h: self.unequip_head()
-            elif key == pygame.K_b: self.unequip_legs()
+            elif key == pygame.K_u:
+                self.unequip_weapon()
+            elif key == pygame.K_v:
+                self.unequip_armor()
+            elif key == pygame.K_h:
+                self.unequip_head()
+            elif key == pygame.K_b:
+                self.unequip_legs()
             elif key == pygame.K_q:
                 self.inv_prev_page()
             elif key == pygame.K_e:
@@ -1423,11 +1556,17 @@ class Game:
                 return
             self.log("Рядом нет NPC.", COL_DIM)
             return
+        if key == pygame.K_e:
+            self.harvest_adjacent()
+            self.update_fov()
+            return
         if key == pygame.K_l:
             self.quests.open();
             return
         if key == pygame.K_k:
             self.craft.open(); return
+        if key == pygame.K_n:
+            self.skills_ui.open(); return
         if key == pygame.K_h:
             self.quick_potion()
             self.update_fov()
@@ -1444,21 +1583,27 @@ class Game:
         self.mouse_pos = pos
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             self.menu.handle_mouse_motion(pos)
 
     def handle_mouse_click(self, pos):
         # Меню
         if self.screen_mode in ('menu', 'menu_saves', 'menu_settings',
                                 'class_select', 'menu_controls',
-                                'menu_multiplayer', 'menu_mp_join'):
+                                'menu_credits', 'menu_multiplayer',
+                                'menu_mp_join'):
             return self.menu.handle_mouse_click(pos)
 
         # Крестик — ПЕРВЫМ, до любых других обработчиков
         close = getattr(self, '_modal_close_rect', None)
+        if close and self.screen_mode == 'dev_console':
+            if self._hit(close, pos):
+                self.dev_console.close()
+                return True
         if close and self.screen_mode in ('stats', 'inventory', 'craft',
                                           'quests', 'shop', 'stats_run',
-                                          'dialogue'):
+                                          'dialogue', 'skills'):
             if self._hit(close, pos):
                 self.screen_mode = 'game'
                 return True
@@ -1473,6 +1618,8 @@ class Game:
             return self._handle_stats_click(pos)
         if self.screen_mode == 'craft':
             return self._handle_craft_click(pos)
+        if self.screen_mode == 'skills':
+            return self._handle_skills_click(pos)
         if self.screen_mode == 'shop':
             return self._handle_shop_click(pos)
         if self.screen_mode == 'quests':
@@ -1491,6 +1638,8 @@ class Game:
                     self.inv_page = min(self.inv_page, self.inv_pages_count() - 1)
                 elif name == 'craft':
                     self.craft.open()
+                elif name == 'skills':
+                    self.skills_ui.open()
                 elif name == 'stats':
                     self.screen_mode = 'stats'
                 elif name == 'quests':
@@ -1536,6 +1685,16 @@ class Game:
                 self.log("Подойди ближе.", COL_DIM)
             return True
 
+        # Клик по доске поручений открывает её.
+        if (self.quest_board
+                and (tx, ty) == (self.quest_board.x, self.quest_board.y)
+                and (tx, ty) in self.visible):
+            if max(abs(self.player.x - tx), abs(self.player.y - ty)) <= 1:
+                self.dialogue.open('quest_board')
+            else:
+                self.log("Подойди ближе.", COL_DIM)
+            return True
+
         return False
 
     def _hit(self, rect, pos):
@@ -1553,14 +1712,7 @@ class Game:
                 return True
         for slot, rect in hits.get('equip', []):
             if self._hit(rect, pos):
-                if slot == 'weapon':
-                    self.unequip_weapon()
-                elif slot == 'armor':
-                    self.unequip_armor()
-                elif slot == 'head':
-                    self.unequip_head()
-                elif slot == 'legs':
-                    self.unequip_legs()
+                self.unequip_slot(slot)
                 return True
         for key, rect in hits.get('items', []):
             if self._hit(rect, pos):
@@ -1579,6 +1731,8 @@ class Game:
 
     def _handle_craft_click(self, pos):
         hits = self._ui_hits.get('craft', {})
+        if self.craft.minigame_active:
+            return self.craft.handle_click(pos)
         for tab, rect in hits.get('tabs', []):
             if self._hit(rect, pos):
                 self.craft.set_tab(tab)
@@ -1592,6 +1746,25 @@ class Game:
         for idx, rect in hits.get('hammer', []):
             if self._hit(rect, pos):
                 self.craft.craft(idx)
+                return True
+        return False
+
+    def _handle_skills_click(self, pos):
+        hits = self._ui_hits.get('skills', {})
+        for tab, rect in hits.get('tabs', []):
+            if self._hit(rect, pos):
+                self.skills_ui.set_tab(tab)
+                return True
+        for idx, rect in hits.get('rows', []):
+            if self._hit(rect, pos):
+                if self.skills_ui.selection == idx:
+                    self.skills_ui.activate()
+                else:
+                    self.skills_ui.selection = idx
+                return True
+        for idx, rect in hits.get('promotion', []):
+            if self._hit(rect, pos):
+                self.skills_ui.change_class(idx)
                 return True
         return False
 
@@ -1610,7 +1783,8 @@ class Game:
     def _toolbar_rects(self):
         from core.config import TOOLBAR_BTN, TOOLBAR_GAP, TOOLBAR_MARGIN
         result = []
-        for i, name in enumerate(('inventory', 'craft', 'stats', 'quests')):
+        for i, name in enumerate(('inventory', 'craft', 'skills',
+                                  'stats', 'quests')):
             x = TOOLBAR_MARGIN + i * (TOOLBAR_BTN + TOOLBAR_GAP)
             y = TOOLBAR_MARGIN
             result.append((name, (x, y, TOOLBAR_BTN, TOOLBAR_BTN)))
@@ -1636,13 +1810,13 @@ class Game:
                 dx = 1
             if dx or dy:
                 if self.move_player(dx, dy):
-                    self.player_move_timer = PLAYER_MOVE_COOLDOWN
+                    self.player_move_timer = self.player.move_cooldown
                     self.update_fov()
 
         # ── Атака пробелом ──
         if keys[pygame.K_SPACE] and self.player_attack_timer <= 0:
             self.player_attack()
-            self.player_attack_timer = PLAYER_ATTACK_COOLDOWN
+            self.player_attack_timer = self.player.attack_cooldown
 
     def death_summary(self):
         """Сводка для death recap."""
@@ -1800,6 +1974,8 @@ class Game:
         # Пауза: смерть/победа/меню
         if self.dead or self.victory:
             return
+        if self.screen_mode == 'craft':
+            self.craft.update(dt)
         if self.screen_mode != 'game':
             self.player_move_timer = 0.0
             self.player_attack_timer = 0.0
