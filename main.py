@@ -144,12 +144,18 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
         server = Server(host='', port=port, max_players=4)
         threading.Thread(target=server.start, daemon=True).start()
         # Ждём bind: при занятом порте сервер выберет следующий свободный.
-        if not server.ready.wait(5.0) or not server.running:
+        # Даём 10 секунд (увеличено с 5 — на случай медленной машины/CI).
+        if not server.ready.wait(10.0) or not server.running:
             print(f"[MP] не удалось запустить сервер на порту {port}")
+            import time as _t
+            _t.sleep(2)
             return
         port = server.bound_port or port
         host_addr = 'localhost'
         print(f"[MP] Host started on port {port}, connecting as localhost")
+        # Хост ВСЕГДА выбирает класс — раньше skip_class_select мог
+        # передаваться с True, и игрок вылетал в главное меню.
+        skip_class_select = False
 
     try:
         from net.client import Client

@@ -58,10 +58,12 @@ ITEMS = {
     # Алхимия: мана и баффы
     'mana_s': {'ch': '!', 'name': 'Малое зелье маны', 'type': 'mana', 'value': 12,
                'color': (120, 160, 255), 'tier': 1, 'sell': 3,
+               'category': 'alchemy',
                'recipe': {'berry': 2, 'mushroom': 1},
                'skill': 'alchemy', 'skill_req': 1, 'desc': 'Восстанавливает 12 маны.'},
     'mana_m': {'ch': '!', 'name': 'Зелье маны', 'type': 'mana', 'value': 24,
                'color': (90, 130, 250), 'tier': 2, 'sell': 5,
+               'category': 'alchemy',
                'recipe': {'berry': 3, 'mushroom': 2},
                'skill': 'alchemy', 'skill_req': 4, 'desc': 'Восстанавливает 24 маны.'},
     'potion_strength': {'ch': '!', 'name': 'Зелье силы', 'type': 'buff',
@@ -101,6 +103,7 @@ ITEMS = {
                     'desc': 'Отравляет ближайшего врага (8 урона + яд).'},
     'elixir_life': {'ch': '!', 'name': 'Эликсир жизни', 'type': 'heal',
                     'value': 80, 'color': (255, 80, 120), 'tier': 3, 'sell': 26,
+                    'category': 'alchemy',
                     'recipe': {'dragon_scale': 1, 'mushroom': 4, 'berry': 4},
                     'skill': 'alchemy', 'skill_req': 25,
                     'desc': 'Восстанавливает 80 HP.'},
@@ -876,7 +879,7 @@ ARMOR_TYPE_NAMES = {
 
 def _cls(name, tier, base, desc, color, *, next=(), bonus=None, stats=None,
          weapons=(), armor=(), effects=None, start_weapon=None,
-         start_armor=None, start_items=None, perk=''):
+         start_armor=None, start_items=None, perk='', active_skills=None):
     return {
         'name': name, 'desc': desc, 'tier': tier, 'base': base,
         'next': tuple(next), 'bonus': dict(bonus or {}),
@@ -885,6 +888,9 @@ def _cls(name, tier, base, desc, color, *, next=(), bonus=None, stats=None,
         'effects': dict(effects or {}), 'color': color,
         'start_weapon': start_weapon, 'start_armor': start_armor,
         'start_items': dict(start_items or {}), 'perk': perk,
+        # Активные навыки (магия, способности) для быстрой панели.
+        # Каждый навык: {'key','name','mana','cooldown','kind','damage'}
+        'active_skills': tuple(active_skills or ()),
     }
 
 
@@ -915,6 +921,17 @@ CLASSES = {
         effects={'mana': 10},
         start_items={'potion_s': 2},
         perk='Носит только мантии, но водит посохом и книгой.',
+        active_skills=(
+            {'key': 'firebolt', 'name': 'Огненный снаряд',
+             'mana': 5, 'cooldown': 1.5, 'kind': 'fireball', 'damage': 12,
+             'desc': 'Огненный шар по ближайшему врагу.'},
+            {'key': 'frost_bolt', 'name': 'Ледяной снаряд',
+             'mana': 7, 'cooldown': 2.0, 'kind': 'frost', 'damage': 10,
+             'desc': 'Замедляет цель.'},
+            {'key': 'heal_self', 'name': 'Лечение',
+             'mana': 8, 'cooldown': 4.0, 'kind': 'heal', 'damage': -20,
+             'desc': 'Восстанавливает 20 HP.'},
+        ),
     ),
     'rogue': _cls(
         'Разбойник', 1, 'rogue',

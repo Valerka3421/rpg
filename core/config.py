@@ -110,6 +110,9 @@ def view_origin():
 
 # ── Игровые параметры ──
 FOV_RADIUS = 9
+# Туман войны: True = классический FOV, False = вся карта видна.
+# По умолчанию выключен — игрок видит весь мир сразу.
+FOG_OF_WAR_ENABLED = False
 MAX_DEPTH = 20
 MERCHANT_FLOORS = (3, 6, 9, 12, 15, 18)
 # Запасной пул лесных мобов. Гоблины и скелеты в лесу больше не спавнятся:
@@ -151,9 +154,18 @@ def dev_console_password_hash():
 # ── Real-time таймеры ──
 PLAYER_MOVE_COOLDOWN   = 0.12
 PLAYER_ATTACK_COOLDOWN = 0.40
+PLAYER_RANGED_COOLDOWN = 0.55      # дальнобойная атака — чуть медленнее
 MONSTER_BASE_COOLDOWN  = 0.35      # базовый интервал хода обычного моба
 STATUS_TICK_INTERVAL   = 0.50
-REGEN_TICK_INTERVAL    = 2.00
+# Регенерация HP/маны замедлена: было 2 сек, стало 5 сек.
+# Игрок реже автоматически восстанавливается — расходуем зелья.
+REGEN_TICK_INTERVAL    = 5.00
+REGEN_HP_PER_TICK      = 1
+REGEN_MANA_PER_TICK    = 1
+
+# ── Восстановление добываемых ресурсов (кусты, деревья) ──
+# После сбора ресурсов куст/дерево «вырастает» снова через это время.
+HARVEST_RESPAWN_TIME   = 120.0     # 2 минуты на восстановление
 
 # ── БАЛАНС ──
 # Кривая опыта: xp_next(level) = XP_BASE * level ** XP_EXPONENT.
@@ -176,6 +188,13 @@ ANIM_IDLE_AMP   = 2.5      # амплитуда покачивания, px
 ANIM_ATTACK_DUR = 0.25     # длительность анимации удара, сек
 ANIM_ATTACK_AMP = 12       # амплитуда выпада при атаке, px
 
+# Скорость полёта снарядов (тайлов в секунду)
+PROJECTILE_SPEED_ARROW    = 12.0
+PROJECTILE_SPEED_FIREBALL = 8.0
+PROJECTILE_SPEED_FROST    = 9.0
+PROJECTILE_SPEED_LIGHTNING = 16.0  # молния — мгновенно, но с визуальным эффектом
+PROJECTILE_SPEED_HEAL     = 10.0
+
 # ── UI ──
 MODAL_MARGIN_X   = 40
 MODAL_MARGIN_Y   = 20
@@ -190,6 +209,18 @@ TOOLBAR_MARGIN   = 12
 
 PLUS_SIZE        = 26
 HAMMER_SIZE      = 32
+
+# ── Быстрая панель (quickbar) ──
+QUICKBAR_SLOTS   = 10
+QUICKBAR_SLOT_SIZE = 48
+QUICKBAR_GAP     = 4
+QUICKBAR_Y_OFFSET = 8          # от низа экрана
+
+# ── Большая карта (M) ──
+BIGMAP_MARGIN    = 80         # отступ от краёв экрана
+BIGMAP_TITLE_H   = 40         # полоса под заголовок
+BIGMAP_PAD_COLOR = (12, 10, 8)
+BIGMAP_BORDER    = (180, 160, 100)
 
 # ── Цвета ──
 COL_BG      = (12, 12, 18)

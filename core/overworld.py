@@ -38,10 +38,11 @@ VILLAGE_HOUSES = (
 )
 
 # Восемь внешних регионов, по часовой стрелке от северо-западного.
+# (0, 2) — заменили 'dark' на 'beach' (Морской пляж) на западе юга.
 BIOME_NAMES = {
     (0, 0): 'pine', (1, 0): 'birch', (2, 0): 'rock',
     (0, 1): 'autumn',               (2, 1): 'swamp',
-    (0, 2): 'dark', (1, 2): 'meadow', (2, 2): 'dead',
+    (0, 2): 'beach', (1, 2): 'meadow', (2, 2): 'dead',
 }
 
 BIOME_TITLES = {
@@ -53,6 +54,7 @@ BIOME_TITLES = {
     'dark':   'Дремучий ельник',
     'meadow': 'Цветущая поляна',
     'dead':   'Мёртвый лес',
+    'beach':  'Морской пляж',
 }
 
 VILLAGE_TITLE = 'Деревня Этельгард'
@@ -79,21 +81,32 @@ DUNGEON_POS = (83, 10)
 # Дороги: (x0, y0, x1, y1). Каждая — горизонтальная или вертикальная.
 ROAD_HALF_WIDTH = 1
 
+# Только 4 кардинальных выхода из деревни (север, юг, запад, восток)
+# плюс дорога к входу в подземелье. Диагональные и боковые дороги убраны.
+# Каждый кардинальный выход заканчивается переходом (Tile.GATE) на краю карты.
 ROAD_SEGMENTS = (
-    (REGION_X[1], 35, 0, 35),                       # запад
-    (REGION_X[2] - 1, 35, LEGACY_MAP_W, 35),        # восток (старая карта)
-    (50, REGION_Y[1], 50, 0),                       # север
-    (50, REGION_Y[2] - 1, 50, MAP_H - 1),           # юг
-    # Северо-запад и юго-запад
-    (REGION_X[1], 30, 16, 30), (16, 30, 16, 0),
-    (REGION_X[1], 39, 16, 39), (16, 39, 16, MAP_H - 1),
-    # Северо-восток (к подземелью) и юго-восток
+    # Запад: от деревни до левого края карты
+    (REGION_X[1], VILLAGE_CENTER[1], 0, VILLAGE_CENTER[1]),
+    # Восток: от деревни до правого края исторической карты
+    (REGION_X[2] - 1, VILLAGE_CENTER[1], LEGACY_MAP_W - 1, VILLAGE_CENTER[1]),
+    # Север: от деревни до верхнего края карты
+    (VILLAGE_CENTER[0], REGION_Y[1], VILLAGE_CENTER[0], 0),
+    # Юг: от деревни до нижнего края карты
+    (VILLAGE_CENTER[0], REGION_Y[2] - 1, VILLAGE_CENTER[0], MAP_H - 1),
+    # Дорога к входу в подземелье на северо-востоке (критический путь)
     (REGION_X[2] - 1, 30, 83, 30),
     (83, 30, 83, DUNGEON_POS[1]),
-    (REGION_X[2] - 1, 39, 83, 39), (83, 39, 83, MAP_H - 1),
-    # Продолжение восточной дороги в Деревню гоблинов.
-    (LEGACY_MAP_W, 35, GOBLIN_VILLAGE_CENTER[0], 35),
 )
+
+# Кардинальные переходы на краях карты (для Tile.GATE).
+# Каждый ведёт «наружу» из мира деревни — может быть расширен в future
+# до отдельных карт-локаций.
+GATE_POSITIONS = {
+    'north': (VILLAGE_CENTER[0], 0),
+    'south': (VILLAGE_CENTER[0], MAP_H - 1),
+    'west':  (0, VILLAGE_CENTER[1]),
+    'east':  (LEGACY_MAP_W - 1, VILLAGE_CENTER[1]),
+}
 
 # ── Декор живой деревни ──
 VILLAGE_STALLS  = ((40, 30), (58, 30))      # рыночные прилавки (Tile.WALL)
@@ -110,6 +123,36 @@ RUINS_PILLARS = (                           # сломанные колонны 
 
 # ── Доска поручений в деревне ──
 QUEST_BOARD_VILLAGE_POS = (48, 37)
+
+# ── Руины древнего города в биоме 'dead' (юго-восток) ──
+# С 25% шансом при генерации мира здесь появляется сундук с базовыми ресурсами.
+# Здания — разрушенные стены, статуи — целые декорации.
+CITY_RUINS_REGION = (2, 2)
+CITY_RUINS_RECT = (75, 50, 20, 15)               # в координатах карты
+CITY_RUINS_BUILDINGS = (
+    (77, 52, 4, 3), (82, 52, 5, 3), (88, 52, 4, 3),
+    (77, 57, 5, 3), (83, 57, 6, 3),
+    (78, 62, 4, 2), (84, 62, 5, 2),
+)
+CITY_RUINS_STATUES = ((80, 56), (87, 56), (80, 60))
+CITY_RUINS_ROADS = (
+    # Главная дорога через руины — горизонталь
+    (76, 56, 94, 56),
+    # Вертикальная дорога
+    (82, 51, 82, 64),
+)
+CITY_RUINS_CHEST_CHANCE = 0.25
+CITY_RUINS_BASE_RESOURCES = ('wood', 'stone', 'ore', 'hide', 'berry',
+                             'mushroom')
+
+
+def in_city_ruins(x, y):
+    rx, ry, rw, rh = CITY_RUINS_RECT
+    return rx <= x < rx + rw and ry <= y < ry + rh
+
+
+def is_city_ruins_statue(x, y):
+    return (x, y) in CITY_RUINS_STATUES
 
 
 def is_stall(x, y):     return (x, y) in VILLAGE_STALLS
@@ -215,9 +258,14 @@ def ground_kind(x, y):
         return 'dungeon_ruins'          # «рунический пол»
     if is_road(x, y):
         return 'road'
+    if in_city_ruins(x, y):
+        return 'city_ruins_floor'       # каменные плиты разрушенного города
     if x >= LEGACY_MAP_W:
         return 'grass_dark'             # сумрачные земли вокруг гоблинов
     biome = biome_at(x, y)
+    if biome == 'beach':
+        # Пляж: песок, у западного края — вода (Tile.WALL с kind='water').
+        return 'beach_sand'
     return f'grass_{biome}' if biome else 'grass_pine'
 
 
@@ -231,11 +279,19 @@ def wall_kind(x, y):
         if is_stall(x, y):  return 'village_stall'
         if is_torch(x, y):  return 'village_torch_post'
         return 'village_wall'
+    if in_city_ruins(x, y):
+        if is_city_ruins_statue(x, y): return 'city_ruins_statue'
+        return 'city_ruins_wall'
     if x >= LEGACY_MAP_W:
         return 'tree_dark'
     if is_ruins_pillar(x, y):
         return 'ruins_pillar'
     biome = biome_at(x, y) or 'pine'
+    if biome == 'beach':
+        # Полоса воды на западном краю пляжа
+        if x < 4:
+            return 'water'
+        return 'beach_tree'   # прибрежные кусты
     return 'rock' if biome == 'rock' else f'tree_{biome}'
 
 
@@ -247,6 +303,8 @@ def location_title(x, y):
         return VILLAGE_TITLE
     if in_dungeon_ruins(x, y):
         return BIOME_TITLES['rock']
+    if in_city_ruins(x, y):
+        return 'Руины древнего города'
     if x >= LEGACY_MAP_W:
         return GOBLIN_WILDS_TITLE
     biome = biome_at(x, y)

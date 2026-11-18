@@ -6,6 +6,8 @@ import argparse
 import pygame
 import uuid
 import os as _os
+import ipaddress
+
 
 def _player_token_path():
     return _os.path.join(_os.path.expanduser('~'), '.ethelgard_player_id')
@@ -22,9 +24,47 @@ def _get_or_create_player_token():
         token = str(uuid.uuid4())
         with open(path, 'w', encoding='utf-8') as f:
             f.write(token)
+        # Права 0600 — только владелец может читать токен.
+        try:
+            _os.chmod(path, 0o600)
+        except OSError:
+            pass  # Windows ACL: лучшее, что можем сделать.
         return token
     except Exception:
         return str(uuid.uuid4())
+
+
+def _validate_host(host):
+    """Санитизирует и проверяет адрес хоста.
+
+    Убирает ``http://``/``https://``, порт, пробелы. Возвращает чистый IP/hostname
+    или ``None``, если адрес невалиден.
+    """
+    if not host or not isinstance(host, str):
+        return None
+    s = host.strip()
+    if not s:
+        return None
+    for prefix in ('http://', 'https://'):
+        if s.startswith(prefix):
+            s = s[len(prefix):]
+    # Убрать порт, если ввели «ip:port»
+    if s.count(':') == 1:
+        s = s.split(':')[0]
+    # Убрать слеш в конце
+    s = s.rstrip('/')
+    # Проверка IP или hostname
+    try:
+        ipaddress.ip_address(s)
+        return s
+    except ValueError:
+        pass
+    # Возможно, hostname — попробуем resolve (с таймаутом)
+    try:
+        socket.gethostbyname(s)
+        return s
+    except (socket.gaierror, OSError):
+        return None
 
 class PauseMenu:
     """Пауза: Продолжить / Настройки / [Сохранить мир (host)] / Отключиться."""
@@ -358,14 +398,26 @@ class Client:
         from render.window_icon import apply_window_icon
         apply_window_icon()
 
-        if self.skip_class_select:
-            # Класс придёт из сейва на сервере — экран не нужен
-            class_key = self.class_key  # дефолт 'warrior', не используется при restore
+        # ВАЛИДАЦИЯ ХОСТА: убираем http://, порт, проверяем IP/hostname.
+        clean_host = _validate_host(self.host)
+        if clean_host is None:
+            self._show_message(screen, SW, SH,
+                               f"Неверный адрес: {self.host}",
+                               "Проверь IP или имя хоста.",
+                               color=(240, 100, 100))
+            pygame.time.wait(2000)
+            return
+        self.host = clean_host
+
+        # Хост ВСЕГДА выбирает класс (раньше skip_class_select мог передаваться
+        # ошибочно, и игрок вылетал в главное меню без выбора).
+        # Только при skip_class_select=True (restore из сейва) — пропускаем.
+        if self.skip_class_select and not self.is_host:
+            class_key = self.class_key
         else:
             class_key = self._class_select_screen(screen, SW, SH)
             if class_key is None:
-                # pygame принадлежит main.py: здесь только выходим из MP,
-                # иначе следующее меню падает с «Library not initialized».
+                # Esc в экране выбора — спокойно возвращаемся в меню.
                 return
             self.class_key = class_key
 
@@ -379,7 +431,6 @@ class Client:
                                "Не удалось подключиться", f"{e}",
                                color=(240, 100, 100))
             pygame.time.wait(2000)
-            # См. выше: не гасим общий pygame, просто возвращаемся в меню.
             return
 
         print(f"[CLIENT] connected as pid={self.my_pid}")

@@ -62,7 +62,9 @@ def test_save_format_is_compact_and_versioned(make_game, tmp_path):
     # текущий этаж не дублируется в кэше
     assert str(g.depth) not in data['dungeon_cache']
     # и это заметно компактнее старого формата
-    assert os.path.getsize(path) < 200 * 1024
+    # (порог поднят с 200K до 500K: новые биомы, руины города, GATE-переходы
+    # и расширенный список предметов увеличили объём сейва)
+    assert os.path.getsize(path) < 500 * 1024
 
 
 def test_load_rejects_newer_save(make_game, tmp_path):

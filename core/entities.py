@@ -162,6 +162,12 @@ class Player(Entity):
         self.mana = 0
         self.max_mana = 0
         self._effects_cache = {}
+        # Быстрая панель: 10 слотов под предметы. None — пусто.
+        # Привязка — Ctrl+<номер> в инвентаре, использование — <номер> в игре.
+        from core.config import QUICKBAR_SLOTS
+        self.quickbar = [None] * QUICKBAR_SLOTS
+        # Активные навыки класса (заполняется из CLASSES[class]['active_skills'])
+        self.active_skill_cd = {}      # {skill_key: remaining_seconds}
         self.recalc()
         self.mana = self.max_mana
 
@@ -284,6 +290,27 @@ class Player(Entity):
     def has_companion(self):
         return bool(int(self.effect('summon')))
 
+    # ── Быстрая панель ──
+    def assign_quickbar(self, slot_idx, item_key):
+        """Привязать предмет к слоту быстрой панели (0..QUICKBAR_SLOTS-1)."""
+        from core.config import QUICKBAR_SLOTS
+        if 0 <= slot_idx < QUICKBAR_SLOTS:
+            self.quickbar[slot_idx] = item_key
+            return True
+        return False
+
+    def clear_quickbar_slot(self, slot_idx):
+        from core.config import QUICKBAR_SLOTS
+        if 0 <= slot_idx < QUICKBAR_SLOTS:
+            self.quickbar[slot_idx] = None
+            return True
+        return False
+
+    def active_skills(self):
+        """Активные навыки класса из CLASSES (магия, способности)."""
+        cls = CLASSES.get(self.class_key, {})
+        return cls.get('active_skills', []) or []
+
 
 class Room:
     def __init__(self, x, y, w, h):
@@ -326,6 +353,27 @@ class FloatText:
     text: str
     color: tuple
     life: float = 0.7
+
+
+@dataclass
+class Projectile:
+    """Летящий снаряд: стрела, магический шар, молния и т.д.
+
+    Создаётся в rules.ranged_attack и обновляется в game.update_projectiles.
+    Урон применяется при достижении цели. Рендер — в game_renderer.draw_projectiles.
+    """
+    x: float                 # текущая позиция в тайлах
+    y: float
+    tx: float                # координаты цели
+    ty: float
+    kind: str = 'arrow'      # 'arrow' | 'fireball' | 'frost' | 'lightning' | 'heal'
+    speed: float = 12.0      # тайлов в секунду
+    damage: int = 0
+    color: tuple = (255, 255, 255)
+    alive: bool = True
+    source_pid: int = -1     # pid в MP, для single-player = -1
+    target_ch: str = ''      # символ цели (для её поиска в monsters)
+    life: float = 2.0        # защита от бесконечного полёта
 
 
 @dataclass

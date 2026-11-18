@@ -8,6 +8,9 @@ import argparse
 from core.config import DATA_DIR
 from net.core import GameCore
 
+# Защита от DoS: если клиент прислал больше этого без newline — разрыв.
+MAX_MSG_SIZE = 65536
+
 
 class Server:
     def __init__(self, host='0.0.0.0', port=9000, max_players=2):
@@ -72,11 +75,19 @@ class Server:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            if not self._bind_socket(sock):
+            bind_ok = self._bind_socket(sock)
+            if not bind_ok:
                 self.running = False
+                # ready.set() ОБЯЗАТЕЛЬНО — иначе main.py зависнет на wait().
+                self.ready.set()
                 return
-        finally:
+        except Exception as e:
+            print(f"[SERVER] bind exception: {e}")
+            self.running = False
             self.ready.set()
+            return
+        # bind успешен — теперь поднимаем accept loop.
+        self.ready.set()
         self._sock = sock
         if self.bound_port != self.requested_port:
             print(f"[SERVER] порт {self.requested_port} занят — "
@@ -191,6 +202,11 @@ class Server:
                 if not data:
                     break
                 buf += data
+                # Защита от DoS: буфер не должен расти бесконечно без \n.
+                if len(buf) > MAX_MSG_SIZE:
+                    print(f"[SERVER] drop {pid}: message too big "
+                          f"({len(buf)} bytes, no newline)")
+                    break
                 while b'\n' in buf:
                     line, buf = buf.split(b'\n', 1)
                     if not line.strip():

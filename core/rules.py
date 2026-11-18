@@ -25,8 +25,72 @@ from core.data import (
     item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
     SKILLS, default_skills, skill_xp_to_next,
 )
-from core.entities import Player, Entity
+from core.entities import Player, Entity, Projectile
 from core import skills
+
+
+# ════════════════════ ДАЛЬНОБОЙНЫЕ АТАКИ ════════════════════
+# Соответствие типа атаки → цвет/скорость снаряда (для рендера и логики).
+PROJECTILE_KINDS = {
+    'arrow':     {'color': (220, 200, 170), 'speed_key': 'PROJECTILE_SPEED_ARROW',
+                  'status': None},
+    'fireball':  {'color': (255, 120, 50),  'speed_key': 'PROJECTILE_SPEED_FIREBALL',
+                  'status': 'burning'},
+    'frost':     {'color': (130, 190, 255), 'speed_key': 'PROJECTILE_SPEED_FROST',
+                  'status': 'slow'},
+    'lightning': {'color': (240, 230, 110), 'speed_key': 'PROJECTILE_SPEED_LIGHTNING',
+                  'status': 'slow'},
+    'heal':      {'color': (130, 245, 150), 'speed_key': 'PROJECTILE_SPEED_HEAL',
+                  'status': None},
+}
+
+
+def ranged_attack(attacker, target, kind='arrow', damage=None,
+                  source_pid=-1):
+    """Создаёт Projectile, летящий от attacker к target.
+
+    Урон и статусы применяются при попадании (в game.update_projectiles).
+    Возвращает Projectile. Если target=None, снаряд летит в направлении
+    facing attacker'а и пропадает через ``life`` секунд.
+    """
+    from core import config as _cfg
+    info = PROJECTILE_KINDS.get(kind, PROJECTILE_KINDS['arrow'])
+    if damage is None:
+        if isinstance(attacker, Player):
+            base_dmg = attacker.atk
+        else:
+            base_dmg = getattr(attacker, 'atk', 1)
+        # У дальнобойной атаки урон чуть ниже melee — компенсация дистанции.
+        damage = max(1, base_dmg - getattr(target, 'df', 0) if target else base_dmg)
+    speed = getattr(_cfg, info['speed_key'], 12.0)
+    tx = target.x if target else attacker.x + attacker.facing[0] * 5
+    ty = target.y if target else attacker.y + attacker.facing[1] * 5
+    return Projectile(
+        x=float(attacker.x), y=float(attacker.y),
+        tx=float(tx), ty=float(ty),
+        kind=kind, speed=speed, damage=damage, color=info['color'],
+        source_pid=source_pid,
+        target_ch=target.ch if target else '',
+        life=2.0,
+    )
+
+
+def projectile_hit(projectile, target):
+    """Применяет урон и статус от попадания снаряда в цель.
+
+    Возвращает (damage_dealt, status_applied). Если target уже мёртв или
+    снаряд промазал — возвращает (0, '').
+    """
+    if target is None or target.hp <= 0:
+        return 0, ''
+    god = isinstance(target, Player) and getattr(target, 'god_mode', False)
+    damage = 0 if god else projectile.damage
+    target.hp -= damage
+    info = PROJECTILE_KINDS.get(projectile.kind, {})
+    status = info.get('status')
+    if status and damage > 0:
+        target.add_status(status)
+    return damage, status or ''
 
 
 # ════════════════════ ОПЫТ И УРОВНИ ════════════════════
@@ -291,10 +355,50 @@ def pickup(dungeon, player, x, y):
         return PickupResult('gold', key, data.get('name', ''),
                             data.get('value', 0),
                             data.get('color', (240, 210, 90)))
-    player.inventory[key] = player.inventory.get(key, 0) + 1
+    # Используем add_item — он учитывает стаки и не-стакаемое снаряжение.
+    add_item(player.inventory, key, 1)
     kind = 'resource' if data.get('type') == 'resource' else 'item'
     return PickupResult(kind, key, item_display_name(key), 0,
                         item_display_color(key))
+
+
+def add_item(inventory, key, count=1):
+    """Добавить предмет в инвентарь с учётом стаков.
+
+    Снаряжение (weapon/armor/head/legs/boots) — каждый экземпляр в свой
+    слот (но если ключи идентичны, включая rarity/+N, они стакаются —
+    это допустимо, так как предметы идентичны).
+
+    Расходники и материалы — стак до ``MAX_STACK``. При превышении
+    создаётся новый «виртуальный» стак с суффиксом ``#2``, ``#3`` и т.д.
+    В инвентаре это отдельный ключ, в UI — отдельный слот.
+    """
+    from core.config import MAX_STACK
+    from core.data import get_item_data
+    item = get_item_data(key)
+    if item.get('type') in EQUIP_TYPES:
+        inventory[key] = inventory.get(key, 0) + count
+        return
+    # Расходники: пытаемся положить в существующий неполный стак
+    current = inventory.get(key, 0)
+    if current < MAX_STACK:
+        space = MAX_STACK - current
+        take = min(space, count)
+        inventory[key] = current + take
+        count -= take
+    # Остаток — в новые стаки с суффиксом #N
+    stack_idx = 2
+    while count > 0:
+        suffix_key = f'{key}#{stack_idx}'
+        current = inventory.get(suffix_key, 0)
+        if current < MAX_STACK:
+            space = MAX_STACK - current
+            take = min(space, count)
+            inventory[suffix_key] = current + take
+            count -= take
+        stack_idx += 1
+        if stack_idx > 999:
+            break  # защита от зацикливания
 
 
 def place_loot(dungeon, inventory, x, y, key, avoid=()):

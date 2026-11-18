@@ -89,6 +89,13 @@ BIOME_PALETTES = {
         'tree': (74, 66, 54), 'tree_dark': (42, 38, 32),
         'trunk': (70, 64, 54),
     },
+    # Пляж: песок вместо травы, прибрежные кусты вместо деревьев.
+    'beach': {
+        'grass': (220, 200, 150), 'grass_dark': (180, 165, 120),
+        'grass_dry': (235, 220, 175),
+        'tree': (110, 130, 100), 'tree_dark': (75, 90, 70),
+        'trunk': (130, 100, 70),
+    },
 }
 
 VILLAGE_PALETTE = {
@@ -1488,6 +1495,10 @@ _VARIANTS = {
     'mine_wall': 2, 'mine_ground': 6, 'locked_door': 1,
     'chest': 1, 'tombstone': 3,
     'sand': 4, 'water': 3,
+    # ── Пляж (новый биом) ──
+    'beach_sand': 4, 'beach_tree': 2,
+    # ── Руины древнего города ──
+    'city_ruins_wall': 3, 'city_ruins_statue': 1, 'city_ruins_floor': 6,
 }
 
 
@@ -1540,6 +1551,13 @@ _BUILDERS.update({
     'locked_door': _locked_door,
     'chest': _chest,
     'tombstone': _tombstone,
+    # ── Пляж (новый биом) ──
+    'beach_sand': lambda variant: _sand(variant),
+    'beach_tree': lambda variant: _tree(variant, BIOME_PALETTES['beach']),
+    # ── Руины города — повторно используют существующие builders ──
+    'city_ruins_wall': lambda variant: _village_wall(variant),
+    'city_ruins_statue': lambda variant: _village_statue(variant),
+    'city_ruins_floor': lambda variant: _dungeon_ruins_floor(variant),
 })
 _register_biome_tiles()
 
