@@ -717,7 +717,20 @@ class Game:
         return True
 
     def player_attack(self):
-        """Атака по пробелу: ближайший моб, иначе — добываемый ресурс."""
+        """Атака по пробелу: ближайший моб, иначе — добываемый ресурс.
+
+        Если оружие дальнобойное (bow/staff/book) — стреляем в ближайшего
+        видимого моба в радиусе 5. Иначе — melee как раньше.
+        """
+        from core.data import get_item_data
+        weapon_key = self.player.weapon
+        weapon = get_item_data(weapon_key) if weapon_key else {}
+        wtype = weapon.get('wtype', '')
+        # Дальнобойное оружие: bow, staff, book
+        if wtype in ('bow', 'staff', 'book'):
+            self._ranged_player_attack(weapon, wtype)
+            return
+        # Melee: ближайший моб в радиусе 1
         target = None
         best_dist = 999
         for m in self.dungeon.monsters:
@@ -732,6 +745,49 @@ class Game:
             return
         # Ресурсы добываются только клавишей «E» (harvest_adjacent):
         # пробел бьёт только по монстрам.
+
+    def _ranged_player_attack(self, weapon, wtype):
+        """Дальнобойная атака игрока: создаёт Projectile в self.projectiles.
+
+        Урон applied при попадании (в update_projectiles).
+        Тип снаряда зависит от оружия:
+        - bow → arrow
+        - staff → fireball (магия стихий)
+        - book → frost (магическая книга)
+        """
+        from core import rules
+        from core.config import PLAYER_RANGED_COOLDOWN
+        # Найти ближайшего видимого моба в радиусе 5
+        target = None
+        best_dist = 999
+        for m in self.dungeon.monsters:
+            if m.hp <= 0:
+                continue
+            dist = max(abs(m.x - self.player.x), abs(m.y - self.player.y))
+            if dist <= 5 and dist < best_dist:
+                target = m
+                best_dist = dist
+        if not target:
+            self.log("Нет цели для дальнобойной атаки.", COL_DIM)
+            return
+        kind_map = {'bow': 'arrow', 'staff': 'fireball', 'book': 'frost'}
+        kind = kind_map.get(wtype, 'arrow')
+        # Создать Projectile через rules.ranged_attack
+        proj = rules.ranged_attack(self.player, target, kind=kind)
+        # self.projectiles — list of dict (upstream format). Конвертируем.
+        # upstream projectile dict: {'x','y','tx','ty','kind','color','speed',...}
+        self.projectiles.append({
+            'x': proj.x, 'y': proj.y,
+            'tx': proj.tx, 'ty': proj.ty,
+            'kind': proj.kind, 'color': proj.color,
+            'speed': proj.speed, 'damage': proj.damage,
+            'target_ch': proj.target_ch, 'target': target,
+            'life': proj.life,
+        })
+        self.player.attack_anim = 1.0
+        from audio import Audio
+        Audio.play('attack') if hasattr(Audio, 'play') else None
+        self.player_attack_timer = PLAYER_RANGED_COOLDOWN
 
     def map_tile_under(self, pos):
         """Клетка карты под курсором или None (курсор вне игрового поля)."""
@@ -1008,6 +1064,70 @@ class Game:
         if not key:
             self.log("Нет зелий!", COL_DMG); return
         self.use_item(key)
+
+    def cast_active_skill(self, slot):
+        """Каст активного навыка класса по F1..F10.
+
+        Проверяет ману и кулдаун. Создаёт Projectile для боевых навыков
+        (firebolt/frost_bolt) или применяет heal для heal_self.
+        """
+        p = self.player
+        skills_list = p.active_skills()
+        if not (0 <= slot < len(skills_list)):
+            return
+        skill = skills_list[slot]
+        skill_key = skill['key']
+        cd_map = getattr(p, 'active_skill_cd', {})
+        if cd_map.get(skill_key, 0) > 0:
+            self.log(f"{skill['name']}: кулдаун {cd_map[skill_key]:.1f}с",
+                     COL_DIM)
+            return
+        mana_cost = skill.get('mana', 0)
+        if p.mana < mana_cost:
+            self.log(f"Недостаточно маны: нужно {mana_cost}, есть {p.mana}",
+                     COL_DMG)
+            return
+        p.mana -= mana_cost
+        cd_map[skill_key] = skill.get('cooldown', 1.5)
+        p.active_skill_cd = cd_map
+        kind = skill.get('kind', 'fireball')
+        damage = skill.get('damage', 0)
+        if kind == 'heal':
+            # Отрицательный damage = heal
+            heal_amount = -damage if damage < 0 else damage
+            p.hp = min(p.max_hp, p.hp + heal_amount)
+            self.log(f"{skill['name']}: +{heal_amount} HP", COL_HEAL)
+            self.add_float(p.x, p.y - 0.6, f"+{heal_amount}", COL_HEAL)
+            return
+        # Боевые навыки — ищем ближайшего врага в радиусе 6
+        target = None
+        best_dist = 999
+        for m in self.dungeon.monsters:
+            if m.hp <= 0:
+                continue
+            dist = max(abs(m.x - p.x), abs(m.y - p.y))
+            if dist <= 6 and dist < best_dist:
+                target = m
+                best_dist = dist
+        if not target:
+            self.log(f"{skill['name']}: нет цели в радиусе 6", COL_DIM)
+            # Ману возвращаем, кулдаун не запускаем
+            p.mana += mana_cost
+            cd_map[skill_key] = 0
+            return
+        # Создаём Projectile через rules.ranged_attack
+        from core import rules as _rules
+        proj = _rules.ranged_attack(p, target, kind=kind, damage=damage)
+        self.projectiles.append({
+            'x': proj.x, 'y': proj.y,
+            'tx': proj.tx, 'ty': proj.ty,
+            'kind': proj.kind, 'color': proj.color,
+            'speed': proj.speed, 'damage': proj.damage,
+            'target_ch': proj.target_ch, 'target': target,
+            'life': proj.life,
+        })
+        self.log(f"{skill['name']}! → {target.name}", COL_XP)
+        self.add_float(p.x, p.y - 0.6, skill['name'][:6], (200, 150, 255))
 
     def allocate_stat(self, name):
         p = self.player
@@ -1516,6 +1636,12 @@ class Game:
             self.use_hotbar(key - pygame.K_1)
             return
 
+        # Активные навыки класса: F1..F10 кастуют.
+        if pygame.K_F1 <= key <= pygame.K_F10:
+            slot = key - pygame.K_F1
+            self.cast_active_skill(slot)
+            return
+
         # Открытие экранов
         if key == pygame.K_c:
             self.screen_mode = 'stats'; return
@@ -1563,8 +1689,21 @@ class Game:
             self.settings['show_minimap'] = not self.settings.get('show_minimap', True)
             save_settings(self.settings)
             return
+        # B в game-режиме → открыть большую карту; в bigmap → закрыть.
+        if key == pygame.K_b:
+            if self.screen_mode == 'game':
+                self.screen_mode = 'bigmap'
+                return
+            if self.screen_mode == 'bigmap':
+                self.screen_mode = 'game'
+                return
         if key == pygame.K_TAB:
             self.stats_run.open();
+            return
+
+        # Bigmap: Esc или любая другая клавиша — закрыть обратно в game.
+        if self.screen_mode == 'bigmap':
+            self.screen_mode = 'game'
             return
 
     def handle_mouse_motion(self, pos):
@@ -1918,6 +2057,11 @@ class Game:
         self.player.anim_time += dt
         if self.player.attack_anim > 0:
             self.player.attack_anim = max(0.0, self.player.attack_anim - dt / 0.25)
+        # ── Кулдауны активных навыков класса ──
+        cd_map = getattr(self.player, 'active_skill_cd', {})
+        if cd_map:
+            for key in list(cd_map.keys()):
+                cd_map[key] = max(0.0, cd_map[key] - dt)
         if self.merchant:
             self.merchant.anim_time += dt
         if self.elder:

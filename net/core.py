@@ -94,56 +94,19 @@ class GameCore:
 
     # ════════════════════════ PLAYERS ════════════════════════
     def add_player(self, pid, class_key='warrior'):
-        p = Player(class_key=class_key)
-        cx, cy = self.dungeon.rooms[0].center() if self.dungeon.rooms \
-            else (MAP_W // 2, MAP_H // 2)
-        occupied = {(o.x, o.y) for o in self.players.values()}
-        spot = rules.find_free_tile(self.dungeon, cx, cy, occupied)
-        p.x, p.y = spot if spot else (cx, cy)
-        p.anim_time = 0.0
-        p.attack_anim = 0.0
-        p.facing = (1, 0)
-        self.players[pid] = p
-        self.move_timers[pid] = 0.0
-        self.attack_timers[pid] = 0.0
-        self.regen_timers[pid] = REGEN_TICK_INTERVAL
-        # Auto-scale: новый игрок присоединился — монстры усиливаются.
-        self._rescale_monsters_for_players()
-        self._event(f"Игрок {p.class_name} присоединился. "
-                    f"Всего игроков: {len(self.players)}.", COL_GOLD)
-        return p
+        """Создать игрока — делегирует в net.player_registry."""
+        from net.player_registry import add_player as _add
+        return _add(self, pid, class_key)
 
     def remove_player(self, pid):
-        self.players.pop(pid, None)
-        self.move_timers.pop(pid, None)
-        self.attack_timers.pop(pid, None)
-        self.regen_timers.pop(pid, None)
-        self._inventory_cache.pop(pid, None)
-        # Auto-scale: после ухода игрока монстры слабеют обратно.
-        self._rescale_monsters_for_players()
+        """Удалить игрока — делегирует в net.player_registry."""
+        from net.player_registry import remove_player as _remove
+        _remove(self, pid)
 
     def _rescale_monsters_for_players(self):
-        """Масштаб HP/ATK мобов под количество игроков.
-
-        +20% HP и +10% ATK за каждого игрока сверх первого.
-        Вызывается при add_player/remove_player и при смене этажа.
-        """
-        from core.data import MONSTERS_BY_CH, scale_stats
-        n = max(1, len(self.players))
-        hp_scale = 1.0 + (n - 1) * 0.20
-        atk_scale = 1.0 + (n - 1) * 0.10
-        for m in self.dungeon.monsters:
-            base = MONSTERS_BY_CH.get(m.ch, {})
-            if not base:
-                continue
-            depth = max(1, self.depth)
-            hp, atk, df = scale_stats(base.get('hp', 10),
-                                       base.get('atk', 1),
-                                       base.get('df', 0), depth)
-            m.max_hp = max(1, int(hp * hp_scale))
-            m.hp = m.max_hp if m.hp >= m.max_hp - 1 else min(m.hp, m.max_hp)
-            m.atk = max(1, int(atk * atk_scale))
-            m.df = df
+        """Масштаб HP/ATK мобов — делегирует в net.player_registry."""
+        from net.player_registry import rescale_monsters as _rescale
+        _rescale(self)
 
     # ════════════════════════ СОБЫТИЯ ════════════════════════
     def _event(self, text, color=COL_TEXT):
@@ -1279,75 +1242,9 @@ class GameCore:
         return mid
 
     def get_snapshot(self):
-        players_data = {}
-        for pid, p in self.players.items():
-            data = {
-                'x': p.x, 'y': p.y,
-                'hp': p.hp, 'max_hp': p.max_hp,
-                'mana': getattr(p, 'mana', 0),
-                'max_mana': getattr(p, 'max_mana', 0),
-                'class': p.class_key,
-                'class_tier': getattr(p, 'class_tier', 1),
-                'level': p.level,
-                'xp': p.xp, 'xp_next': p.xp_next,
-                'name': p.class_name,
-                'anim_time': round(p.anim_time, 2),
-                'attack_anim': round(p.attack_anim, 2),
-                'facing': list(p.facing),
-                'gold': p.gold,
-                'atk': p.atk, 'df': p.df,
-                'crit': round(p.crit, 2), 'dodge': round(p.dodge, 2),
-                'free_points': p.free_points,
-                'skill_points': getattr(p, 'skill_points', 0),
-                'statuses': dict(p.statuses),
-                'str': p.str, 'agi': p.agi, 'vit': p.vit,
-                'luk': p.luk, 'df_stat': p.df_stat,
-                'int': getattr(p, 'int_stat', 5),
-                'weapon': p.weapon, 'armor': p.armor,
-                'head': p.head, 'legs': p.legs, 'boots': p.boots,
-                'helmet': p.head, 'leggings': p.legs,
-                'skills': {k: dict(v) for k, v in p.skills.items()},
-            }
-            # Инвентарь меняется редко — шлём только при изменении.
-            # Первый снапшот для игрока всегда содержит его.
-            inventory = dict(p.inventory)
-            if self._inventory_cache.get(pid) != inventory:
-                data['inventory'] = inventory
-                self._inventory_cache[pid] = inventory
-            players_data[str(pid)] = data
-        alive = [m for m in self.dungeon.monsters if m.hp > 0]
-        # Чистим id умерших, чтобы id() переиспользованных объектов не врал
-        alive_ids = {id(m) for m in alive}
-        self._monster_ids = {k: v for k, v in self._monster_ids.items()
-                             if k in alive_ids}
-        monsters_data = [{
-            'mid': self._monster_id(m),
-            'x': m.x, 'y': m.y, 'hp': m.hp, 'max_hp': m.max_hp,
-            'ch': m.ch, 'color': list(m.color), 'boss': m.boss,
-            'statuses': dict(m.statuses),
-        } for m in alive]
-        items_data = [{'x': k[0], 'y': k[1], 'key': v}
-                      for k, v in self.dungeon.items.items()]
-        harvest = self._harvest_snapshot()
-        snapshot = {
-            'tick': self.tick,
-            'world_mode': self.world_mode,
-            'depth': self.depth,
-            'players': players_data,
-            'monsters': monsters_data,
-            'items': items_data,
-            'merchant': {'x': self.merchant.x, 'y': self.merchant.y}
-                        if self.merchant else None,
-            'elder': {'x': self.elder.x, 'y': self.elder.y}
-                     if self.elder else None,
-            'shop_stock': self.shop_stock,
-            'events': self._take_events(),
-            'quests': self.quest_log.to_dict(),
-            'trade': self._trade_snapshot(),
-        }
-        if harvest is not None:
-            snapshot['harvestables'] = harvest
-        return snapshot
+        """Построить снапшот — делегирует в net.snapshot_builder."""
+        from net.snapshot_builder import build_snapshot
+        return build_snapshot(self)
 
     def _harvest_snapshot(self):
         """Состояние ресурсов: шлётся целиком только при изменении."""

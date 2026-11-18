@@ -3,22 +3,33 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+*.egg-info/
+*.egg
 
 # Тесты и инструменты
 .pytest_cache/
 .test_tmp/
 .coverage
+.coverage.*
 htmlcov/
+coverage.xml
+.benchmarks/
+mutants-results/
 
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
 
 # Сборка
 build/
 dist/
 *.spec
 Aethelgard.exe
+Aethelgard
+Aethelgard-linux
+Aethelgard-macos
 
 # Локальные сейвы (данные игрока, не исходники)
 savegame*.json
@@ -29,3 +40,8 @@ settings.json
 _shots/
 _exp.py
 _shot.py
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
