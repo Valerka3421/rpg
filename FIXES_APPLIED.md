@@ -1,99 +1,153 @@
-# Правки — второй проход
+# Правки — третий проход (рефакторинг)
 
-Дата: 2026-11-19. Применены к актуальному состоянию репозитория (коммит `c78a883`).
+Дата: 2026-11-19. Применены к состоянию после второго прохода (FIXES_APPLIED.md).
 
-Все 568 тестов проходят (+12 новых регрессионных в `tests/test_regression_fixes.py`).
+Все **572 теста** проходят (+4 новых регрессионных в `tests/test_regression_fixes.py`).
 
-## Критичные баги (runtime crash)
+## 1. Разбиение `render/tiles.py` (2132 LOC) → `render/tiles/` пакет
 
-1. **`render/projectile_renderer.py` — `NameError` при отрисовке молнии.**
-   `_draw_one(screen, p, px, py)` обращался к `tile`, который был определён только
-   в `draw_projectiles`. В ветке `kind == 'lightning'` код падал с `NameError`.
-   Прокинул `tile` параметром. Добавил параметризованный тест на все 5 видов снарядов.
+Было: один файл 2132 LOC с 60+ функциями-билдерами тайлов, константами,
+палитрами, примитивами, реестром и классом `Tiles`.
 
-2. **`net/core.py:1043` — `COL_WIN` не импортирован.**
-   Использовался в `_event("Выходы арены босса открыты.", COL_WIN)` при убийстве
-   босса в кооперативе. Добавил в импорт из `core.config`.
+Стало: пакет из 10 файлов по категориям:
 
-3. **`net/core.py:1048-1050` — мёртвый `else: inventory = {}`.**
-   Переменная никогда не использовалась дальше. Удалён.
+| Файл | LOC | Содержимое |
+|---|---|---|
+| `__init__.py` | 82 | Реэкспорт публичного API |
+| `_common.py` | 166 | Константы, палитры, примитивы (`_new`, `_clamp`, `_grime`, `_chip`, `_crack`) |
+| `_dungeon.py` | 360 | Стены, пол, лестницы, выходы |
+| `_nature.py` | 495 | Трава, деревья, биомы, пещеры, дороги |
+| `_settlement.py` | 330 | Деревенские и городские тайлы (`_cobbles`, `_village_*`, `_city_*`) |
+| `_dungeon_ruins.py` | 110 | Руины подземелья (`_dungeon_ruins_floor`, `_ruins_pillar`, `_dungeon_ground`) |
+| `_terrain.py` | 183 | Песок, вода, камень, гоблинские постройки |
+| `_objects.py` | 180 | Доски, пни, кусты, руда, ворота |
+| `_mine.py` | 217 | Шахта, запертые двери, стрелки-переходы, сундуки |
+| `_tombstone.py` | 52 | Надгробия |
+| `_registry.py` | 236 | `_BUILDERS`, `_VARIANTS`, `_register_biome_tiles`, класс `Tiles` |
 
-4. **`core/locations.py:524` — неиспользуемая переменная `spec = LOCATIONS[key]`.**
-   Удалена (ruff F841).
+**Обратная совместимость**: `from render.tiles import Tiles` работает — `__init__.py`
+реэкспортирует все публичные имена. Тесты не сломаны.
 
-5. **`tests/test_game.py:743, 777` — `pytest` не импортирован.**
-   Если бы `pytest.skip(...)` сработал — тест падал бы с `NameError` вместо skip.
-   Добавлен `import pytest`.
+## 2. Разбиение `render/icon_renderer.py` (2190 LOC) → `render/icons/` пакет
 
-## Архитектурные нарушения
+Было: один класс `IconRenderer` на 2180 строк с 60+ методами рисования.
 
-6. **`core/game.py` удалён.** Был мёртвым дубликатом `game/game.py` (2144 LOC),
-   не импортировался нигде. `main.py` использует `from game import Game`. Удалено
-   ~2144 строки мёртвого кода.
+Стало: пакет из 7 файлов с **mixin-архитектурой**:
 
-7. **`core/display.py` → `render/display.py`.** Модуль импортировал `pygame` —
-   нарушал инвариант «core/ без pygame» из `CONTRIBUTING.md`. Перенесён в `render/`,
-   обновлены импорты в `main.py`, `net/client.py` (2 места), `tests/test_new_features.py`
-   (2 места).
+| Файл | LOC | Mixin | Содержимое |
+|---|---|---|---|
+| `__init__.py` | 197 | `IconRenderer` | Конструктор + диспетчер `draw_item` / `_make_item_surf` |
+| `_base.py` | 11 | — | Константы `CANVAS`, `CX`, `TILE` |
+| `_items.py` | 762 | `ItemMixin` | Оружие, броня, зелья, материалы, книги, свитки, руны |
+| `_players.py` | 269 | `PlayerMixin` | Спрайты классов игрока (воин, разбойник, паладин, авантюрист) |
+| `_class_icons.py` | 155 | `ClassIconMixin` | Маленькие иконки классов для UI |
+| `_monsters.py` | 615 | `MonsterMixin` | Спрайты монстров и боссов по ключу `MONSTERS_BY_CH` |
+| `_npcs.py` | 304 | `NPCMixin` | Городские NPC, торговцы, старейшина, UI-иконки |
 
-## Документация vs реальность
+`IconRenderer(ItemMixin, PlayerMixin, ClassIconMixin, MonsterMixin, NPCMixin, BaseRenderer)`
+— все методы оказываются на одном `self`, перекрёстные вызовы (`_make_item_surf`
+→ `_blade`, `draw_monster` → `_monster_dragon`) работают без изменений.
 
-8. **`pytest.ini` удалён.** Дублировал `[tool.pytest.ini_options]` из `pyproject.toml`.
-   Pytest теперь читает конфиг из `pyproject.toml`.
+**Обратная совместимость**: `from render.icons import IconRenderer` работает.
+Импорты в `render/renderer.py`, `tests/test_mp_ui.py`, `render/skill_icon_loader.py`
+обновлены.
 
-## Безопасность
+## 3. `ScreenMode` StrEnum (`core/modes.py`)
 
-9. **Хеш пароля dev console по умолчанию удалён.**
-   Раньше в `core/config.py` был зашит `DEV_CONSOLE_PASSWORD_HASH` — sha256 от
-   слова `ethelgard`. Любой мог сбрутфорсить. Теперь по умолчанию `None` — консоль
-   **отключена**, пока не задана переменная окружения `ETHELGARD_DEV_PASSWORD`
-   (или `ETHELGARD_DEV_PASSWORD_HASH` для прямого хеша).
+Добавлен модуль `core/modes.py` с `ScreenMode(StrEnum)` — 20 значений:
+`MENU`, `MENU_SAVES`, `MENU_SETTINGS`, `MENU_CONTROLS`, `MENU_CREDITS`,
+`MENU_MULTIPLAYER`, `MENU_MP_JOIN`, `CLASS_SELECT`, `GAME`, `INVENTORY`,
+`STATS`, `STATS_RUN`, `CRAFT`, `SKILLS`, `QUESTS`, `SHOP`, `TRADE`,
+`DIALOGUE`, `BIGMAP`, `DEV_CONSOLE`, `EXIT`.
 
-## Качество кода
+**Обратная совместимость**: `StrEnum` сравним со строкой —
+`mode == 'menu'` и `mode == ScreenMode.MENU` эквивалентны. Старый код не
+нужно переписывать сразу. `main.AppState.MENU` и `AppState.EXIT` теперь
+ссылаются на `ScreenMode.MENU` и `ScreenMode.EXIT`.
 
-10. **`ruff check --fix` применён.** 233 ошибки автофиксены (I001 unsorted imports,
-    W292 missing newline, UP015 redundant open modes, и т.д.). Осталось 211 —
-    они либо unsafe (E702, E701 — требуют ручного ревью), либо сознательно
-    игнорируются в `pyproject.toml` (`E501`, `B008`).
+Также добавлены `ALL_MODES: frozenset[str]` и `is_valid_mode(value: str) -> bool`
+для валидации сейвов и тестов.
 
-11. **`main.py`: bare `except Exception: pass` заменён на `log.exception(...)`.**
-    Было 2 места: автосейв перед MP и остановка сервера. Теперь логируется через
-    `logging.getLogger('ethelgard')`.
+## 4. Аннотации типов в `core/` (mypy --strict)
 
-## Регрессионные тесты (новый файл `tests/test_regression_fixes.py`)
+Полностью аннотированы:
+- **`core/harvest.py`** — 8 функций: `make_harvestable`, `regrow_time`,
+  `is_blocking`, `can_harvest`, `hit`, `tick`, `serialize`, `deserialize`.
+- **`core/quests.py`** — 13 методов `QuestLog`: `add_available`, `accept`,
+  `update_kill`, `update_collect`, `update_reach`, `update_craft`,
+  `_complete`, `turn_in`, `to_dict`, `from_dict`, `accept_generated`,
+  `turn_in_generated`.
+- **`core/modes.py`** — новый модуль полностью типизирован.
 
-12 тестов покрывают все вышеперечисленные фиксы:
+Частично аннотированы (в предыдущей итерации): `core/config.py`,
+`core/rules.py`, `core/entities.py`.
 
-- `test_lightning_projectile_renders_without_crash` — баг №1
-- `test_all_projectile_kinds_render[arrow|fireball|frost|lightning|heal]` — параметризованный (5 кейсов)
-- `test_net_core_imports_col_win` — баг №2
-- `test_core_does_not_import_pygame` — инвариант CONTRIBUTING.md
-- `test_core_display_moved_to_render` — перенос display.py
-- `test_core_game_removed` — удаление дубликата
-- `test_pytest_ini_removed` — удаление pytest.ini
-- `test_dev_console_disabled_by_default` — отключение пароля по умолчанию
+**Что осталось**: `core/skills.py` (43 функции без аннотаций), `core/overworld.py`
+(27), `core/locations.py` (24), `core/world.py` (20), `core/save.py` (6).
+Аннотирование этих модулей требует понимания динамических типов данных
+(`dict[str, Any]` для монстров, предметов, квестов) и выходит за рамки
+безопасного рефакторинга — это задача для отдельной итерации.
 
-## Что НЕ сделано (сознательно)
+## 5. `game/game.py` (2320 LOC) — НЕ разбит
 
-- **Разбиение больших файлов** (`render/tiles.py` 2132 LOC, `render/icon_renderer.py`
-  2190 LOC, `render/screens_renderer.py` 1980 LOC, `game/game.py` 2164 LOC) —
-  это отдельная рефакторинг-итерация, описана в `docs/SPLIT_PLAN.md`. Трогать
-  рискованно: ломает 500+ тестов.
-- **mypy --strict на core/** — частично. В `pyproject.toml` уже настроен
-  `disallow_untyped_defs = true` для `core.*`, но самих аннотаций пока мало.
-- **StrEnum для `screen_mode`** — большой рефакторинг, трогает `main.py`,
-  `game/game.py`, `dev_console_controller.py` и др.
-- **GitHub Actions CI** — `.github/workflows/` отсутствует. Создание CI требует
-  решения автора репозитория (токены, политики).
+**Сознательное решение**. В `game/game.py` 111 методов, все ссылаются на `self`
+(атрибуты `dungeon`, `player`, `log`, `add_float`, `_ui_hits` и т.д.).
+Извлечение даже одного модуля (например, боёвки `attack` / `_single_attack` /
+`_kill_monster` / `_launch_projectile` / `update_projectiles`) требует:
+
+1. Вынесения методов в mixin-класс (как в `render/icons/`).
+2. Перемещения ~250 строк кода.
+3. Обновления импортов в `game/__init__.py`.
+4. Рисков: методы используют приватные атрибуты `_kill_monster` (вызывается из
+   `_monster_act`, `update_projectiles`, `_single_attack`) — все вызовы должны
+   оставаться валидны.
+
+В репозитории уже есть `game/input_router.py` (87 LOC) и `game/save_manager.py`
+(104 LOC) — но они **не подключены** (`game/game.py` их не использует). Это
+заготовки под будущий рефакторинг. Полноценное разбиение `game/game.py` на
+6-8 mixin-модулей (CombatMixin, WorldMixin, InventoryMixin, InputMixin,
+MonsterMixin, SaveMixin) — задача на 1-2 дня отдельной итерации.
 
 ## Финальные метрики
 
-| Метрика | До правок | После правок | Дельта |
+| Метрика | До (2-й проход) | После (3-й проход) | Дельта |
 |---|---|---|---|
-| Тестов | 556 | 568 | +12 |
-| Тестов проходят | 556 | 568 | +12 |
-| Python-файлов в core/ | 14 | 12 | −2 (game.py, display.py) |
-| ruff ошибок | ~500+ | 211 | ~−290 |
-| Мёртвый код | ~2144 LOC | 0 | −2144 |
-| Архитектурных нарушений | 2 | 0 | −2 |
-| Runtime-багов (F821) | 2 критичных | 0 | −2 |
+| Тестов проходят | 568 | **572** | +4 |
+| Python-файлов в `render/tiles/` | 1 (2132 LOC) | 10 (файлы ≤495 LOC) | +9 |
+| Python-файлов в `render/icons/` | 1 (2190 LOC) | 7 (файлы ≤762 LOC) | +6 |
+| Самый большой файл в `render/` | 2190 LOC | 1980 (`screens_renderer.py`) | −210 |
+| `core/` файлов с типизацией | 5 | 7 (+modes, +harvest, +quests полностью) | +2 |
+| StrEnum для `screen_mode` | нет | да (20 значений) | +1 модуль |
+| `ScreenMode` тестов | 0 | 2 | +2 |
+
+## Регрессионные тесты (новые в `tests/test_regression_fixes.py`)
+
+Добавлены 4 теста (всего в файле теперь 16):
+- `test_screen_mode_enum_exists` — StrEnum, 20+ значений, `is_valid_mode()`
+- `test_screen_mode_used_in_main_appstate` — `AppState.MENU == ScreenMode.MENU`
+- `test_tiles_split_into_package` — пакет `render/tiles/`, оригинальный файл удалён
+- `test_icon_renderer_split_into_package` — пакет `render/icons/`, mixin-архитектура
+
+## Структура архива
+
+```
+rpg/
+├── core/
+│   ├── modes.py           ← НОВЫЙ: ScreenMode StrEnum
+│   ├── harvest.py         ← типизирован
+│   ├── quests.py          ← типизирован
+│   ├── config.py, rules.py, entities.py, ... (без изменений)
+├── render/
+│   ├── tiles/             ← НОВЫЙ ПАКЕТ (10 файлов)
+│   ├── icons/             ← НОВЫЙ ПАКЕТ (7 файлов, mixin-архитектура)
+│   ├── display.py, projectile_renderer.py, ... (без изменений)
+├── game/
+│   ├── game.py            (без изменений, 2320 LOC)
+│   ├── input_router.py, save_manager.py  (не подключены)
+├── tests/
+│   ├── test_regression_fixes.py  ← +4 теста (всего 16)
+│   ├── test_*.py
+├── main.py                ← AppState использует ScreenMode
+├── FIXES_APPLIED.md       ← этот файл
+└── ...
+```

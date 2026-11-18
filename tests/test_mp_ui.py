@@ -301,7 +301,7 @@ def test_server_chat_is_sanitized():
 # ── Вспомогательное ──
 def _renderer():
     from render.game_renderer import GameRenderer
-    from render.icon_renderer import IconRenderer
+    from render.icons import IconRenderer
     screen = pygame.display.set_mode((config.SCREEN_W, config.SCREEN_H))
     return _Renderer(screen)
 
@@ -310,7 +310,7 @@ class _Renderer:
     """Мини-обёртка: нужен только game-рендерер."""
     def __init__(self, screen):
         from render.game_renderer import GameRenderer
-        from render.icon_renderer import IconRenderer
+        from render.icons import IconRenderer
         from render.theme import Theme
         Theme.init()
         self.screen = screen

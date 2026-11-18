@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import random
 import time
+from typing import Any, Optional
+
+from core.entities import Dungeon, Player
 
 # Сколько секунд восстанавливается ресурс после сбора.
 # Ресурсы должны быть ощутимо ограниченными: ягоды — 3 минуты,
@@ -38,7 +41,7 @@ HARVEST_NAMES = {
 }
 
 
-def make_harvestable(kind, now=None):
+def make_harvestable(kind: str, now: Optional[float] = None) -> dict[str, Any]:
     """Создаёт запись ресурса. У куста ягоды есть уже при генерации."""
     if now is None:
         now = time.time()
@@ -52,21 +55,30 @@ def make_harvestable(kind, now=None):
     }
 
 
-def regrow_time(kind):
+def regrow_time(kind: str) -> float:
     return {'tree': TREE_REGROW, 'ore': ORE_REGROW, 'bush': BERRY_REGROW}.get(
         kind, 60.0)
 
 
-def is_blocking(record):
+def is_blocking(record: Optional[dict[str, Any]]) -> bool:
     """Дерево и руда непроходимы; куст тоже не даёт встать на клетку."""
     return record is not None
 
 
-def can_harvest(record):
-    return bool(record) and record.get('has', True)
+def can_harvest(record: Optional[dict[str, Any]]) -> bool:
+    if record is None:
+        return False
+    return bool(record.get('has', True))
 
 
-def hit(dungeon, player, x, y, damage, now=None):
+def hit(
+    dungeon: Dungeon,
+    player: Player,
+    x: int,
+    y: int,
+    damage: int,
+    now: Optional[float] = None,
+) -> Optional[dict[str, Any]]:
     """Удар по ресурсу. Возвращает dict-событие или None.
 
     Событие: {'kind', 'name', 'done', 'items': [(key, count)], 'hp', 'max_hp'}
@@ -112,11 +124,11 @@ def hit(dungeon, player, x, y, damage, now=None):
     return result
 
 
-def tick(dungeon, now=None):
+def tick(dungeon: Dungeon, now: Optional[float] = None) -> list[tuple[int, int]]:
     """Возвращает список восстановившихся клеток."""
     if now is None:
         now = time.time()
-    ready = []
+    ready: list[tuple[int, int]] = []
     for pos, record in dungeon.harvestables.items():
         if not record.get('has', True) and now >= record.get('ready_at', 0.0):
             record['has'] = True
@@ -125,9 +137,9 @@ def tick(dungeon, now=None):
     return ready
 
 
-def serialize(dungeon):
+def serialize(dungeon: Dungeon) -> list[dict[str, Any]]:
     """Список записей для JSON (координаты внутри записи)."""
-    out = []
+    out: list[dict[str, Any]] = []
     for (x, y), rec in dungeon.harvestables.items():
         item = dict(rec)
         item['x'] = x
@@ -136,7 +148,7 @@ def serialize(dungeon):
     return out
 
 
-def deserialize(rows):
+def deserialize(rows: Optional[list[dict[str, Any]]]) -> dict[tuple[int, int], dict[str, Any]]:
     result = {}
     for row in rows or []:
         try:

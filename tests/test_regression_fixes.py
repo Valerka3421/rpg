@@ -5,6 +5,8 @@
 - COL_WIN undefined в net/core.py при убийстве босса в MP
 - core/display.py перемещён в render/display.py (архитектурный инвариант)
 - default dev console password hash удалён
+- ScreenMode StrEnum для типизации screen_mode
+- разбиение render/tiles.py и render/icon_renderer.py
 """
 import os
 import sys
@@ -149,3 +151,79 @@ def test_dev_console_disabled_by_default():
             os.environ['ETHELGARD_DEV_PASSWORD_HASH'] = old_hash
         if old_plain:
             os.environ['ETHELGARD_DEV_PASSWORD'] = old_plain
+
+
+# ── ScreenMode StrEnum regression ──
+def test_screen_mode_enum_exists():
+    """core.modes.ScreenMode должен существовать и быть StrEnum.
+
+    StrEnum — обратная совместимость со строковыми литералами:
+    ``mode == 'menu'`` и ``mode == ScreenMode.MENU`` эквивалентны.
+    """
+    from core.modes import ScreenMode, ALL_MODES, is_valid_mode
+
+    # StrEnum: сравнение со строкой работает
+    assert ScreenMode.MENU == 'menu'
+    assert ScreenMode.GAME == 'game'
+    assert ScreenMode.INVENTORY == 'inventory'
+
+    # Все 20 значений определены
+    assert len(ALL_MODES) >= 20
+    assert is_valid_mode('menu')
+    assert is_valid_mode('game')
+    assert is_valid_mode('class_select')
+    assert not is_valid_mode('nonexistent_mode')
+
+    # str(ScreenMode.MENU) возвращает 'menu' (а не 'ScreenMode.MENU')
+    assert str(ScreenMode.MENU) == 'menu'
+
+
+def test_screen_mode_used_in_main_appstate():
+    """main.AppState.MENU и AppState.EXIT должны быть ScreenMode-значениями."""
+    from core.modes import ScreenMode
+    # main импортирует ScreenMode, AppState.MENU == ScreenMode.MENU
+    import main
+    assert main.AppState.MENU == ScreenMode.MENU == 'menu'
+    assert main.AppState.EXIT == ScreenMode.EXIT == 'exit'
+
+
+# ── tiles.py / icon_renderer.py split regression ──
+def test_tiles_split_into_package():
+    """render/tiles.py разбит на render/tiles/ пакет из 10 подмодулей."""
+    import render.tiles as t
+    # Все публичные имена доступны из пакета
+    assert hasattr(t, 'Tiles')
+    assert hasattr(t, '_BUILDERS')
+    assert hasattr(t, '_VARIANTS')
+    assert hasattr(t, 'BIOME_PALETTES')
+    assert hasattr(t, 'SIZE')
+    # Подмодули существуют
+    import render.tiles._common
+    import render.tiles._dungeon
+    import render.tiles._nature
+    import render.tiles._settlement
+    import render.tiles._registry
+    # Оригинальный файл удалён
+    assert not os.path.exists(
+        os.path.join(os.path.dirname(t.__file__), '..', 'tiles.py')
+    ), "render/tiles.py должен быть удалён (заменён пакетом render/tiles/)"
+
+
+def test_icon_renderer_split_into_package():
+    """render/icon_renderer.py разбит на render/icons/ пакет (mixin-архитектура)."""
+    from render.icons import IconRenderer
+    import render.icons._items
+    import render.icons._monsters
+    import render.icons._players
+    import render.icons._npcs
+    # Все методы классов доступны через миксины
+    assert hasattr(IconRenderer, 'draw_item')
+    assert hasattr(IconRenderer, 'draw_player')
+    assert hasattr(IconRenderer, 'draw_monster')
+    assert hasattr(IconRenderer, 'draw_city_npc')
+    assert hasattr(IconRenderer, 'draw_class_icon')
+    # Оригинальный файл удалён
+    import render.icons as pkg
+    assert not os.path.exists(
+        os.path.join(os.path.dirname(pkg.__file__), '..', 'icon_renderer.py')
+    ), "render/icon_renderer.py должен быть удалён (заменён пакетом render/icons/)"

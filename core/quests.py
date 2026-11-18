@@ -1,21 +1,29 @@
 """Система квестов: лог, прогресс, награды."""
+from __future__ import annotations
+
+from typing import Any, Optional
 
 
 class QuestLog:
-    def __init__(self):
-        self.available = set()
-        self.active = {}          # {quest_key: {'progress': N, 'count': N}}
-        self.completed = set()
-        self.turned_in = set()
+    def __init__(self) -> None:
+        self.available: set[str] = set()
+        self.active: dict[str, dict[str, Any]] = {}
+        self.completed: set[str] = set()
+        self.turned_in: set[str] = set()
 
     # ── Выдача ──
-    def add_available(self, quest_keys):
+    def add_available(self, quest_keys: list[str]) -> None:
         for k in quest_keys:
             if (k not in self.turned_in and k not in self.active
                     and k not in self.completed):
                 self.available.add(k)
 
-    def accept(self, quest_key, count, inventory=None):
+    def accept(
+        self,
+        quest_key: str,
+        count: int,
+        inventory: Optional[dict[str, int]] = None,
+    ) -> bool:
         """Взять квест. Если передан инвентарь, сразу считаем прогресс
         «принеси N предметов» — иначе уже собранные предметы не засчитывались."""
         if quest_key not in self.available:
@@ -33,7 +41,7 @@ class QuestLog:
         return True
 
     # ── Обновления ──
-    def update_kill(self, monster_ch):
+    def update_kill(self, monster_ch: str) -> None:
         from core.data import QUESTS
         for q_key, state in list(self.active.items()):
             q = QUESTS.get(q_key)
@@ -45,7 +53,7 @@ class QuestLog:
             if state['progress'] >= state['count']:
                 self._complete(q_key)
 
-    def update_collect(self, item_key, player_inv):
+    def update_collect(self, item_key: str, player_inv: dict[str, int]) -> None:
         from core.data import QUESTS
         for q_key, state in list(self.active.items()):
             q = QUESTS.get(q_key)
@@ -58,7 +66,7 @@ class QuestLog:
             if state['progress'] >= state['count']:
                 self._complete(q_key)
 
-    def update_reach(self, depth):
+    def update_reach(self, depth: int) -> None:
         from core.data import QUESTS
         for q_key, state in list(self.active.items()):
             q = QUESTS.get(q_key)
@@ -67,7 +75,7 @@ class QuestLog:
             if depth >= q['target']:
                 self._complete(q_key)
 
-    def update_craft(self, item_key):
+    def update_craft(self, item_key: str) -> None:
         from core.data import QUESTS
         for q_key, state in list(self.active.items()):
             q = QUESTS.get(q_key)
@@ -79,13 +87,13 @@ class QuestLog:
             if state['progress'] >= state['count']:
                 self._complete(q_key)
 
-    def _complete(self, q_key):
+    def _complete(self, q_key: str) -> None:
         if q_key in self.active:
             self.active.pop(q_key, None)
             self.completed.add(q_key)
 
     # ── Сдача ──
-    def turn_in(self, q_key, player, game):
+    def turn_in(self, q_key: str, player: Any, game: Any) -> bool:
         if q_key not in self.completed:
             return False
         from core.data import QUESTS
@@ -118,7 +126,7 @@ class QuestLog:
         return True
 
     # ── Сериализация ──
-    def to_dict(self):
+    def to_dict(self) -> dict[str, Any]:
         return {
             'available': sorted(self.available),
             'active': {k: dict(v) for k, v in self.active.items()},
@@ -127,7 +135,7 @@ class QuestLog:
         }
 
     @classmethod
-    def from_dict(cls, d):
+    def from_dict(cls, d: dict[str, Any]) -> 'QuestLog':
         ql = cls()
         ql.available = set(d.get('available', []))
         ql.active = {k: dict(v) for k, v in d.get('active', {}).items()}
@@ -135,7 +143,7 @@ class QuestLog:
         ql.turned_in = set(d.get('turned_in', []))
         return ql
 
-    def accept_generated(self, quest):
+    def accept_generated(self, quest: dict[str, Any]) -> bool:
         """Взять сгенерированный квест с доски."""
         key = quest['id']
         if key in self.active or key in self.turned_in:
@@ -149,7 +157,7 @@ class QuestLog:
         }
         return True
 
-    def turn_in_generated(self, key, player, game):
+    def turn_in_generated(self, key: str, player: Any, game: Any) -> bool:
         data = self.active.get(key)
         if not data or not data.get('generated'):
             return False

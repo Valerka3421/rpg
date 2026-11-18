@@ -1,7 +1,7 @@
 """Фасад рендера. Делегирует в специализированные модули."""
 from render.base_renderer import BaseRenderer
 from render.game_renderer import GameRenderer
-from render.icon_renderer import IconRenderer
+from render.icons import IconRenderer
 from render.menu_renderer import MenuRenderer
 from render.overlay_renderer import OverlayRenderer
 from render.screens_renderer import ScreensRenderer

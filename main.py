@@ -184,14 +184,21 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
 # Замена while True с пересозданием Game — явный конечный автомат.
 # Состояния: MENU → SINGLE_PLAYER | MP_HOST | MP_CLIENT → MENU.
 # Чище для отладки и логирования, не пересоздаёт Game без нужды.
+from core.modes import ScreenMode  # noqa: E402 — после настройки SDL
+
+# AppState — внутренние состояния main loop. MENU и EXIT совпадают со
+# значениями ScreenMode, чтобы переходы из game.screen_mode были
+# согласованы. SINGLE_PLAYER / MP_HOST / MP_CLIENT — не относятся к
+# экранам игры, это мета-состояния приложения.
+
 
 class AppState:
     """Состояния главного цикла приложения."""
-    MENU = 'menu'
+    MENU = ScreenMode.MENU        # 'menu'
     SINGLE_PLAYER = 'single_player'
     MP_HOST = 'mp_host'
     MP_CLIENT = 'mp_client'
-    EXIT = 'exit'
+    EXIT = ScreenMode.EXIT        # 'exit'
 
 
 def _enter_state(state, screen, clock, mp_result=None):
