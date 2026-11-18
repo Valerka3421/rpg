@@ -11,7 +11,7 @@ from core.entities import Entity, Player, Room, Dungeon
 
 
 # ── Базовые сериализаторы ──
-def entity_to_dict(e):
+def entity_to_dict(e: Entity) -> dict:
     return {
         'x': e.x, 'y': e.y, 'hp': e.hp, 'max_hp': e.max_hp,
         'atk': e.atk, 'df': e.df,
@@ -24,7 +24,7 @@ def entity_to_dict(e):
         'npc_type': e.npc_type,
     }
 
-def entity_from_dict(d):
+def entity_from_dict(d: dict) -> Entity:
     e = Entity(d['x'], d['y'], d['hp'], d['max_hp'], d['atk'], d['df'],
                d['name'], d['ch'], tuple(d['color']), d['xp_value'],
                d['boss'], ability=d.get('ability'))
@@ -34,7 +34,7 @@ def entity_from_dict(d):
     e.npc_type = d.get('npc_type')
     return e
 
-def player_to_dict(p):
+def player_to_dict(p: Player) -> dict:
     return {
         'x': p.x, 'y': p.y, 'hp': p.hp, 'mana': getattr(p, 'mana', 0),
         'class_key': getattr(p, 'class_key', 'default'),
@@ -44,10 +44,11 @@ def player_to_dict(p):
         'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
         'free_points': p.free_points,
         'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
-        'df_stat': p.df_stat,
+        'df_stat': p.df_stat, 'int': getattr(p, 'int_stat', 5),
         'weapon': p.weapon, 'armor': p.armor,
         'head': getattr(p, 'head', None),
         'legs': getattr(p, 'legs', None),
+        'boots': getattr(p, 'boots', None),
         # Совместимость со старыми сейвами ветки навыков.
         'helmet': getattr(p, 'head', None),
         'leggings': getattr(p, 'legs', None),
@@ -64,10 +65,11 @@ def player_to_dict(p):
         'skill_points': getattr(p, 'skill_points', 0),
         'skill_xp': dict(getattr(p, 'skill_xp', {})),
         'skill_nodes': sorted(getattr(p, 'skill_nodes', set())),
+        'blueprints': sorted(getattr(p, 'blueprints', set())),
     }
 
 
-def player_from_dict(d):
+def player_from_dict(d: dict) -> Player:
     from core import skills
     p = Player(class_key=d.get('class_key', 'default'))
     p.x, p.y = d['x'], d['y']
@@ -78,10 +80,27 @@ def player_from_dict(d):
     p.free_points = d['free_points']
     p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
     p.df_stat = d.get('df_stat', 5)
+    p.int_stat = d.get('int', 5)
     p.weapon, p.armor = d['weapon'], d['armor']
     p.head = d.get('head', d.get('helmet'))
     p.legs = d.get('legs', d.get('leggings'))
+    p.boots = d.get('boots')
     p.inventory = dict(d['inventory'])
+    # Старые сейвы: сапоги лежали в слоте «ноги», потому что у них был
+    # тип legs. Теперь у обуви отдельный тип и слот — переносим.
+    from core.data import get_item_data
+    from core.rules import SLOT_FOR_TYPE
+    for slot in ('weapon', 'armor', 'head', 'legs', 'boots'):
+        key = getattr(p, slot, None)
+        if not key:
+            continue
+        expected = SLOT_FOR_TYPE.get(get_item_data(key).get('type'))
+        if expected and expected != slot:
+            setattr(p, slot, None)
+            if not getattr(p, expected, None):
+                setattr(p, expected, key)
+            else:
+                p.inventory[key] = p.inventory.get(key, 0) + 1
     p.gold = d.get('gold', 0)
     p.double_strike = d.get('double_strike', False)
     p.regen = d.get('regen', False); p.vampire = d.get('vampire', False)
@@ -110,6 +129,7 @@ def player_from_dict(d):
     p.skill_points = int(d.get('skill_points', 1))
     p.skill_xp = {k: v['xp'] for k, v in p.skills.items()}
     p.skill_nodes = set(d.get('skill_nodes') or ())
+    p.blueprints = set(d.get('blueprints') or ())
     p.recalc()
     p.hp = min(d['hp'], p.max_hp)
     # Мана появилась в v8. Старые сейвы получают полный запас.
@@ -122,7 +142,7 @@ def player_from_dict(d):
     return p
 
 
-def dungeon_to_dict(d):
+def dungeon_to_dict(d: Dungeon) -> dict:
     """Тайлы пишутся строками цифр — компактнее вложенных списков int."""
     from core.harvest import serialize as harvest_serialize
     return {
@@ -144,6 +164,10 @@ def dungeon_to_dict(d):
         'boss_door_cells': [list(p)
                             for p in getattr(d, 'boss_door_cells', ())],
         'harvestables': harvest_serialize(d),
+        'chest_loot': [
+            {'x': k[0], 'y': k[1], 'loot': dict(v)}
+            for k, v in getattr(d, 'chest_loot', {}).items()
+        ],
     }
 
 
@@ -157,7 +181,7 @@ def _decode_tiles(rows):
     return tiles
 
 
-def dungeon_from_dict(d, is_overworld=False, is_location=False):
+def dungeon_from_dict(d: dict, is_overworld: bool = False, is_location: bool = False) -> Dungeon:
     rows = _decode_tiles(d['tiles'])
     old_h = len(rows)
     old_w = max((len(r) for r in rows), default=0)
@@ -189,6 +213,8 @@ def dungeon_from_dict(d, is_overworld=False, is_location=False):
                 continue
         from core.harvest import deserialize as harvest_deserialize
         dun.harvestables = harvest_deserialize(d.get('harvestables', []))
+        dun.chest_loot = {(int(c['x']), int(c['y'])): dict(c.get('loot', {}))
+                          for c in d.get('chest_loot', []) or []}
         return dun
 
     if needs_migration and is_overworld:
@@ -238,6 +264,8 @@ def dungeon_from_dict(d, is_overworld=False, is_location=False):
     dun.boss_door_cells = {tuple(p) for p in d.get('boss_door_cells', [])}
     from core.harvest import deserialize as harvest_deserialize
     dun.harvestables = harvest_deserialize(d.get('harvestables', []))
+    dun.chest_loot = {(int(c['x']), int(c['y'])): dict(c.get('loot', {}))
+                      for c in d.get('chest_loot', []) or []}
     return dun
 
 
@@ -284,7 +312,7 @@ def dungeon_cache_from_dict(data):
 
 
 # ── Слоты ──
-def save_slot_path(slot):
+def save_slot_path(slot: int) -> str:
     return os.path.join(BASE_DIR, f'savegame_{slot}.json')
 
 

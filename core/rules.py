@@ -17,6 +17,10 @@ from core.config import (
     Tile, MONSTER_ACTION_INTERVAL, MONSTER_ACTION_JITTER,
     BOSS_ACTION_INTERVAL, BOSS_BREATH_INTERVAL, BOSS_BREATH_RANGE,
     BOSS_BREATH_POWER,
+    # Боевые константы — вынесены из магических чисел в config
+    DMG_SPREAD, CRIT_MULT, XP_LEVEL_GUARD,
+    DODGE_CAP, DODGE_TOTAL_CAP, CRIT_BASE_CAP, CRIT_TOTAL_CAP,
+    THORNS_DAMAGE,
 )
 from core.data import (
     ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
@@ -25,13 +29,82 @@ from core.data import (
     item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
     SKILLS, default_skills, skill_xp_to_next,
 )
-from core.entities import Player, Entity
+from core.entities import Player, Entity, Projectile, Dungeon
 from core import skills
 
 
+# ════════════════════ ДАЛЬНОБОЙНЫЕ АТАКИ ════════════════════
+# Соответствие типа атаки → цвет/скорость снаряда (для рендера и логики).
+PROJECTILE_KINDS = {
+    'arrow':     {'color': (220, 200, 170), 'speed_key': 'PROJECTILE_SPEED_ARROW',
+                  'status': None},
+    'fireball':  {'color': (255, 120, 50),  'speed_key': 'PROJECTILE_SPEED_FIREBALL',
+                  'status': 'burning'},
+    'frost':     {'color': (130, 190, 255), 'speed_key': 'PROJECTILE_SPEED_FROST',
+                  'status': 'slow'},
+    'lightning': {'color': (240, 230, 110), 'speed_key': 'PROJECTILE_SPEED_LIGHTNING',
+                  'status': 'slow'},
+    'heal':      {'color': (130, 245, 150), 'speed_key': 'PROJECTILE_SPEED_HEAL',
+                  'status': None},
+}
+
+
+def ranged_attack(attacker, target, kind='arrow', damage=None,
+                  source_pid=-1):
+    """Создаёт Projectile, летящий от attacker к target.
+
+    Урон и статусы применяются при попадании (в game.update_projectiles).
+    Возвращает Projectile. Если target=None, снаряд летит в направлении
+    facing attacker'а и пропадает через ``life`` секунд.
+    """
+    from core import config as _cfg
+    info = PROJECTILE_KINDS.get(kind, PROJECTILE_KINDS['arrow'])
+    if damage is None:
+        if isinstance(attacker, Player):
+            base_dmg = attacker.atk
+        else:
+            base_dmg = getattr(attacker, 'atk', 1)
+        # У дальнобойной атаки урон чуть ниже melee — компенсация дистанции.
+        damage = max(1, base_dmg - getattr(target, 'df', 0) if target else base_dmg)
+    speed = getattr(_cfg, info['speed_key'], 12.0)
+    tx = target.x if target else attacker.x + attacker.facing[0] * 5
+    ty = target.y if target else attacker.y + attacker.facing[1] * 5
+    return Projectile(
+        x=float(attacker.x), y=float(attacker.y),
+        tx=float(tx), ty=float(ty),
+        kind=kind, speed=speed, damage=damage, color=info['color'],
+        source_pid=source_pid,
+        target_ch=target.ch if target else '',
+        life=2.0,
+    )
+
+
+def projectile_hit(projectile, target):
+    """Применяет урон и статус от попадания снаряда в цель.
+
+    Возвращает (damage_dealt, status_applied). Если target уже мёртв или
+    снаряд промазал — возвращает (0, '').
+    """
+    if target is None or target.hp <= 0:
+        return 0, ''
+    god = isinstance(target, Player) and getattr(target, 'god_mode', False)
+    damage = 0 if god else projectile.damage
+    target.hp -= damage
+    info = PROJECTILE_KINDS.get(projectile.kind, {})
+    status = info.get('status')
+    if status and damage > 0:
+        target.add_status(status)
+    return damage, status or ''
+
+
 # ════════════════════ ОПЫТ И УРОВНИ ════════════════════
-def level_up_once(player):
-    """Повышает уровень на 1. Возвращает новый уровень."""
+def level_up_once(player: Player) -> int:
+    """Повышает уровень игрока на 1. Возвращает новый уровень.
+
+    Сбрасывает XP до остатка, обновляет ``xp_next`` по кривой опыта,
+    даёт 5 свободных очков характеристик и 1 очко навыка, полностью
+    восстанавливает HP и ману.
+    """
     player.xp -= player.xp_next
     player.level += 1
     player.xp_next = xp_to_next(player.level)
@@ -44,15 +117,20 @@ def level_up_once(player):
     return player.level
 
 
-def give_xp(player, amount, apply_bonus=True):
-    """Начисляет опыт. Возвращает список полученных уровней."""
+def give_xp(player: Player, amount: int, apply_bonus: bool = True) -> list[int]:
+    """Начисляет опыт игроку. Возвращает список полученных уровней.
+
+    ``apply_bonus`` — умножить на ``xp_pct`` (бонус от навыков/класса).
+    ``XP_LEVEL_GUARD`` защищает от зацикливания, если ``xp_next``
+    оказалось нулевым или отрицательным из-за бага в кривой.
+    """
     if apply_bonus:
         pct = float(getattr(player, 'xp_pct', 0.0) or 0.0)
         amount = int(round(amount * (1.0 + pct)))
     player.xp += max(0, amount)
-    gained = []
+    gained: list[int] = []
     guard = 0
-    while player.xp >= player.xp_next and guard < 200:
+    while player.xp >= player.xp_next and guard < XP_LEVEL_GUARD:
         gained.append(level_up_once(player))
         guard += 1
     return gained
@@ -71,15 +149,22 @@ class AttackResult:
     attacker_dead: bool = False
 
 
-def face_towards(attacker, defender):
+def face_towards(attacker: Entity, defender: Entity) -> None:
+    """Развернуть attacker в сторону defender (для анимации удара)."""
     attacker.facing = (
         1 if defender.x > attacker.x else (-1 if defender.x < attacker.x else 0),
         1 if defender.y > attacker.y else (-1 if defender.y < attacker.y else 0),
     )
 
 
-def resolve_attack(attacker, defender):
-    """Один удар. Меняет HP/статусы и возвращает факты о бое."""
+def resolve_attack(attacker: Entity, defender: Entity) -> AttackResult:
+    """Один удар. Меняет HP/статусы и возвращает факты о бое.
+
+    Урон: ``max(1, atk - defender.df ± DMG_SPREAD)``.
+    Крит: ``damage * CRIT_MULT`` (если выпал).
+    Уклонение: ``DODGE_CAP`` для базы, ``DODGE_TOTAL_CAP`` абсолютный.
+    Шипы: ответный ``THORNS_DAMAGE`` урон по атакующему.
+    """
     god = isinstance(defender, Player) and getattr(defender, 'god_mode',
                                                     False)
     if isinstance(defender, Player) and random.random() < defender.dodge:
@@ -89,9 +174,9 @@ def resolve_attack(attacker, defender):
     atk = attacker.atk
     if isinstance(attacker, Player):
         atk = int(atk * attacker.rage_bonus)
-    damage = max(1, atk - defender.df + random.randint(-1, 1))
+    damage = max(1, atk - defender.df + random.randint(-DMG_SPREAD, DMG_SPREAD))
     if crit:
-        damage = int(damage * 1.5)
+        damage = int(damage * CRIT_MULT)
     # Консоль разработчика: режим бессмертия.
     if god:
         damage = 0
@@ -133,8 +218,8 @@ def resolve_attack(attacker, defender):
 
     # Шипы — ответный урон игрока
     if isinstance(defender, Player) and defender.thorns and isinstance(attacker, Entity):
-        attacker.hp -= 2
-        result.thorns = 2
+        attacker.hp -= THORNS_DAMAGE
+        result.thorns = THORNS_DAMAGE
         result.attacker_dead = attacker.hp <= 0
     return result
 
@@ -172,8 +257,11 @@ def roll_kill_reward(monster, depth, greedy=False):
     return KillReward(gold=gold, xp=monster.xp_value, drops=drops)
 
 
-def award_kill(player, monster, depth):
-    """Начисляет золото и опыт за моба. Возвращает (награда, новые уровни)."""
+def award_kill(player: Player, monster: Entity, depth: int) -> tuple[KillReward, list[int]]:
+    """Начисляет золото и опыт за моба. Возвращает (награда, новые уровни).
+
+    Бонус ``gold_pct`` (от навыков/класса) умножает золото.
+    """
     reward = roll_kill_reward(monster, depth, greedy=player.greedy)
     pct = float(getattr(player, 'gold_pct', 0.0) or 0.0)
     reward.gold = int(round(reward.gold * (1.0 + pct)))
@@ -278,7 +366,7 @@ def roll_pickup_rarity(key):
     return make_loot_key(key, rarity) if rarity > 0 else key
 
 
-def pickup(dungeon, player, x, y):
+def pickup(dungeon: Dungeon, player: Player, x: int, y: int) -> PickupResult | None:
     """Снимает предмет с тайла. Возвращает PickupResult или None."""
     if (x, y) not in dungeon.items:
         return None
@@ -291,10 +379,50 @@ def pickup(dungeon, player, x, y):
         return PickupResult('gold', key, data.get('name', ''),
                             data.get('value', 0),
                             data.get('color', (240, 210, 90)))
-    player.inventory[key] = player.inventory.get(key, 0) + 1
+    # Используем add_item — он учитывает стаки и не-стакаемое снаряжение.
+    add_item(player.inventory, key, 1)
     kind = 'resource' if data.get('type') == 'resource' else 'item'
     return PickupResult(kind, key, item_display_name(key), 0,
                         item_display_color(key))
+
+
+def add_item(inventory: dict, key: str, count: int = 1) -> None:
+    """Добавить предмет в инвентарь с учётом стаков.
+
+    Снаряжение (weapon/armor/head/legs/boots) — каждый экземпляр в свой
+    слот (но если ключи идентичны, включая rarity/+N, они стакаются —
+    это допустимо, так как предметы идентичны).
+
+    Расходники и материалы — стак до ``MAX_STACK``. При превышении
+    создаётся новый «виртуальный» стак с суффиксом ``#2``, ``#3`` и т.д.
+    В инвентаре это отдельный ключ, в UI — отдельный слот.
+    """
+    from core.config import MAX_STACK
+    from core.data import get_item_data
+    item = get_item_data(key)
+    if item.get('type') in EQUIP_TYPES:
+        inventory[key] = inventory.get(key, 0) + count
+        return
+    # Расходники: пытаемся положить в существующий неполный стак
+    current = inventory.get(key, 0)
+    if current < MAX_STACK:
+        space = MAX_STACK - current
+        take = min(space, count)
+        inventory[key] = current + take
+        count -= take
+    # Остаток — в новые стаки с суффиксом #N
+    stack_idx = 2
+    while count > 0:
+        suffix_key = f'{key}#{stack_idx}'
+        current = inventory.get(suffix_key, 0)
+        if current < MAX_STACK:
+            space = MAX_STACK - current
+            take = min(space, count)
+            inventory[suffix_key] = current + take
+            count -= take
+        stack_idx += 1
+        if stack_idx > 999:
+            break  # защита от зацикливания
 
 
 def place_loot(dungeon, inventory, x, y, key, avoid=()):
@@ -327,7 +455,7 @@ def place_loot(dungeon, inventory, x, y, key, avoid=()):
 
 # ════════════════════ КРАФТ ════════════════════
 # Качество (+N) имеет смысл только для снаряжения.
-EQUIP_TYPES = ('weapon', 'armor', 'head', 'legs')
+EQUIP_TYPES = ('weapon', 'armor', 'head', 'legs', 'boots')
 
 
 @dataclass
@@ -443,6 +571,27 @@ def craft_item(player, item_key, quality=None, recipe_index=None):
                        item, count)
 
 
+def craft_many(player, item_key, quantity=1, quality=None,
+               recipe_index=None):
+    """Создаёт несколько одинаковых предметов за раз.
+
+    Снаряжение не стакается, поэтому для него количество всегда 1.
+    Возвращает список ``CraftResult``; последний может быть неудачным,
+    если материалы закончились.
+    """
+    item = ITEMS.get(item_key, {})
+    quantity = max(1, int(quantity))
+    if item.get('type') in EQUIP_TYPES:
+        quantity = 1
+    results = []
+    for _ in range(quantity):
+        res = craft_item(player, item_key, quality, recipe_index)
+        results.append(res)
+        if not res.ok:
+            break
+    return results
+
+
 def craft(item_key, inventory, level, player=None, recipe_index=None,
           quality=None):
     """Создаёт предмет. Возвращает (успех, причина).
@@ -466,10 +615,13 @@ def craft(item_key, inventory, level, player=None, recipe_index=None,
     return True, 'ok'
 
 
-def craftable_list(inventory, level, player=None, tab='all'):
+def craftable_list(inventory, level, player=None, tab='all',
+                   unlocked_only=False):
     """[(key, data, recipe, can, category, recipe_index, count) ...].
 
     `tab` — ключ вкладки окна крафта: 'all' или категория навыка.
+    `unlocked_only` — скрывать рецепты, которые ещё не открыты по
+    уровню навыка крафта (используется окном крафта).
     """
     from core.data import get_craftable_items
     result = []
@@ -477,12 +629,14 @@ def craftable_list(inventory, level, player=None, tab='all'):
         category = item_category(key)
         if tab not in (None, 'all') and category != tab:
             continue
+        unlocked = player is None or skills.recipe_unlocked(player, item)
+        if unlocked_only and not unlocked:
+            continue
         recipe, count, recipe_index = select_recipe(key, inventory)
         has_materials = bool(recipe) and all(
             inventory.get(mat, 0) >= cnt for mat, cnt in recipe.items())
         level_ok = level >= item.get('level_req', 1)
-        allowed = level_ok and (player is None
-                                or skills.recipe_unlocked(player, item))
+        allowed = level_ok and unlocked
         result.append((key, item, recipe, has_materials and allowed,
                        category, recipe_index, count))
     return result
@@ -507,6 +661,35 @@ def consume(inventory, key):
     return True
 
 
+def is_stackable(key):
+    """Снаряжение не стакается; всё остальное — до ``MAX_STACK``."""
+    from core.data import get_item_data
+    return get_item_data(key).get('type') not in EQUIP_TYPES
+
+
+def inventory_stacks(inventory):
+    """Список ``(key, count)`` с учётом лимита стака.
+
+    Оружие и броня показываются отдельными слотами (по 1), обычные
+    предметы разбиваются на стаки не больше ``MAX_STACK``.
+    """
+    from core.config import MAX_STACK
+    entries = []
+    for key in sorted(inventory):
+        count = int(inventory.get(key, 0) or 0)
+        if count <= 0:
+            continue
+        if not is_stackable(key):
+            entries.extend([(key, 1)] * count)
+            continue
+        while count > MAX_STACK:
+            entries.append((key, MAX_STACK))
+            count -= MAX_STACK
+        if count:
+            entries.append((key, count))
+    return entries
+
+
 @dataclass
 class UseResult:
     ok: bool
@@ -523,6 +706,7 @@ SLOT_FOR_TYPE = {
     'armor': 'armor',
     'head': 'head',
     'legs': 'legs',
+    'boots': 'boots',
     # Старое имя типа предмета из ранних сейвов/данных.
     'helmet': 'head',
     'leggings': 'legs',
@@ -586,6 +770,31 @@ def use_item(player, key, monsters=None, on_hit=None):
     if not item:
         return None
     kind = item.get('type')
+
+    if kind == 'blueprint':
+        teaches = item.get('teaches')
+        if not teaches:
+            return UseResult(False, 'no_use', 'Пустой чертёж.')
+        known = getattr(player, 'blueprints', None)
+        if known is None:
+            known = set()
+            player.blueprints = known
+        if teaches in known:
+            return UseResult(False, 'known', 'Этот чертёж уже изучен.')
+        base_class = getattr(player, 'class_base', '')
+        class_key = getattr(player, 'class_key', '')
+        from core.data import ITEMS as _ITEMS
+        recipe_item = _ITEMS.get(teaches, {})
+        classes = recipe_item.get('craft_classes') or ()
+        if classes and base_class not in classes and class_key not in classes:
+            return UseResult(False, 'class',
+                             'Чертёж понятен только ремесленнику.')
+        known.add(teaches)
+        consume(inventory, key)
+        name = recipe_item.get('name', teaches)
+        return UseResult(True, 'blueprint',
+                         f"Изучен чертёж: {name}", 0,
+                         (240, 210, 120))
 
     if kind == 'resource':
         healing = item.get('heal', 0)
@@ -692,6 +901,17 @@ def use_item(player, key, monsters=None, on_hit=None):
     return UseResult(False, 'no_use', f"{item['name']} нельзя использовать.")
 
 
+def magic_damage(player, base):
+    """Урон магического умения: база предмета + вклад INT.
+
+    Интеллект усиливает свитки и руны — по +1 урона за каждое очко.
+    """
+    int_stat = getattr(player, 'int_stat', 5)
+    if int_stat is None:
+        int_stat = 5
+    return max(1, int(round(base)) + max(0, int(int_stat)))
+
+
 def _use_scroll(player, key, item, monsters, on_hit):
     inventory = player.inventory
     effect = item.get('effect')
@@ -726,7 +946,7 @@ def _use_scroll(player, key, item, monsters, on_hit):
         target = _nearest_monster(monsters, player.x, player.y, 8)
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для молнии.')
-        damage = item.get('value', 0)
+        damage = magic_damage(player, item.get('value', 0))
         target.hp -= damage
         target.add_status('slow', 2)
         if on_hit:
@@ -741,15 +961,16 @@ def _use_scroll(player, key, item, monsters, on_hit):
         if target is None:
             return UseResult(False, 'no_target', 'Нет целей для огня.')
         victims = []
+        damage = magic_damage(player, item.get('value', 0))
         for monster in list(monsters):
             if monster.hp <= 0:
                 continue
             if abs(monster.x - target.x) <= 1 and abs(monster.y - target.y) <= 1:
-                monster.hp -= item.get('value', 0)
+                monster.hp -= damage
                 monster.add_status('burning', 3)
-                victims.append((monster, item.get('value', 0)))
+                victims.append((monster, damage))
                 if on_hit:
-                    on_hit(monster, item.get('value', 0))
+                    on_hit(monster, damage)
         return finish(UseResult(True, 'fireball',
                                 f"Огненный шар: {len(victims)} целей.",
                                 len(victims), (255, 120, 50), victims))
@@ -780,7 +1001,7 @@ def _learn_book(player, key, item):
         consume(inventory, key)
         return UseResult(True, 'book', f"Изучено: {item['name']}!", 0,
                          (240, 210, 90))
-    if stat in ('str', 'agi', 'vit', 'luk', 'df_stat'):
+    if stat in ('str', 'agi', 'vit', 'luk', 'df_stat', 'int'):
         setattr(player, stat, getattr(player, stat) + item['value'])
         player.recalc()
         consume(inventory, key)

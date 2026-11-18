@@ -7,8 +7,10 @@ from core.data import (ITEMS, CLASSES, class_data, class_stats, parse_item_key,
 
 
 class Entity:
-    def __init__(self, x, y, hp, max_hp, atk, df, name, ch, color,
-                 xp_value=0, boss=False, ability=None):
+    def __init__(self, x: int, y: int, hp: int, max_hp: int,
+                 atk: int, df: int, name: str, ch: str, color: tuple,
+                 xp_value: int = 0, boss: bool = False,
+                 ability: str | None = None) -> None:
         self.x, self.y = x, y
         self.hp, self.max_hp = hp, max_hp
         self.atk, self.df = atk, df
@@ -17,10 +19,10 @@ class Entity:
         self.boss = boss
         self.is_merchant = False
         self.is_npc = False
-        self.npc_type = None
+        self.npc_type: str | None = None
         self.ability = ability
         self.immortal = False
-        self.statuses = {}          # {status_key: remaining_turns}
+        self.statuses: dict[str, int] = {}      # {status_key: remaining_turns}
         self.anim_time = 0.0  # накапливается в update
         self.attack_anim = 0.0  # 0..1, убывает после атаки
         self.facing = (1, 0)  # направление последнего действия
@@ -29,10 +31,10 @@ class Entity:
         self.act_timer = 0.0
         self.breath_timer = 0.0   # только для боссов
 
-    def has_status(self, key):
+    def has_status(self, key: str) -> bool:
         return key in self.statuses
 
-    def add_status(self, key, duration=None):
+    def add_status(self, key: str, duration: int | None = None) -> None:
         from core.data import STATUSES
         if key not in STATUSES:
             return
@@ -41,28 +43,51 @@ class Entity:
         # Не накапливать больше max
         self.statuses[key] = max(self.statuses.get(key, 0), duration)
 
-    def remove_status(self, key):
+    def remove_status(self, key: str) -> None:
         self.statuses.pop(key, None)
 
-    def clear_statuses(self):
+    def clear_statuses(self) -> None:
         self.statuses.clear()
 
 
 class Player(Entity):
     # Единая формула статов — используется и в recalc, и в UI превью класса.
     @staticmethod
-    def preview_stats(data):
-        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs,
-        effects (пассивные бонусы класса и навыков), level."""
+    def preview_stats(data: dict) -> dict:
+        """Превью статов из словаря данных (для UI выбора класса).
+
+        Делегирует в ``_compute_stats`` — единая формула для ``recalc`` и
+        ``preview_stats``, чтобы они не разошлись.
+
+        data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs/boots,
+        effects (пассивные бонусы класса и навыков), level.
+        """
+        return Player._compute_stats(data)
+
+    @staticmethod
+    def _compute_stats(data: dict) -> dict:
+        """Единая формула пересчёта статов из экипировки/эффектов.
+
+        Вызывается из ``preview_stats`` (для UI) и из ``recalc`` (для
+        актуального игрока). Любое изменение формулы — в одном месте.
+
+        Возвращает dict с max_hp, atk, df, dodge, crit, max_mana и
+        внутренними _w_crit_bonus / _a_dodge_bonus / и т.д. для
+        использования в property dodge/crit.
+        """
+        from core.config import (DODGE_CAP, DODGE_TOTAL_CAP,
+                                  CRIT_BASE_CAP, CRIT_TOTAL_CAP)
         str_   = data.get('str', 5)
         agi    = data.get('agi', 5)
         vit    = data.get('vit', 5)
         luk    = data.get('luk', 5)
         df_st  = data.get('df_stat', 5)
+        int_   = data.get('int', 5)
         level  = int(data.get('level', 1) or 1)
         effects = data.get('effects') or {}
         head = data.get('head', data.get('helmet'))
         legs = data.get('legs', data.get('leggings'))
+        boots = data.get('boots')
 
         wb = ab = hp_extra = 0
         w_crit = w_dodge = a_dodge = 0.0
@@ -70,7 +95,7 @@ class Player(Entity):
         mana_extra = 0
         for slot, key in (('weapon', data.get('weapon')),
                           ('armor', data.get('armor')),
-                          ('head', head), ('legs', legs)):
+                          ('head', head), ('legs', legs), ('boots', boots)):
             if not key:
                 continue
             base, lvl = parse_item_key(key)
@@ -90,11 +115,11 @@ class Player(Entity):
         skill_dodge = effects.get('dodge', 0.0)
         skill_crit = effects.get('crit', 0.0)
 
-        dodge_base = min(0.30, agi * 0.015)
-        dodge_total = max(0.0, min(0.40, dodge_base + w_dodge + a_dodge
+        dodge_base = min(DODGE_CAP, agi * 0.015)
+        dodge_total = max(0.0, min(DODGE_TOTAL_CAP, dodge_base + w_dodge + a_dodge
                                     + skill_dodge))
-        crit_base = min(0.40, luk * 0.02)
-        crit_total = min(0.50, crit_base + w_crit + skill_crit)
+        crit_base = min(CRIT_BASE_CAP, luk * 0.02)
+        crit_total = min(CRIT_TOTAL_CAP, crit_base + w_crit + skill_crit)
 
         return {
             'max_hp': 15 + vit * 2 + hp_extra + int(effects.get('hp', 0)),
@@ -102,7 +127,8 @@ class Player(Entity):
             'df': df_st // 2 + ab + w_df + int(effects.get('df', 0)),
             'dodge': dodge_total,
             'crit': crit_total,
-            'max_mana': 10 + level * 2 + mana_extra + int(effects.get('mana', 0)),
+            'max_mana': (10 + level * 2 + int_ * 2 + mana_extra
+                         + int(effects.get('mana', 0))),
             '_w_crit_bonus': w_crit,
             '_w_dodge_bonus': w_dodge,
             '_a_dodge_bonus': a_dodge,
@@ -130,10 +156,12 @@ class Player(Entity):
         self.vit = stats.get('vit', 5)
         self.luk = stats.get('luk', 5)
         self.df_stat = stats.get('df_stat', 5)
+        self.int_stat = stats.get('int', 5)
         self.weapon = cls.get('start_weapon')
         self.armor = cls.get('start_armor')
         self.head = None
         self.legs = None
+        self.boots = None
         self.inventory = {}
         for k, v in cls.get('start_items', {}).items():
             self.inventory[k] = self.inventory.get(k, 0) + v
@@ -154,11 +182,18 @@ class Player(Entity):
         self.skill_points = 1
         self.skill_xp = {k: v['xp'] for k, v in self.skills.items()}
         self.skill_nodes = set()
+        self.blueprints = set()        # прочитанные чертежи особых крафтов
         # Мана: ресурс для свитков и рун. Новый герой начинает с полным
         # запасом, чтобы первый же свиток сработал.
         self.mana = 0
         self.max_mana = 0
         self._effects_cache = {}
+        # Быстрая панель: 10 слотов под предметы. None — пусто.
+        # Привязка — Ctrl+<номер> в инвентаре, использование — <номер> в игре.
+        from core.config import QUICKBAR_SLOTS
+        self.quickbar = [None] * QUICKBAR_SLOTS
+        # Активные навыки класса (заполняется из CLASSES[class]['active_skills'])
+        self.active_skill_cd = {}      # {skill_key: remaining_seconds}
         self.recalc()
         self.mana = self.max_mana
 
@@ -223,8 +258,9 @@ class Player(Entity):
         stats = Player.preview_stats({
             'str': self.str, 'agi': self.agi, 'vit': self.vit,
             'luk': self.luk, 'df_stat': self.df_stat, 'level': self.level,
+            'int': self.int_stat,
             'weapon': self.weapon, 'armor': self.armor,
-            'head': self.head, 'legs': self.legs,
+            'head': self.head, 'legs': self.legs, 'boots': self.boots,
             'effects': effects,
         })
         self.max_hp = stats['max_hp']
@@ -280,6 +316,27 @@ class Player(Entity):
     def has_companion(self):
         return bool(int(self.effect('summon')))
 
+    # ── Быстрая панель ──
+    def assign_quickbar(self, slot_idx, item_key):
+        """Привязать предмет к слоту быстрой панели (0..QUICKBAR_SLOTS-1)."""
+        from core.config import QUICKBAR_SLOTS
+        if 0 <= slot_idx < QUICKBAR_SLOTS:
+            self.quickbar[slot_idx] = item_key
+            return True
+        return False
+
+    def clear_quickbar_slot(self, slot_idx):
+        from core.config import QUICKBAR_SLOTS
+        if 0 <= slot_idx < QUICKBAR_SLOTS:
+            self.quickbar[slot_idx] = None
+            return True
+        return False
+
+    def active_skills(self):
+        """Активные навыки класса из CLASSES (магия, способности)."""
+        cls = CLASSES.get(self.class_key, {})
+        return cls.get('active_skills', []) or []
+
 
 class Room:
     def __init__(self, x, y, w, h):
@@ -311,6 +368,8 @@ class Dungeon:
         # Босс-комплекс: центр казны и клетки запертой двери
         self.treasury_pos = None
         self.boss_door_cells = set()
+        # Содержимое сундуков, заданное генерацией: (x, y) -> {ключ: кол-во}
+        self.chest_loot = {}
 
 
 @dataclass
@@ -320,6 +379,27 @@ class FloatText:
     text: str
     color: tuple
     life: float = 0.7
+
+
+@dataclass
+class Projectile:
+    """Летящий снаряд: стрела, магический шар, молния и т.д.
+
+    Создаётся в rules.ranged_attack и обновляется в game.update_projectiles.
+    Урон применяется при достижении цели. Рендер — в game_renderer.draw_projectiles.
+    """
+    x: float                 # текущая позиция в тайлах
+    y: float
+    tx: float                # координаты цели
+    ty: float
+    kind: str = 'arrow'      # 'arrow' | 'fireball' | 'frost' | 'lightning' | 'heal'
+    speed: float = 12.0      # тайлов в секунду
+    damage: int = 0
+    color: tuple = (255, 255, 255)
+    alive: bool = True
+    source_pid: int = -1     # pid в MP, для single-player = -1
+    target_ch: str = ''      # символ цели (для её поиска в monsters)
+    life: float = 2.0        # защита от бесконечного полёта
 
 
 @dataclass

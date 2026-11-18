@@ -75,7 +75,23 @@ class DevConsoleController:
 
     # ── Состояние ──
     def open(self):
+        """Открывает консоль разработчика.
+
+        P2 правка безопасности: консоль доступна ТОЛЬКО в single-player
+        режиме (``game.screen_mode == 'game'``). В меню, выборе класса,
+        мультиплеере и т.п. — открывать нельзя, чтобы не дать читы в MP
+        и не сломать экраны меню.
+
+        Возвращает True если консоль открылась, False если заблокирована.
+        """
         game = self.game
+        # P2: блокировка консоли вне single-player 'game' режима.
+        # Список режимов, в которых консоль доступна.
+        ALLOWED_MODES = {'game', 'inventory', 'stats', 'craft',
+                         'skills', 'quests', 'shop', 'trade'}
+        if game.screen_mode not in ALLOWED_MODES:
+            # Тихо ничего не делаем — консоль не должна открываться в меню/MP.
+            return False
         if game.screen_mode != 'dev_console':
             self.return_mode = game.screen_mode
         game.screen_mode = 'dev_console'
@@ -83,6 +99,7 @@ class DevConsoleController:
         self.error = ''
         if self.unlocked and not self.lines:
             self._out('Консоль разработчика. help — список команд.', config.COL_DIM)
+        return True
 
     def close(self):
         mode = self.return_mode
@@ -149,8 +166,11 @@ class DevConsoleController:
         if not entered:
             self.error = 'Пароль не введён.'
             return
-        digest = hashlib.sha256(entered.encode('utf-8')).hexdigest()
-        if hmac.compare_digest(digest, config.dev_console_password_hash()):
+        # Используем новую функцию verify_dev_console_password — она
+        # поддерживает scrypt (P3 правка) и fallback на sha256 для
+        # старых сейвов. Сравнение constant-time — внутри функции.
+        expected_hash = config.dev_console_password_hash()
+        if config.verify_dev_console_password(entered, expected_hash):
             self.unlocked = True
             self.attempts = 0
             self.lines = []

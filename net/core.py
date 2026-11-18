@@ -107,6 +107,10 @@ class GameCore:
         self.move_timers[pid] = 0.0
         self.attack_timers[pid] = 0.0
         self.regen_timers[pid] = REGEN_TICK_INTERVAL
+        # Auto-scale: новый игрок присоединился — монстры усиливаются.
+        self._rescale_monsters_for_players()
+        self._event(f"Игрок {p.class_name} присоединился. "
+                    f"Всего игроков: {len(self.players)}.", COL_GOLD)
         return p
 
     def remove_player(self, pid):
@@ -115,6 +119,31 @@ class GameCore:
         self.attack_timers.pop(pid, None)
         self.regen_timers.pop(pid, None)
         self._inventory_cache.pop(pid, None)
+        # Auto-scale: после ухода игрока монстры слабеют обратно.
+        self._rescale_monsters_for_players()
+
+    def _rescale_monsters_for_players(self):
+        """Масштаб HP/ATK мобов под количество игроков.
+
+        +20% HP и +10% ATK за каждого игрока сверх первого.
+        Вызывается при add_player/remove_player и при смене этажа.
+        """
+        from core.data import MONSTERS_BY_CH, scale_stats
+        n = max(1, len(self.players))
+        hp_scale = 1.0 + (n - 1) * 0.20
+        atk_scale = 1.0 + (n - 1) * 0.10
+        for m in self.dungeon.monsters:
+            base = MONSTERS_BY_CH.get(m.ch, {})
+            if not base:
+                continue
+            depth = max(1, self.depth)
+            hp, atk, df = scale_stats(base.get('hp', 10),
+                                       base.get('atk', 1),
+                                       base.get('df', 0), depth)
+            m.max_hp = max(1, int(hp * hp_scale))
+            m.hp = m.max_hp if m.hp >= m.max_hp - 1 else min(m.hp, m.max_hp)
+            m.atk = max(1, int(atk * atk_scale))
+            m.df = df
 
     # ════════════════════════ СОБЫТИЯ ════════════════════════
     def _event(self, text, color=COL_TEXT):
@@ -150,9 +179,9 @@ class GameCore:
             'level': p.level, 'xp': p.xp, 'xp_next': p.xp_next,
             'free_points': p.free_points,
             'str': p.str, 'agi': p.agi, 'vit': p.vit, 'luk': p.luk,
-            'df_stat': p.df_stat,
+            'df_stat': p.df_stat, 'int': getattr(p, 'int_stat', 5),
             'weapon': p.weapon, 'armor': p.armor,
-            'head': p.head, 'legs': p.legs,
+            'head': p.head, 'legs': p.legs, 'boots': p.boots,
             'helmet': p.head, 'leggings': p.legs,
             'inventory': dict(p.inventory),
             'gold': p.gold,
@@ -166,6 +195,7 @@ class GameCore:
             'skill_points': getattr(p, 'skill_points', 0),
             'skill_xp': dict(getattr(p, 'skill_xp', {})),
             'skill_nodes': sorted(getattr(p, 'skill_nodes', set())),
+            'blueprints': sorted(getattr(p, 'blueprints', set())),
         }
 
     def _player_from_dict(self, d):
@@ -177,10 +207,12 @@ class GameCore:
         p.free_points = d['free_points']
         p.str, p.agi, p.vit, p.luk = d['str'], d['agi'], d['vit'], d['luk']
         p.df_stat = d['df_stat']
+        p.int_stat = d.get('int', 5)
         p.weapon = d.get('weapon')
         p.armor = d.get('armor')
         p.head = d.get('head', d.get('helmet'))
         p.legs = d.get('legs', d.get('leggings'))
+        p.boots = d.get('boots')
         p.inventory = dict(d.get('inventory', {}))
         p.gold = d.get('gold', 0)
         p.double_strike = d.get('double_strike', False)
@@ -206,6 +238,7 @@ class GameCore:
         p.skill_points = int(d.get('skill_points', 1))
         p.skill_xp = {k: v['xp'] for k, v in p.skills.items()}
         p.skill_nodes = set(d.get('skill_nodes') or ())
+        p.blueprints = set(d.get('blueprints') or ())
         p.recalc()
         p.hp = min(d['hp'], p.max_hp)
         p.mana = min(int(d.get('mana', p.max_mana)), p.max_mana)
@@ -369,7 +402,8 @@ class GameCore:
     def unequip(self, pid, slot):
         p = self.players.get(pid)
         slot = {'helmet': 'head', 'leggings': 'legs'}.get(slot, slot)
-        if p is None or slot not in ('weapon', 'armor', 'head', 'legs'):
+        if p is None or slot not in ('weapon', 'armor', 'head', 'legs',
+                                     'boots'):
             return
         key = getattr(p, slot, None)
         if not key:
@@ -383,9 +417,12 @@ class GameCore:
         p = self.players.get(pid)
         if p is None or p.free_points <= 0:
             return
-        if stat not in ('str', 'agi', 'vit', 'luk', 'df_stat'):
+        if stat not in ('str', 'agi', 'vit', 'luk', 'df_stat', 'int'):
             return
-        setattr(p, stat, getattr(p, stat) + 1)
+        if stat == 'int':
+            p.int_stat += 1
+        else:
+            setattr(p, stat, getattr(p, stat) + 1)
         p.free_points -= 1
         p.recalc()
 
@@ -425,7 +462,7 @@ class GameCore:
         p = self.players.get(pid)
         if p is None or not self._merchant_in_reach(p):
             return False
-        items = sorted(p.inventory.items())
+        items = rules.inventory_stacks(p.inventory)
         if not (0 <= index < len(items)):
             return False
         key = items[index][0]
@@ -644,7 +681,17 @@ class GameCore:
         self._event(f"{p.class_name} добыл: {names}", COL_HEAL)
 
     def _open_chest(self, p, x, y):
-        """Сундук казны: золото + пара предметов по глубине."""
+        """Сундук: заранее заданные ресурсы или золото + предметы."""
+        loot = getattr(self.dungeon, 'chest_loot', {}).pop((x, y), None)
+        if loot:
+            parts = []
+            for key, count in loot.items():
+                p.inventory[key] = p.inventory.get(key, 0) + count
+                parts.append(f"{item_display_name(key)} ×{count}")
+            self._event(f"{p.class_name} открыл сундук: " + ", ".join(parts),
+                        COL_GOLD)
+            self.dungeon.tiles[y][x] = Tile.FLOOR
+            return
         depth = max(1, self.depth)
         gold = 20 + depth * 8
         p.gold += gold
@@ -1018,8 +1065,12 @@ class GameCore:
         else:
             inventory = {}
         for item_key in reward.drops:
-            rules.place_loot(self.dungeon, killer.inventory if killer else {},
-                             monster.x, monster.y, item_key)
+            # Добыча сразу в инвентарь убийцы (или в первый свободный).
+            target_inv = killer.inventory if killer is not None else {}
+            rules.add_item(target_inv, item_key, 1)
+            if killer is not None:
+                self._event(f"Добыча: {item_display_name(item_key)}",
+                            COL_GOLD)
         if killer is not None:
             self._event(f"{monster.name} повержен ({killer.class_name}): "
                         f"+{reward.gold} зол.", COL_XP)
@@ -1063,13 +1114,16 @@ class GameCore:
             if p.attack_anim > 0:
                 p.attack_anim = max(0.0, p.attack_anim - dt / 0.25)
 
-        # Регенерация (перк)
+        # Регенерация (перк) — использует config.REGEN_HP_PER_TICK/MANA_PER_TICK
         for pid, p in list(self.players.items()):
             self.regen_timers[pid] = self.regen_timers.get(pid, 0.0) - dt
             if self.regen_timers[pid] <= 0:
                 self.regen_timers[pid] += REGEN_TICK_INTERVAL
+                from core import config as _cfg
                 if p.regen and p.hp < p.max_hp:
-                    p.hp += 1
+                    p.hp = min(p.max_hp, p.hp + _cfg.REGEN_HP_PER_TICK)
+                if p.mana < p.max_mana:
+                    p.mana = min(p.max_mana, p.mana + _cfg.REGEN_MANA_PER_TICK)
 
         self.status_tick_timer -= dt
         if self.status_tick_timer <= 0:
@@ -1147,8 +1201,8 @@ class GameCore:
     def _monster_flee(self, m, threat):
         """Убегает от угрозы (олень после удара)."""
         options = []
-        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1),
-                       (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        # Ортогональные шаги — как у игрока, без срезания углов.
+        for fx, fy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             nx, ny = m.x + fx, m.y + fy
             if not (0 <= nx < MAP_W and 0 <= ny < MAP_H):
                 continue
@@ -1248,8 +1302,9 @@ class GameCore:
                 'statuses': dict(p.statuses),
                 'str': p.str, 'agi': p.agi, 'vit': p.vit,
                 'luk': p.luk, 'df_stat': p.df_stat,
+                'int': getattr(p, 'int_stat', 5),
                 'weapon': p.weapon, 'armor': p.armor,
-                'head': p.head, 'legs': p.legs,
+                'head': p.head, 'legs': p.legs, 'boots': p.boots,
                 'helmet': p.head, 'leggings': p.legs,
                 'skills': {k: dict(v) for k, v in p.skills.items()},
             }

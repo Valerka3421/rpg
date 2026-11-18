@@ -97,6 +97,9 @@ def _scale_effects(effects, factor):
 
 # ── Шаблоны классовых веток по архетипу ──
 # (название, требуемый уровень, эффекты)
+# 7 узлов на архетип. Расширение до 12+ узлов отложено — ломает тест
+# уникальности имён (test_class_tree_is_unique_per_class) из-за коллизий
+# с пулом имён _EFFECT_NAME_POOLS. Нужно сначала расширить пулы имён.
 _ARCHETYPE_TEMPLATES = {
     'warrior': (
         ('Стойка воина', 1, {'atk': 1}),
@@ -222,6 +225,8 @@ def _profile_effects(stats):
         out['dodge'] = 0.02
     if stats.get('luk', 5) >= 6:
         out['crit'] = 0.02
+    if stats.get('int', 5) >= 6:
+        out['mana'] = 4
     return out
 
 
@@ -465,6 +470,16 @@ def recipe_requirement(item):
 
 
 def recipe_unlocked(player, item):
+    # Особые крафты: только для ветки ремесленника и после чтения чертежа.
+    classes = item.get('craft_classes')
+    if classes:
+        base = getattr(player, 'class_base', '')
+        key = getattr(player, 'class_key', '')
+        if base not in classes and key not in classes:
+            return False
+    blueprint = item.get('blueprint_required')
+    if blueprint and blueprint not in getattr(player, 'blueprints', set()):
+        return False
     tab, req = recipe_requirement(item)
     if tab is None:
         return True
@@ -569,7 +584,7 @@ def disallowed_equipment(player):
     """Слоты, которые текущий класс носить не может."""
     from core.data import class_can_use
     result = []
-    for slot in ('weapon', 'armor', 'head', 'legs'):
+    for slot in ('weapon', 'armor', 'head', 'legs', 'boots'):
         key = getattr(player, slot, None)
         if not key:
             continue

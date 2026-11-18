@@ -70,18 +70,31 @@ def test_los_self():
 
 
 def test_fov_radius():
-    vis = compute_fov(_make_open(), 10, 10, radius=5)
-    assert (10, 10) in vis and (20, 20) not in vis
+    # Тестируем с включённым туманом войны (в игре по умолчанию выключен).
+    import core.config as _cfg
+    _old = _cfg.FOG_OF_WAR_ENABLED
+    _cfg.FOG_OF_WAR_ENABLED = True
+    try:
+        vis = compute_fov(_make_open(), 10, 10, radius=5)
+        assert (10, 10) in vis and (20, 20) not in vis
+    finally:
+        _cfg.FOG_OF_WAR_ENABLED = _old
 
 
 def test_fov_walls():
-    d = _make_open()
-    for x in range(4, 16):
-        d.tiles[4][x] = Tile.WALL; d.tiles[16][x] = Tile.WALL
-    for y in range(4, 16):
-        d.tiles[y][4] = Tile.WALL; d.tiles[y][16] = Tile.WALL
-    vis = compute_fov(d, 10, 10, radius=10)
-    assert (5, 5) in vis and (6, 6) in vis and (5, 20) not in vis
+    import core.config as _cfg
+    _old = _cfg.FOG_OF_WAR_ENABLED
+    _cfg.FOG_OF_WAR_ENABLED = True
+    try:
+        d = _make_open()
+        for x in range(4, 16):
+            d.tiles[4][x] = Tile.WALL; d.tiles[16][x] = Tile.WALL
+        for y in range(4, 16):
+            d.tiles[y][4] = Tile.WALL; d.tiles[y][16] = Tile.WALL
+        vis = compute_fov(d, 10, 10, radius=10)
+        assert (5, 5) in vis and (6, 6) in vis and (5, 20) not in vis
+    finally:
+        _cfg.FOG_OF_WAR_ENABLED = _old
 
 
 def test_bfs_first_step():
@@ -144,12 +157,15 @@ def test_overworld_dungeon_entrance_is_in_rock_biome():
 
 
 def test_overworld_has_eight_distinct_biomes():
+    """Восемь биомов (девятый — beach заменил dark на (0,2), но биомы
+    остались уникальными)."""
     from core import overworld as ov
     from render.tiles import BIOME_PALETTES
     assert len(ov.BIOME_NAMES) == 8
     names = set(ov.BIOME_NAMES.values())
     assert len(names) == 8
-    assert names <= set(BIOME_PALETTES)
+    assert names <= set(BIOME_PALETTES), \
+        f"biomes missing palette: {names - set(BIOME_PALETTES)}"
 
 
 def test_overworld_spawn_reaches_dungeon_and_all_regions():
@@ -211,23 +227,29 @@ def test_overworld_tile_kinds_are_registered_for_rendering():
 
 def test_fov_blocks_wall_gap():
     """Игрок в (5,5), стена в форме угла, моб за углом — невидим."""
-    from core.entities import Dungeon
-    from core.world import compute_fov
-    from core.config import Tile, MAP_W, MAP_H
-    d = Dungeon(MAP_W, MAP_H)
-    for y in range(MAP_H):
-        for x in range(MAP_W):
-            d.tiles[y][x] = Tile.FLOOR
-    # Стена-угол: горизонтальная стена справа, вертикальная сверху
-    for x in range(5, 20):
-        d.tiles[3][x] = Tile.WALL          # стена сверху
-    for y in range(0, 4):
-        d.tiles[y][10] = Tile.WALL         # стена слева от коридора
-    # Игрок в (5,5), цель в (12,2) — за углом
-    vis = compute_fov(d, 5, 5, radius=10)
-    assert (12, 2) not in vis, "Видно за угол — FOV дырявый"
-    # Но прямая цель — видна
-    assert (8, 5) in vis
+    import core.config as _cfg
+    _old = _cfg.FOG_OF_WAR_ENABLED
+    _cfg.FOG_OF_WAR_ENABLED = True
+    try:
+        from core.entities import Dungeon
+        from core.world import compute_fov
+        from core.config import Tile, MAP_W, MAP_H
+        d = Dungeon(MAP_W, MAP_H)
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                d.tiles[y][x] = Tile.FLOOR
+        # Стена-угол: горизонтальная стена справа, вертикальная сверху
+        for x in range(5, 20):
+            d.tiles[3][x] = Tile.WALL          # стена сверху
+        for y in range(0, 4):
+            d.tiles[y][10] = Tile.WALL         # стена слева от коридора
+        # Игрок в (5,5), цель в (12,2) — за углом
+        vis = compute_fov(d, 5, 5, radius=10)
+        assert (12, 2) not in vis, "Видно за угол — FOV дырявый"
+        # Но прямая цель — видна
+        assert (8, 5) in vis
+    finally:
+        _cfg.FOG_OF_WAR_ENABLED = _old
 
 
 def test_fov_sees_adjacent_wall():

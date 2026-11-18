@@ -280,15 +280,19 @@ def test_server_chat_event():
     from net.core import GameCore
     core = GameCore(seed=6)
     core.add_player(0, 'warrior')
+    # Событие «присоединился» теперь тоже идёт в events — сбросим его
+    core._take_events()
     core.apply_input(0, {'type': 'chat', 'text': '  привет   отряд '})
     texts = [e['text'] for e in core.get_snapshot()['events']]
-    assert texts and 'привет отряд' in texts[0]
+    assert texts and any('привет отряд' in t for t in texts), \
+        f"chat event missing in {texts}"
 
 
 def test_server_chat_is_sanitized():
     from net.core import GameCore
     core = GameCore(seed=7)
     core.add_player(0, 'warrior')
+    core._take_events()   # сбросить событие «присоединился»
     core.chat(0, 'x' * 500)
     text = core.get_snapshot()['events'][0]['text']
     assert len(text) < 200

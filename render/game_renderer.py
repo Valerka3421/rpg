@@ -115,6 +115,7 @@ class GameRenderer(BaseRenderer):
             self._draw_player(game, cam_x, cam_y)
             for remote in self.visible_remotes(game):
                 self._draw_remote_player(remote, cam_x, cam_y)
+            self._draw_projectiles(game, cam_x, cam_y)
             # 3) Стены/деревья уже нарисованы в слое карты. Сущности
             # (игрок, мобы, лут, NPC) всегда остаются ПОВЕРХ текстур мира.
             # 4) Всплывающие цифры — поверх всего
@@ -128,6 +129,7 @@ class GameRenderer(BaseRenderer):
         ox, oy = config.view_origin()
         self.screen.blit(self._field_surface, (ox, oy))
         self.draw_toolbar(game)
+        self.draw_hotbar(game)
 
 
     def _draw_map_cached(self, game, cam_x, cam_y):
@@ -180,8 +182,19 @@ class GameRenderer(BaseRenderer):
                         continue
                     if record and record.get('kind') == 'tree' \
                             and not record.get('has', True):
-                        self.screen.blit(Tiles.get('stump', 0, light), (px, py))
+                        # Пол под пеньком берём из ground_kind — тот же,
+                        # что у соседних клеток, иначе трава «менялась».
+                        self._draw_floor(px, py, mx, my, light)
+                        variant, _ = Tiles.variant('stump', mx, my)
+                        self.screen.blit(Tiles.get('stump', variant, light),
+                                         (px, py))
                         continue
+                    if self._is_overworld:
+                        fn = getattr(game, 'wall_kind', None)
+                        kind = fn(mx, my) if fn else ov.wall_kind(mx, my)
+                        if kind.startswith('tree'):
+                            # Кроны прозрачные — сперва настоящий пол.
+                            self._draw_floor(px, py, mx, my, light)
                     if self._draw_wall(px, py, mx, my, light) and vis:
                         torches.append((px, py))
                     continue
@@ -200,7 +213,6 @@ class GameRenderer(BaseRenderer):
                 elif tile == Tile.CHEST:
                     self.screen.blit(Tiles.get('chest', 0, light), (px, py))
         if not self._is_overworld:
-            self._draw_darkness(game, cam_x, cam_y)
             self._draw_wall_shadows(game, cam_x, cam_y)
         if torches:
             glow = Tiles.torch_glow()
@@ -404,7 +416,8 @@ class GameRenderer(BaseRenderer):
             light = 1.0 if (mx, my) in game.visible else 0.72
             key = ('berry_bush' if record.get('has', True)
                    else 'berry_bush_empty')
-            self.screen.blit(Tiles.get(key, 0, light),
+            variant, _ = Tiles.variant('berry_bush', mx, my)
+            self.screen.blit(Tiles.get(key, variant, light),
                              ((mx - cam_x) * TILE, (my - cam_y) * TILE))
 
     def _draw_loot(self, game, cam_x, cam_y):
@@ -568,6 +581,36 @@ class GameRenderer(BaseRenderer):
             if x > px + TILE - 6:
                 break
 
+    def _draw_projectiles(self, game, cam_x, cam_y):
+        """Летящие стрелы и магические снаряды."""
+        for pr in getattr(game, 'projectiles', []) or []:
+            sx = (pr['x'] - cam_x) * TILE
+            sy = (pr['y'] - cam_y) * TILE
+            kind = pr.get('kind', 'orb')
+            color = tuple(pr.get('color', (200, 160, 255)))
+            if kind == 'arrow':
+                tx = pr['target'].x - cam_x
+                ty = pr['target'].y - cam_y
+                dx, dy = tx * TILE - sx, ty * TILE - sy
+                dist = max(1.0, (dx * dx + dy * dy) ** 0.5)
+                dx, dy = dx / dist * 16, dy / dist * 16
+                pygame.draw.line(self.screen, (230, 210, 150),
+                                 (sx - dx, sy - dy), (sx + dx, sy + dy), 3)
+                pygame.draw.circle(self.screen, color,
+                                   (int(sx + dx), int(sy + dy)), 4)
+            elif kind == 'spirit':
+                pygame.draw.circle(self.screen, (30, 30, 50),
+                                   (int(sx), int(sy)), 9)
+                pygame.draw.circle(self.screen, color, (int(sx), int(sy)),
+                                   6, 2)
+            else:
+                pygame.draw.circle(self.screen, (30, 20, 40),
+                                   (int(sx), int(sy)), 10)
+                pygame.draw.circle(self.screen, color, (int(sx), int(sy)),
+                                   7)
+                pygame.draw.circle(self.screen, (255, 255, 255),
+                                   (int(sx), int(sy)), 3)
+
     def _draw_floats(self, game, cam_x, cam_y):
         for f in game.floats:
             alpha = min(255, int(f.life / FLOAT_TTL * 255))
@@ -649,6 +692,7 @@ class GameRenderer(BaseRenderer):
 
     def _draw_stats_column(self, game, x, y):
         p = game.player
+        right = x + 376
         self.text("HP", x, y + 4, T.TEXT, font=T.FONT_SMALL)
         bar_rect = (x + 30, y, 180, 22)
         ratio = p.hp / max(1, p.max_hp)
@@ -656,7 +700,10 @@ class GameRenderer(BaseRenderer):
         surf = T.render(f"{p.hp}/{p.max_hp}", (255, 255, 255), T.FONT_SMALL)
         self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
                                 bar_rect[1] + 4))
-        self.text(f"${p.gold}", x + 230, y + 4, T.GOLD)
+        # Имя класса — в правой части первой строки, не наезжая на ману/XP.
+        class_name = getattr(p, 'class_name', 'Приключенец')
+        self.text(self.fit_text(class_name, 150, T.FONT_SMALL),
+                  right, y + 4, T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
 
         # Мана — ресурс свитков и рун.
         max_mana = max(1, getattr(p, 'max_mana', 0))
@@ -665,19 +712,20 @@ class GameRenderer(BaseRenderer):
         mana_rect = (x + 30, y + 27, 180, 12)
         T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
               bg_color=(20, 24, 48))
-        msurf = T.render(f"{mana}/{max_mana}", (235, 242, 255), T.FONT_TINY)
-        self.screen.blit(msurf, (mana_rect[0] + (mana_rect[2] - msurf.get_width()) // 2,
-                                 mana_rect[1] + 1))
-        self.text(getattr(p, 'class_name', 'Приключенец'), x + 218, y + 26,
-                  T.TEXT_DIM, font=T.FONT_SMALL)
+        self.text(f"{mana}/{max_mana}", x + 218, y + 28, (140, 170, 255),
+                  font=T.FONT_TINY)
+        self.text(f"${p.gold}", right, y + 27, T.GOLD, font=T.FONT_SMALL,
+                  align_right=True)
 
+        # Опыт
         self.text(f"Ур.{p.level}", x, y + 48, T.TEXT, font=T.FONT_BODY)
         xp_rect = (x + 70, y + 52, 160, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
-        self.text(f"{p.xp}/{p.xp_next}", x + 240, y + 50, T.XP, font=T.FONT_SMALL)
-        self.text(f"ATK {p.atk}", x, y + 76, T.TEXT, font=T.FONT_BODY)
-        self.text(f"DEF {p.df}", x + 100, y + 76, T.TEXT, font=T.FONT_BODY)
+        self.text(f"{p.xp}/{p.xp_next}", right, y + 48, T.XP,
+                  font=T.FONT_SMALL, align_right=True)
+        self.text(f"ATK {p.atk}", x, y + 66, T.TEXT, font=T.FONT_BODY)
+        self.text(f"DEF {p.df}", x + 100, y + 66, T.TEXT, font=T.FONT_BODY)
         if game.world_mode == 'overworld':
             fn = getattr(game, 'location_title', None)
             if fn:
@@ -688,8 +736,9 @@ class GameRenderer(BaseRenderer):
                 loc = ov.location_title(game.player.x, game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(loc, x + 200, y + 62, T.TEXT_DIM, font=T.FONT_SMALL)
-        badge_y = y + 86
+        self.text(self.fit_text(loc, 170, T.FONT_SMALL), right, y + 66,
+                  T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
+        badge_y = y + 90
         if p.free_points > 0:
             T.badge(self.screen, x, badge_y, f"● {p.free_points} очков (C)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
@@ -699,7 +748,8 @@ class GameRenderer(BaseRenderer):
                     f"● {p.skill_points} навыков (N)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
-                  x + 380, y + 4, T.TEXT_MUTED, font=T.FONT_TINY, align_right=True)
+                  right, y + 90, T.TEXT_MUTED, font=T.FONT_TINY,
+                  align_right=True)
 
     def _draw_log_panel(self, game, x, y, w, h):
         self.text("ЛОГ", x, y, T.TEXT_MUTED, font=T.FONT_TINY)
@@ -746,6 +796,95 @@ class GameRenderer(BaseRenderer):
             self.icons.draw_toolbar_icon(name, x + 6, y + 6, size=w - 12, hover=hover)
             self.text(labels[name], x + w // 2, y + h + 6, T.TEXT_DIM,
                       font=T.FONT_TINY, center=True)
+
+    def draw_hotbar(self, game):
+        """Быстрая панель предметов/свитков: слоты 1–8 + активные навыки."""
+        slots = getattr(game, 'hotbar', None)
+        if slots:
+            self._draw_item_hotbar(game, slots)
+        # Активные навыки класса (маг: firebolt, frost_bolt, heal_self)
+        self._draw_active_skills(game)
+
+    def _draw_item_hotbar(self, game, slots):
+        """Панель предметов 1–8."""
+        n = len(slots)
+        size, gap = 44, 6
+        total = n * size + (n - 1) * gap
+        x0 = (config.SCREEN_W - total) // 2
+        y = config.SCREEN_H - size - 14
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        inventory = getattr(game.player, 'inventory', {})
+        for i, key in enumerate(slots):
+            x = x0 + i * (size + gap)
+            rect = (x, y, size, size)
+            hover = x <= mx <= x + size and y <= my <= y + size
+            T.rounded_rect(self.screen, (30, 27, 22), rect, radius=8,
+                           border_color=(206, 166, 82) if hover
+                           else (78, 66, 48))
+            count = int(inventory.get(key, 0) or 0) if key else 0
+            if key and count > 0:
+                self.icons.draw_item(key, x + 4, y + 4, size=size - 8)
+                if count > 1:
+                    txt = "99+" if count >= 100 else str(count)
+                    self.text(txt, x + size - 3, y + size - 15, T.GOLD,
+                              font=T.FONT_TINY, align_right=True)
+            else:
+                self.text("—", x + size // 2, y + size // 2 - 6,
+                          T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
+            # Номер слота.
+            self.text(str(i + 1), x + 4, y + 2, T.TEXT_DIM,
+                      font=T.FONT_TINY)
+
+    def _draw_active_skills(self, game):
+        """Панель активных навыков класса: слева от hotbar предметов.
+
+        Маг имеет firebolt (F1), frost_bolt (F2), heal_self (F3).
+        Кулдаун показывается как затемнение.
+        """
+        p = game.player
+        skills_list = p.active_skills() if hasattr(p, 'active_skills') else []
+        if not skills_list:
+            return
+        size, gap = 44, 6
+        n = len(skills_list)
+        total = n * size + (n - 1) * gap
+        # Размещаем слева от центральной hotbar
+        # Центр hotbar = SCREEN_W // 2. Длина item hotbar = 8*44 + 7*6 = 394.
+        # Слева от неё — панель навыков с отступом 12.
+        x0 = (config.SCREEN_W - 394) // 2 - total - 12
+        if x0 < 8:
+            x0 = 8
+        y = config.SCREEN_H - size - 14
+        cd_map = getattr(p, 'active_skill_cd', {})
+        for i, skill in enumerate(skills_list):
+            x = x0 + i * (size + gap)
+            rect = (x, y, size, size)
+            cd = cd_map.get(skill['key'], 0)
+            ready = cd <= 0
+            mana = getattr(p, 'mana', 0)
+            mana_ok = mana >= skill.get('mana', 0)
+            bg = (35, 30, 50) if ready and mana_ok else (20, 18, 28)
+            border = (140, 100, 200) if ready and mana_ok else (60, 50, 80)
+            T.rounded_rect(self.screen, bg, rect, radius=8,
+                           border_color=border)
+            # Буква навыка (F1, F2, F3...)
+            label = f"F{i+1}"
+            self.text(label, x + 4, y + 2, T.TEXT_DIM, font=T.FONT_TINY)
+            # Имя навыка (первая буква)
+            ch = skill.get('name', '?')[0]
+            self.text(ch, x + size // 2, y + size // 2 - 6,
+                      (220, 200, 240) if ready and mana_ok else (100, 90, 120),
+                      font=T.FONT_SMALL, center=True)
+            # Кулдаун
+            if cd > 0:
+                self.text(f"{cd:.1f}", x + size - 3, y + size - 15,
+                          (200, 180, 100), font=T.FONT_TINY, align_right=True)
+            # Мана cost
+            mana_cost = skill.get('mana', 0)
+            if mana_cost:
+                self.text(f"{mana_cost}m", x + 3, y + size - 15,
+                          (120, 160, 255) if mana_ok else (180, 80, 80),
+                          font=T.FONT_TINY)
 
     # ════════════════════════ МИНИ-КАРТА ════════════════════════
     def _minimap_scaled(self, game):

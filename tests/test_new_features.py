@@ -27,11 +27,12 @@ def test_map_is_expanded_but_legacy_regions_kept():
 def test_goblin_village_reachable_by_gate(make_game):
     from core import locations
     g = make_game()
-    village = g.dungeon
-    gate = locations.VILLAGE_GATES['goblin_village']
-    assert village.transitions[gate]['to'] == 'goblin_village'
+    # От деревни остались только 4 перехода, гоблины живут за болотом.
+    assert set(locations.VILLAGE_GATES) == {'birch', 'swamp', 'meadow', 'autumn'}
+    swamp = g.get_location('swamp')
+    assert any(tr['to'] == 'goblin_village' for tr in swamp.transitions.values())
     goblin = g.get_location('goblin_village')
-    assert any(tr['to'] == 'village' for tr in goblin.transitions.values())
+    assert any(tr['to'] == 'swamp' for tr in goblin.transitions.values())
 
 
 def test_goblin_village_spawns_goblins_boars_wolves(make_game):
@@ -263,9 +264,7 @@ def test_each_location_is_a_separate_map(make_game):
     g = make_game()
     village = g.dungeon
     assert village.w == locations.VILLAGE_W
-    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'dark',
-                'meadow', 'dead', 'goblin_village'):
-        gate = locations.VILLAGE_GATES[key]
+    for key, gate in locations.VILLAGE_GATES.items():
         assert village.transitions[gate]['to'] == key
         target = g.get_location(key)
         assert target is not village
@@ -421,12 +420,13 @@ def test_deer_is_passive_and_drops_no_gold(make_game):
         assert not any(key.startswith('gold') for key, _ in drops)
 
 
-def test_fog_only_underground(make_game):
+def test_no_fog_of_war_anywhere(make_game):
     g = make_game()
     assert g.location != 'mine'
     assert len(g.visible) == g.dungeon.w * g.dungeon.h
     g.travel_to('mine')
-    assert len(g.visible) < g.dungeon.w * g.dungeon.h
+    # Туман убран и в подземных локациях.
+    assert len(g.visible) == g.dungeon.w * g.dungeon.h
 
 
 def test_resolution_change_exits_fullscreen(make_game, monkeypatch):
@@ -588,11 +588,11 @@ def test_display_reuses_matching_surface(monkeypatch):
 # ════════════════════ Босс-комплекс: арена, казна, дверь ════════════════════
 def test_boss_complex_has_locked_treasury():
     from core.world import generate_dungeon
-    d = generate_dungeon(3)
+    d = generate_dungeon(5)
     locked = sum(1 for row in d.tiles for t in row if t == Tile.LOCKED_DOOR)
     chests = sum(1 for row in d.tiles for t in row if t == Tile.CHEST)
-    assert locked == 2 and chests == 1
-    assert d.barrier_tiles and d.boss_door_cells and d.treasury_pos
+    assert locked == 1 and chests == 1
+    assert d.boss_door_cells and d.treasury_pos
     # Сундук в казне рядом с лестницей вниз (казна ведёт глубже)
     tx, ty = d.treasury_pos
     assert d.tiles[ty][tx] == Tile.STAIRS
@@ -603,37 +603,82 @@ def test_boss_complex_has_locked_treasury():
         for dx in range(-radius, radius + 1)
         if 0 <= tx + dx < d.w and 0 <= ty + dy < d.h)
     assert chest_near
-    # Босс ждёт в центре арены на максимальной глубине
-    deep = generate_dungeon(5)
-    assert any(m.boss for m in deep.monsters)
+    # Босс ждёт в центре арены
+    assert any(m.boss for m in d.monsters)
+    # На обычных этажах казны нет
+    plain = generate_dungeon(3)
+    assert not any(t == Tile.CHEST or t == Tile.LOCKED_DOOR
+                   for row in plain.tiles for t in row)
+    assert plain.treasury_pos is None
+
+
+def test_treasury_adjacent_only_to_boss_room():
+    """Казна не должна касаться ни одной комнаты, кроме арены."""
+    from core.world import generate_dungeon
+    for depth in (5, 10):
+        d = generate_dungeon(depth)
+        tx, ty = d.treasury_pos
+        door = next(iter(d.boss_door_cells))
+        # Периметр казны: единственная не-стена — запертая дверь.
+        for y in range(ty - 3, ty + 4):
+            for x in range(tx - 3, tx + 4):
+                if not (0 <= x < d.w and 0 <= y < d.h):
+                    continue
+                if abs(x - tx) <= 2 and abs(y - ty) <= 2:
+                    continue      # внутри казны
+                if (x, y) == door:
+                    continue
+                assert d.tiles[y][x] == Tile.WALL, (depth, x, y,
+                                                    d.tiles[y][x])
+        # Дверь стоит ровно между ареной и казной.
+        arena = d.rooms[-1]
+        assert (door[0] in (arena.x - 1, arena.x + arena.w)
+                or door[1] in (arena.y - 1, arena.y + arena.h))
+        assert (abs(door[0] - tx) == 3) or (abs(door[1] - ty) == 3)
+
 
 
 def test_boss_key_drops_always_and_unlocks_door(make_game):
+    from core.world import generate_dungeon
     g = make_game()
-    g.enter_dungeon()
-    g.depth = 3
+    g.dungeon = generate_dungeon(5)
+    g.depth = 5
     monster = SimpleNamespace(ch='X', boss=True, name='Босс', xp_value=10)
-    reward = rules.roll_kill_reward(monster, 3)
+    reward = rules.roll_kill_reward(monster, 5)
     assert 'boss_key' in reward.drops
     # Дверь заперта без ключа и открывается с ним
-    for (x, y) in g.dungeon.boss_door_cells:
-        if g.dungeon.tiles[y][x] != Tile.LOCKED_DOOR:
+    x, y = next(iter(g.dungeon.boss_door_cells))
+    assert g.dungeon.tiles[y][x] == Tile.LOCKED_DOOR
+    # Встаём в соседнюю проходимую клетку и пробуем пройти в дверь.
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        nx, ny = x + dx, y + dy
+        if g.dungeon.tiles[ny][nx] != Tile.FLOOR:
             continue
-        assert g.move_player(x - g.player.x, y - g.player.y) is False
+        g.player.x, g.player.y = nx, ny
+        assert g.move_player(-dx, -dy) is False
         g.player.inventory['boss_key'] = 1
-        assert g.move_player(x - g.player.x, y - g.player.y) is True
+        assert g.move_player(-dx, -dy) is True
         assert g.dungeon.tiles[y][x] == Tile.FLOOR
         break
     else:
-        assert False, 'не нашли запертую дверь'
+        assert False, 'не нашли проходимый подход к двери'
+
 
 
 def test_boss_barriers_open_after_kill():
     from core.world import generate_dungeon, clear_boss_barriers
-    d = generate_dungeon(3)
+    from core.config import Tile
+    # Барьеры арены больше не замуровывают её при генерации.
+    d = generate_dungeon(5)
+    assert clear_boss_barriers(d) is False
+    # Механика открытия барьеров остаётся рабочей.
+    d.barrier_tiles = {(3, 3), (4, 3)}
+    d.tiles[3][3] = Tile.WALL
+    d.tiles[3][4] = Tile.WALL
     assert clear_boss_barriers(d) is True
     assert not d.barrier_tiles
     assert clear_boss_barriers(d) is False
+
 
 
 # ════════════════════ Кладбище и сетка локаций ════════════════════
@@ -653,11 +698,16 @@ def test_graveyard_location_and_walkable_grid(make_game):
 
 def test_gate_side_spawn_matches_side(make_game):
     g = make_game()
-    # Нижний переход в деревню → появление в биоме у его «северных» врат
-    g.travel_to('pine')
-    entry = g.dungeon.transitions[(60, 66)]['entry']
-    # врата деревни pine (8,8): сторона w → появление у восточных врат pine
-    assert entry in (locations.SIDE_ENTRY['e'], locations.VILLAGE_INWARD['pine'])
+    # Северный переход деревни ведёт в берёзовую рощу; там входим с юга.
+    gate = locations.VILLAGE_GATES['birch']
+    assert g.dungeon.transitions[gate]['to'] == 'birch'
+    entry = g.dungeon.transitions[gate]['entry']
+    assert entry == locations.SIDE_ENTRY['s']
+    # Из рощи возвращаемся к тем же северным вратам деревни.
+    back = [p for p, tr in g.get_location('birch').transitions.items()
+            if tr['to'] == 'village'][0]
+    assert g.get_location('birch').transitions[back]['entry'] == \
+        locations.VILLAGE_INWARD['birch']
 
 
 def test_side_gate_walk_between_adjacent_locations(make_game):
@@ -694,8 +744,8 @@ def test_every_gate_spawns_next_to_its_return_gate(make_game):
         return min(max(abs(p[0] - g.player.x), abs(p[1] - g.player.y))
                    for p in back)
 
-    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'dark',
-                'meadow', 'dead', 'graveyard'):
+    for key in ('pine', 'birch', 'rock', 'autumn', 'swamp', 'beach',
+                'meadow', 'dead', 'graveyard', 'ruins'):
         for pos, _side, to, _entry in locations.BIOME_GATES.get(key, ()):
             g.travel_to(key)
             entry = g.dungeon.transitions[pos]['entry']
@@ -718,15 +768,16 @@ def test_every_gate_spawns_next_to_its_return_gate(make_game):
     assert g.travel_to('mine', g.dungeon.transitions[mine_gate]['entry'])
     assert dist_to_return('rock') <= 5
 
-    # Деревня гоблинов: туда и обратно.
-    g.travel_to('village')
-    goblin_gate = locations.VILLAGE_GATES['goblin_village']
+    # Деревня гоблинов: из болота туда и обратно.
+    g.travel_to('swamp')
+    goblin_gate = next(p for p, tr in g.dungeon.transitions.items()
+                       if tr['to'] == 'goblin_village')
     entry = g.dungeon.transitions[goblin_gate]['entry']
     assert g.travel_to('goblin_village', entry)
-    assert dist_to_return('village') <= 5
+    assert dist_to_return('swamp') <= 5
     back_gate = next(p for p, tr in g.dungeon.transitions.items()
-                     if tr['to'] == 'village')
-    assert g.travel_to('village', g.dungeon.transitions[back_gate]['entry'])
+                     if tr['to'] == 'swamp')
+    assert g.travel_to('swamp', g.dungeon.transitions[back_gate]['entry'])
 
     # Кладбище → подземелье → обратно к тем же ступеням.
     g.travel_to('graveyard')
@@ -877,7 +928,7 @@ def test_class_tree_is_unique_per_class():
     warrior = skills.class_tree('warrior')
     squire = skills.class_tree('squire')
     knight = skills.class_tree('knight')
-    assert len(warrior) == len(squire) == len(knight) == 7
+    assert len(warrior) == len(squire) == len(knight) >= 7  # 7+ узлов (расширено)
     assert [n['name'] for n in warrior] != [n['name'] for n in squire]
     assert [n['effects'] for n in squire] != [n['effects'] for n in knight]
     assert all(n['class_key'] == 'squire' for n in squire)
@@ -933,7 +984,7 @@ def test_skills_screen_draws_centered_tabs_and_graph(make_game, renderer):
     renderer.draw(g)
 
     hits = g._ui_hits['skills']
-    assert len(hits['rows']) == len(skills.class_tree('warrior')) == 7
+    assert len(hits['rows']) == len(skills.class_tree('warrior')) >= 7
     cx0, cy0, cw, ch = g._modal_content_rect
     first = hits['tabs'][0][1]
     last = hits['tabs'][-1][1]
@@ -974,3 +1025,232 @@ def test_skill_node_click_selects_then_learns(make_game, renderer):
     assert g._handle_skills_click(pos)
     assert 'warrior:0' in g.player.skill_nodes
     assert g.player.skill_points == 2
+
+
+# ════════════════════ INT, мана и магический урон ════════════════════
+def test_int_raises_mana_and_magic_damage():
+    from core.data import class_stats
+
+    base = {'str': 5, 'agi': 5, 'vit': 5, 'luk': 5, 'df_stat': 5,
+            'level': 1}
+    low = Player.preview_stats({**base, 'int': 3})
+    high = Player.preview_stats({**base, 'int': 12})
+    # +2 маны за каждое очко INT.
+    assert high['max_mana'] - low['max_mana'] == (12 - 3) * 2
+
+    assert rules.magic_damage(SimpleNamespace(int_stat=12), 20) == 32
+    assert rules.magic_damage(SimpleNamespace(int_stat=0), 20) == 20
+    assert rules.magic_damage(SimpleNamespace(int_stat=7), 0) >= 1
+
+    # У мага INT выше, чем у воина, а наследники берут базу предка.
+    assert class_stats('mage')['int'] > class_stats('warrior')['int']
+    assert 'int' in class_stats('knight')
+
+
+def test_int_survives_save_and_boosts_scroll_damage():
+    from core.data import ITEMS
+    from core.entities import Entity
+
+    item = ITEMS['scroll_fireball']
+    p = Player('mage')
+    p.int_stat = 12
+    p.recalc()
+    p.inventory = {'scroll_fireball': 1}
+    p.mana = p.max_mana
+    monster = Entity(0, 0, 100, 100, 0, 0, 'Цель', 'g', (1, 2, 3), 5)
+    p.x, p.y = 5, 5
+    monster.x, monster.y = 5, 6
+    result = rules.use_item(p, 'scroll_fireball', [monster])
+    assert result.ok, result.message
+    assert monster.hp == 100 - rules.magic_damage(p, item['value'])
+    assert monster.hp == 100 - (item['value'] + 12)
+    assert 'scroll_fireball' not in p.inventory
+    assert p.mana == p.max_mana - item['mana_cost']
+
+    restored = player_from_dict(player_to_dict(p))
+    assert restored.int_stat == 12
+
+    # Старые сейвы без поля INT получают нейтральное значение.
+    legacy = player_to_dict(p)
+    legacy.pop('int')
+    assert player_from_dict(legacy).int_stat == 5
+
+
+def test_mp_int_allocation_and_snapshot():
+    core = _mp_core(1)
+    p = core.players[0]
+    p.free_points = 1
+    mana_before = p.max_mana
+    core.allocate_stat(0, 'int')
+    assert p.int_stat == 4
+    assert p.max_mana == mana_before + 2
+    assert core.get_snapshot()['players']['0']['int'] == 4
+
+
+# ════════════════════ Наведение в древе навыков ════════════════════
+def _open_skills(game, tab='class', level=15, points=3, class_key='warrior'):
+    from core import skills
+    game.screen_mode = 'skills'
+    game.skills_ui.open()
+    game.skills_ui.set_tab(tab)
+    game.player.class_key = class_key
+    game.player.class_name = skills.class_data(class_key)['name']
+    game.player.class_tier = skills.class_data(class_key).get('tier', 1)
+    game.player.level = level
+    game.player.skill_points = points
+    game.player.recalc()
+    return game
+
+
+def test_class_node_tooltip_follows_hover(make_game, renderer):
+    from core import skills
+
+    g = _open_skills(make_game())
+    renderer.draw(g)
+    nodes = g.skills_ui.rows()
+    idx = 3
+    rect = dict(g._ui_hits['skills']['rows'])[idx]
+    g.mouse_pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+
+    shown = []
+    renderer.screens._draw_node_tooltip = \
+        lambda game, node, mouse: shown.append(node['name'])
+    renderer.draw(g)
+    assert shown == [nodes[idx]['name']]
+    # Наведение не тратит очки навыков.
+    assert g.player.skill_points == 3
+
+
+def test_promotion_nodes_live_inside_class_tree(make_game, renderer):
+    g = _open_skills(make_game(), level=5)
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    promo = hits['promotion']
+    options = g.skills_ui.promotion_options()
+    assert options
+    assert len(promo) == len(options)
+
+    cx0, cy0, cw, ch = g._modal_content_rect
+    rows = hits['rows']
+    tree_bottom = max(r[1] + r[3] for _i, r in rows)
+    for _i, rect in promo:
+        assert cx0 <= rect[0] and rect[0] + rect[2] <= cx0 + cw
+        assert cy0 <= rect[1] and rect[1] + rect[3] <= cy0 + ch
+        # Узлы смены класса — часть древа, ниже его ветвей.
+        assert rect[1] >= tree_bottom - 12
+
+    rect = promo[0][1]
+    pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    assert g._handle_skills_click(pos)
+    assert g.player.class_key == options[0]
+
+
+def test_craft_tabs_render_as_graph_with_tooltips(make_game, renderer):
+    from core import skills
+
+    g = _open_skills(make_game(), tab='blacksmith', level=1)
+    renderer.draw(g)
+
+    hits = g._ui_hits['skills']
+    nodes = skills.craft_tree('blacksmith')
+    assert len(nodes) >= 8
+    assert len(hits['rows']) == len(nodes)
+    rects = [rect for _i, rect in hits['rows']]
+    ys = {rect[1] for rect in rects}
+    xs = sorted(rect[0] for rect in rects)
+    assert len(ys) >= 3
+    assert xs[-1] - xs[0] > g._modal_content_rect[2] // 2
+    for _i, rect in hits['rows']:
+        assert g._modal_content_rect[0] <= rect[0]
+        assert rect[0] + rect[2] <= g._modal_content_rect[0] + g._modal_content_rect[2]
+
+    idx = 2
+    rect = dict(hits['rows'])[idx]
+    g.mouse_pos = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+    shown = []
+    renderer.screens._draw_tooltip = \
+        lambda game, title, lines, mouse: shown.append((title, lines))
+    renderer.draw(g)
+    assert shown and shown[0][0] == nodes[idx]['name']
+
+
+# ════════════════════ Трава под ресурсами и диагонали ════════════════════
+def test_harvest_sprites_have_transparent_background():
+    from render import tiles as tl
+
+    for kind in ('tree', 'stump', 'berry_bush', 'berry_bush_empty'):
+        surf = tl.Tiles.get(kind, 0, 1.0)
+        assert surf.get_flags() & pygame.SRCALPHA, kind
+        corners = [(0, 0), (tl.SIZE - 1, 0),
+                   (0, tl.SIZE - 1), (tl.SIZE - 1, tl.SIZE - 1)]
+        assert any(surf.get_at(pos)[3] == 0 for pos in corners), kind
+
+
+def _open_ground(dungeon, cx, cy, radius=3):
+    for gy in range(cy - radius, cy + radius + 1):
+        for gx in range(cx - radius, cx + radius + 1):
+            dungeon.tiles[gy][gx] = Tile.FLOOR
+            dungeon.harvestables.pop((gx, gy), None)
+
+
+def test_fleeing_monster_moves_orthogonally_in_mp():
+    from core.entities import Entity
+
+    core = _mp_core(1)
+    p = core.players[0]
+    p.x, p.y = 10, 10
+    _open_ground(core.dungeon, 12, 12)
+    m = Entity(12, 12, 10, 10, 0, 0, 'Олень', 'd', (1, 2, 3), 1)
+    m.hp = 4
+    core.dungeon.monsters = [m]
+    assert core._monster_flee(m, p)
+    # По диагонали от угрозы не уходим — только по осям.
+    assert m.x == 12 or m.y == 12
+
+
+def test_fleeing_monster_moves_orthogonally_in_sp(make_game):
+    from core.entities import Entity
+
+    g = make_game()
+    p = g.player
+    p.x, p.y = 10, 10
+    _open_ground(g.dungeon, 12, 12)
+    g.merchant = None
+    g.elder = None
+    g.location = 'field'
+    m = Entity(12, 12, 10, 10, 0, 0, 'Олень', 'd', (1, 2, 3), 1)
+    m.hp = 4
+    g.dungeon.monsters = [m]
+    assert g._flee_monster(m)
+    assert m.x == 12 or m.y == 12
+
+
+# ════════════════════ HUD у панели логов ════════════════════
+def test_hud_text_does_not_overlap(make_game, renderer):
+    from render.theme import Theme as T
+
+    g = make_game()
+    g.player.free_points = 0
+    g.player.skill_points = 0
+
+    calls = []
+
+    def record(s, x, y, color, font=None, center=False, align_right=False):
+        f = font or T.FONT_BODY
+        w, h = f.size(s)
+        if center:
+            x -= w // 2
+        elif align_right:
+            x -= w
+        calls.append((s, pygame.Rect(int(x), int(y), w, h)))
+
+    renderer.game.text = record
+    renderer.game._draw_stats_column(g, 100, 100)
+    assert len(calls) >= 8
+
+    for i in range(len(calls)):
+        for j in range(i + 1, len(calls)):
+            si, ri = calls[i]
+            sj, rj = calls[j]
+            assert not ri.colliderect(rj), (si, ri, sj, rj)

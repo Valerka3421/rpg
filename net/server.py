@@ -5,14 +5,32 @@ import json
 import time
 import os
 import argparse
+from core import config
 from core.config import DATA_DIR
 from net.core import GameCore
 
+# Защита от DoS: если клиент прислал больше этого без newline — разрыв.
+MAX_MSG_SIZE = 65536
+
 
 class Server:
-    def __init__(self, host='0.0.0.0', port=9000, max_players=2):
+    def __init__(self, host='0.0.0.0', port=9000, max_players=2,
+                 server_password=None):
+        """TCP-сервер для кооператива.
+
+        ``server_password`` — если задан, клиенты обязаны прислать его в
+        ``hello`` сообщении. По умолчанию ``None`` — LAN без пароля
+        (обратно совместимо со старыми клиентами). Можно также задать через
+        env var ``ETHELGARD_SERVER_PASSWORD`` (см. ``core/config.py``).
+        """
         self.host, self.port = host, port
+        self.requested_port = port
+        self.bound_port = None
+        self.ready = threading.Event()
         self.max_players = max_players
+        # Пароль на подключение: env var > явный аргумент > None (без пароля)
+        self.server_password = (server_password
+                                 or config.SERVER_PASSWORD_DEFAULT)
         self.clients = {}          # {pid: socket}
         self.next_pid = 0
         self.core = GameCore(seed=42)
@@ -22,6 +40,9 @@ class Server:
         self._sock = None
         self.client_tokens = {}
         self.saved_players = {}
+        # Сессионные ключи HMAC: {pid: bytes}. Генерируются при hello,
+        # используются для подписи сообщений от клиента.
+        self.session_keys = {}
         self.world_save_path = os.path.join(DATA_DIR, 'savegame_mp_world.json')
         self.players_save_path = os.path.join(DATA_DIR, 'savegame_mp_players.json')
         self._load_saved_players()
@@ -45,6 +66,23 @@ class Server:
         except Exception as e:
             print(f"[SERVER] save players: {e}")
 
+    def _bind_socket(self, sock):
+        """Занять порт, перебирая следующие, если запрошенный занят."""
+        last_error = None
+        for candidate in range(self.requested_port, self.requested_port + 20):
+            try:
+                sock.bind((self.host, candidate))
+                self.port = candidate
+                self.bound_port = candidate
+                sock.listen(5)
+                return True
+            except OSError as e:
+                last_error = e
+                continue
+        print(f"[SERVER] Не удалось занять порт "
+              f"{self.requested_port}-{self.requested_port + 19}: {last_error}")
+        return False
+
     def start(self):
         if os.path.exists(self.world_save_path):
             if self.core.load_world(self.world_save_path):
@@ -52,13 +90,23 @@ class Server:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            sock.bind((self.host, self.port))
-            sock.listen(5)
-        except OSError as e:
-            print(f"[SERVER] Не удалось занять порт {self.port}: {e}")
+            bind_ok = self._bind_socket(sock)
+            if not bind_ok:
+                self.running = False
+                # ready.set() ОБЯЗАТЕЛЬНО — иначе main.py зависнет на wait().
+                self.ready.set()
+                return
+        except Exception as e:
+            print(f"[SERVER] bind exception: {e}")
             self.running = False
+            self.ready.set()
             return
+        # bind успешен — теперь поднимаем accept loop.
+        self.ready.set()
         self._sock = sock
+        if self.bound_port != self.requested_port:
+            print(f"[SERVER] порт {self.requested_port} занят — "
+                  f"использую {self.bound_port}")
         print(f"[SERVER] {self.host}:{self.port}  (max {self.max_players})")
 
         threading.Thread(target=self._tick_loop, daemon=True).start()
@@ -169,6 +217,11 @@ class Server:
                 if not data:
                     break
                 buf += data
+                # Защита от DoS: буфер не должен расти бесконечно без \n.
+                if len(buf) > MAX_MSG_SIZE:
+                    print(f"[SERVER] drop {pid}: message too big "
+                          f"({len(buf)} bytes, no newline)")
+                    break
                 while b'\n' in buf:
                     line, buf = buf.split(b'\n', 1)
                     if not line.strip():
@@ -178,6 +231,21 @@ class Server:
                         if msg.get('type') == 'hello':
                             token = msg.get('token', f'anon_{pid}')
                             class_key = msg.get('class', 'warrior')
+                            # P3: проверка пароля сервера (если задан).
+                            if self.server_password:
+                                provided = msg.get('server_password')
+                                if provided != self.server_password:
+                                    print(f"[SERVER] drop {pid}: wrong server password")
+                                    try:
+                                        conn.sendall(b'{"type":"error",'
+                                                     b'"msg":"wrong password"}\n')
+                                    except Exception:
+                                        pass
+                                    break
+                            # P3: генерируем сессионный ключ для HMAC.
+                            import os as _os
+                            session_key = _os.urandom(32)
+                            self.session_keys[pid] = session_key
                             with self.lock:
                                 self.client_tokens[pid] = token
                                 if token in self.saved_players:
@@ -215,6 +283,15 @@ class Server:
                                 except Exception as e:
                                     print(f"[SERVER] save error: {e}")
                             continue
+                        # P3: HMAC verification — если у клиента есть
+                        # сессионный ключ, проверяем подпись сообщения.
+                        session_key = self.session_keys.get(pid)
+                        if session_key and msg.get('type') not in ('hello',):
+                            sig = msg.pop('sig', None)
+                            if sig and not config.verify_message_hmac(
+                                    session_key, msg, sig):
+                                print(f"[SERVER] drop {pid}: bad HMAC")
+                                break
                         with self.lock:
                             self.core.apply_input(pid, msg)
                     except Exception as e:

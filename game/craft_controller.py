@@ -3,7 +3,7 @@ import pygame
 
 from core import rules, skills
 from core.config import CRAFT_PAGE_SIZE
-from core.data import CRAFT_TABS, item_display_name
+from core.data import CRAFT_TABS, ITEMS, item_display_name
 
 
 class CraftController:
@@ -14,6 +14,7 @@ class CraftController:
         self.selection = 0
         self.minigame = None          # {'key','tab','recipe_index','pos',...}
         self.last_quality = None
+        self.quantity = 1             # сколько предметов создать за раз
 
     # ── Состояние ──
     @property
@@ -46,10 +47,15 @@ class CraftController:
 
     # ── Рецепты и страницы ──
     def list(self):
-        """[(key, data, recipe, can, category, recipe_index, count)]."""
+        """[(key, data, recipe, can, category, recipe_index, count)].
+
+        Показываем только открытые рецепты: остальные появляются по мере
+        прокачки навыка.
+        """
         g = self.game
         return rules.craftable_list(g.player.inventory, g.player.level,
-                                    g.player, tab=self.tab)
+                                    g.player, tab=self.tab,
+                                    unlocked_only=True)
 
     def pages_count(self):
         total = len(self.list())
@@ -96,33 +102,66 @@ class CraftController:
             g.log("Не хватает материалов!", (255, 100, 100))
             return False
 
+        quantity = self.effective_quantity(item)
         if skills.has_craft_minigame(g.player, category):
+            skill_req = int(item.get('skill_req', 1))
+            # Мини-игра сложнее для дорогих рецептов и больших партий.
+            speed = 0.85 + skill_req * 0.02 + (quantity - 1) * 0.04
             self.minigame = {'key': key, 'tab': category,
                              'recipe_index': recipe_index,
-                             'pos': 0.0, 'dir': 1, 'speed': 0.85}
+                             'quantity': quantity,
+                             'pos': 0.0, 'dir': 1,
+                             'speed': min(2.4, speed)}
             return True
-        return self._finish_craft(key, None, recipe_index)
+        return self._finish_craft(key, None, recipe_index, quantity)
 
-    def _finish_craft(self, key, quality, recipe_index=None):
+    def effective_quantity(self, item=None):
+        """Сколько предметов реально создастся: снаряжение — по 1."""
+        if item and item.get('type') in rules.EQUIP_TYPES:
+            return 1
+        return max(1, int(self.quantity))
+
+    def change_quantity(self, delta):
+        item = None
+        craftable = self.list()
+        if 0 <= self.selection < len(craftable):
+            item = craftable[self.selection][1]
+        if item and item.get('type') in rules.EQUIP_TYPES:
+            self.quantity = 1
+            return self.quantity
+        self.quantity = max(1, min(99, self.quantity + (1 if delta > 0
+                                                        else -1)))
+        return self.quantity
+
+    def _finish_craft(self, key, quality, recipe_index=None, quantity=1):
         g = self.game
-        result = rules.craft_item(g.player, key, quality, recipe_index)
-        if not result.ok:
-            if result.reason == 'materials':
+        results = rules.craft_many(g.player, key, quantity, quality,
+                                   recipe_index)
+        ok = [r for r in results if r.ok]
+        if not ok:
+            last = results[-1] if results else None
+            if last is not None and last.reason == 'materials':
                 g.log("Не хватает материалов!", (255, 100, 100))
             else:
                 g.log("Крафт не удался.", (255, 100, 100))
             return False
-        g.total_crafts += 1
+        total = sum(r.count for r in ok)
+        result = ok[-1]
+        g.total_crafts += len(ok)
         g.quest_log.update_craft(key)
         name = item_display_name(result.key)
-        if result.count > 1:
-            name += f" ×{result.count}"
+        if total > 1:
+            name += f" ×{total}"
         g.log(f"Создано: {name}", (120, 240, 120))
         if result.quality:
             g.log(f"Качество +{result.quality}!", (240, 210, 90))
-        for level in result.skill_levels:
-            tab_name = skills.TAB_NAMES.get(result.skill, result.skill)
-            g.log(f"{tab_name}: уровень {level}!", (240, 210, 90))
+        seen_levels = set()
+        for res in ok:
+            for level in res.skill_levels:
+                if level not in seen_levels:
+                    seen_levels.add(level)
+                    tab_name = skills.TAB_NAMES.get(res.skill, res.skill)
+                    g.log(f"{tab_name}: уровень {level}!", (240, 210, 90))
         g.add_float(g.player.x, g.player.y, "КРАФТ", (240, 210, 90))
         self.last_quality = result.quality
         self.page = min(self.page, self.pages_count() - 1)
@@ -145,12 +184,20 @@ class CraftController:
         if not mg:
             return False
         accuracy = 1.0 - abs(mg['pos'] - 0.5) * 2.0
+        item = ITEMS.get(mg['key'], {})
+        skill_req = int(item.get('skill_req', 1))
+        quantity = max(1, int(mg.get('quantity', 1)))
+        # Чем сложнее рецепт и больше партия — тем труднее удержать
+        # высокое качество.
+        accuracy -= skill_req * 0.008
+        accuracy -= min(0.30, (quantity - 1) * 0.03)
+        accuracy = max(0.0, accuracy)
         bonus = skills.craft_quality_bonus(self.game.player)
         quality = rules.quality_from_accuracy(accuracy, bonus)
         key = mg['key']
         recipe_index = mg.get('recipe_index')
         self.minigame = None
-        return self._finish_craft(key, quality, recipe_index)
+        return self._finish_craft(key, quality, recipe_index, quantity)
 
     def cancel_minigame(self):
         if self.minigame:
@@ -185,3 +232,9 @@ class CraftController:
             self.next_page()
         elif pygame.K_1 <= key <= pygame.K_8:
             self.craft(self.page_offset() + (key - pygame.K_1))
+        elif key in (pygame.K_LEFTBRACKET, pygame.K_MINUS,
+                     pygame.K_KP_MINUS):
+            self.change_quantity(-1)
+        elif key in (pygame.K_RIGHTBRACKET, pygame.K_EQUALS,
+                     pygame.K_PLUS, pygame.K_KP_PLUS):
+            self.change_quantity(1)

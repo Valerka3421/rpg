@@ -62,7 +62,9 @@ def test_save_format_is_compact_and_versioned(make_game, tmp_path):
     # текущий этаж не дублируется в кэше
     assert str(g.depth) not in data['dungeon_cache']
     # и это заметно компактнее старого формата
-    assert os.path.getsize(path) < 200 * 1024
+    # (порог поднят с 200K до 500K: новые биомы, руины города, GATE-переходы
+    # и расширенный список предметов увеличили объём сейва)
+    assert os.path.getsize(path) < 500 * 1024
 
 
 def test_load_rejects_newer_save(make_game, tmp_path):
@@ -639,9 +641,11 @@ def _grid_inventory_game(g, renderer):
         # 1 шлем
         'leather_cap': 1,
     }
-    assert len(g.player.inventory) == 30
-    assert INVENTORY_PAGE_SIZE == 25
-    assert g.inv_pages_count() == 2      # 25 + 5
+    # Огромные стаки превращаются в отдельные слоты (максимум 99).
+    g.player.inventory['bone'] = 99 * 60
+    g.player.inventory['wood'] = 99 * 40
+    assert INVENTORY_PAGE_SIZE == 100
+    assert g.inv_pages_count() == 2
     g.inv_page = 0
     g.mouse_pos = (-1, -1)
     g.screen_mode = 'inventory'
@@ -653,13 +657,13 @@ def test_inventory_items_form_grid(make_game, renderer):
     g = _grid_inventory_game(make_game(), renderer)
     hits = g._ui_hits['inventory']
     items = hits['items']
-    assert len(items) == 25
+    assert len(items) == 100
     rects = [rect for _, rect in items]
-    # первый ряд — пять ячеек на одной высоте, разные по X
-    assert len({r[1] for r in rects[:5]}) == 1
-    assert len({r[0] for r in rects[:5]}) == 5
+    # первый ряд — десять ячеек на одной высоте, разные по X
+    assert len({r[1] for r in rects[:10]}) == 1
+    assert len({r[0] for r in rects[:10]}) == 10
     # второй ряд ниже первого
-    assert rects[5][1] > rects[0][1]
+    assert rects[10][1] > rects[0][1]
     # всего две страницы
     assert len(hits['pages']) == 2
 
@@ -671,9 +675,9 @@ def test_inventory_page_button_turns_page(make_game, renderer):
     x, y, w, h = pages['next']
     assert g.handle_mouse_click((x + w // 2, y + h // 2)) is True
     assert g.inv_page == 1
-    # на второй странице — оставшиеся 5 предметов (30 - 25)
+    # на второй странице — оставшиеся 28 слотов (128 - 100)
     g.draw()
-    assert len(g._ui_hits['inventory']['items']) == 5
+    assert len(g._ui_hits['inventory']['items']) == 28
     pages = dict(g._ui_hits['inventory']['pages'])
     x, y, w, h = pages['prev']
     g.handle_mouse_click((x + w // 2, y + h // 2))
@@ -706,19 +710,21 @@ def test_mp_inventory_grid_has_pages(renderer):
         'scroll_heal': 1, 'scroll_fireball': 1, 'scroll_freeze': 1,
         'leather_cap': 1,
     }
+    view.player.inventory['bone'] = 99 * 60
+    view.player.inventory['wood'] = 99 * 40
     view.screen_mode = 'inventory'
     view.inv_page = 0
     renderer.draw(view)
-    assert len(view._ui_hits['inventory']['items']) == 25
+    assert len(view._ui_hits['inventory']['items']) == 100
 
     next_rect = dict(view._ui_hits['inventory']['pages'])['next']
     x, y, w, h = next_rect
     view.handle_mouse_click((x + w // 2, y + h // 2))
     assert view.inv_page == 1
 
-    # на второй странице — 5
+    # на второй странице — 28
     renderer.draw(view)
-    assert len(view._ui_hits['inventory']['items']) == 5
+    assert len(view._ui_hits['inventory']['items']) == 28
 
     view.handle_key(pygame.K_q)
     assert view.inv_page == 0
@@ -747,7 +753,7 @@ def test_equip_legs_slot_with_dodge(make_game):
     base_dodge = g.player.dodge
     g.player.inventory = {'leather_boots': 1}
     g.use_item('leather_boots')
-    assert g.player.legs == 'leather_boots'
+    assert g.player.boots == 'leather_boots'
     assert g.player.dodge > base_dodge
 
 def test_unequip_head_and_legs(make_game):
