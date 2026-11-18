@@ -11,6 +11,7 @@ assets/skills/, либо процедурную заглушку.
     IconAssets.draw(screen, candidates, cx, cy, size, alpha=255) -> bool
 """
 import pygame
+
 from render.skill_icon_loader import load_skill_icon
 
 

@@ -9,10 +9,10 @@ import os
 
 import pygame
 
-from core.config import Tile, SAVE_VERSION
+from core.config import SAVE_VERSION, Tile
 from core.data import xp_to_next
 from core.entities import Entity
-from core.save import dungeon_to_dict, dungeon_from_dict
+from core.save import dungeon_from_dict, dungeon_to_dict
 
 
 # ════════════════════ 1. Загрузка сейва ════════════════════
@@ -82,7 +82,7 @@ def test_load_rejects_newer_save(make_game, tmp_path):
 
 def test_legacy_tiles_format_still_loads():
     """Старые сейвы хранили тайлы вложенными списками."""
-    from core.config import MAP_W, MAP_H
+    from core.config import MAP_H, MAP_W
     from core.entities import Dungeon
     d = Dungeon(MAP_W, MAP_H)
     d.tiles[0][0] = Tile.FLOOR
@@ -357,7 +357,7 @@ def test_boss_breath_damages_player(make_game):
 
 
 def test_boss_scaling_is_gentler_than_monsters():
-    from core.data import scale_stats, scale_boss_stats
+    from core.data import scale_boss_stats, scale_stats
     m_hp, _, _ = scale_stats(100, 10, 5, 20)
     b_hp, _, _ = scale_boss_stats(100, 10, 5, 20)
     assert b_hp < m_hp
@@ -462,8 +462,8 @@ def test_mp_no_npc_keeps_game_mode():
 
 
 def test_mp_view_snapshot_updates_in_place(renderer):
-    from net.view import ClientView
     from net.core import GameCore
+    from net.view import ClientView
     core = GameCore(seed=2)
     core.add_player(0, 'warrior')
     view = ClientView()
@@ -560,11 +560,10 @@ def test_join_page_ctrl_v_pastes_and_sanitizes(make_game, monkeypatch):
 
 
 def test_settings_file_lives_in_writable_data_dir():
-    from core import config
-    from core import settings
+    from core import config, settings
 
-    assert settings.SETTINGS_FILE == os.path.join(config.DATA_DIR,
-                                                  'settings.json')
+    assert os.path.join(config.DATA_DIR,
+                                                  'settings.json') == settings.SETTINGS_FILE
     assert os.path.isdir(config.DATA_DIR)
 
 

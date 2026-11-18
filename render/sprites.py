@@ -4,7 +4,7 @@ import warnings
 
 import pygame
 
-from core.config import TILE, ASSETS_DIR
+from core.config import ASSETS_DIR, TILE
 
 
 class Sprites:

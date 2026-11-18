@@ -2,16 +2,17 @@
 import itertools
 import os
 import pathlib
-import shutil
 import random
+import shutil
 
 # Видео/аудио-заглушки — тесты рисуют в обычную Surface, окно не нужно.
 os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
 os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 
+import sys
+
 import pytest
 
-import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _TMP_COUNTER = itertools.count()

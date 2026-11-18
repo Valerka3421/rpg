@@ -1,15 +1,24 @@
 """Экраны поверх игры: статы, инвентарь, магазин, крафт, диалог, квесты, статистика."""
-from core import config
-from core import rules
 import math
+
 import pygame
+
+from core import config, rules
 from core.config import INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
-from core.data import (ITEMS, parse_item_key, item_display_name,
-                       item_display_color, item_sell_price,
-                       PERK_INFO, PERK_BOOK_MAP, QUESTS,
-                       CITY_NPC_NAMES, is_city_shop_npc)
-from render.theme import Theme as T
+from core.data import (
+    CITY_NPC_NAMES,
+    ITEMS,
+    PERK_BOOK_MAP,
+    PERK_INFO,
+    QUESTS,
+    is_city_shop_npc,
+    item_display_color,
+    item_display_name,
+    item_sell_price,
+    parse_item_key,
+)
 from render.base_renderer import BaseRenderer
+from render.theme import Theme as T
 
 
 class ScreensRenderer(BaseRenderer):
@@ -19,8 +28,7 @@ class ScreensRenderer(BaseRenderer):
 
     def _modal_bg(self, game):
         """Затемнение + панель + крестик + возврат rect контента."""
-        from core.config import (MODAL_TOP_PAD, MODAL_CLOSE_SIZE,
-                                 MODAL_CLOSE_PAD, MODAL_CONTENT_PAD)
+        from core.config import MODAL_CLOSE_PAD, MODAL_CLOSE_SIZE, MODAL_CONTENT_PAD, MODAL_TOP_PAD
         ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
         ov.fill((6, 5, 4, 165))
         self.screen.blit(ov, (0, 0))
@@ -56,8 +64,7 @@ class ScreensRenderer(BaseRenderer):
         return rect
 
     def _modal_right(self, game):
-        from core.config import (MODAL_CONTENT_PAD, MODAL_CLOSE_SIZE,
-                                 MODAL_CLOSE_PAD)
+        from core.config import MODAL_CLOSE_PAD, MODAL_CLOSE_SIZE, MODAL_CONTENT_PAD
         rect = game._modal_panel_rect()
         return rect[0] + rect[2] - MODAL_CONTENT_PAD - MODAL_CLOSE_SIZE - MODAL_CLOSE_PAD - 6
 
@@ -66,7 +73,6 @@ class ScreensRenderer(BaseRenderer):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core.config import PLUS_SIZE
-        from core.data import PERK_INFO, PERK_BOOK_MAP
         p = game.player
         game._ui_hits['stats'] = {'plus': []}
 
@@ -135,8 +141,7 @@ class ScreensRenderer(BaseRenderer):
             y += 24
 
         y = T.section(self.screen, cx0, y, cw, "Навыки крафта")
-        from core.data import (SKILL_ORDER, SKILLS, default_skills,
-                               skill_xp_to_next)
+        from core.data import SKILL_ORDER, SKILLS, default_skills, skill_xp_to_next
         skills = getattr(p, 'skills', None) or default_skills()
         sx = cx0
         for skill_key in SKILL_ORDER:
@@ -151,7 +156,7 @@ class ScreensRenderer(BaseRenderer):
         y += 28
 
         y = T.section(self.screen, cx0, y, cw, "Экипировка")
-        from core.data import ITEMS, parse_item_key, item_display_name, item_display_color
+        from core.data import ITEMS, item_display_color, item_display_name, parse_item_key
         for label, key, stat in (("Оружие", p.weapon, "ATK"),
                                  ("Броня", p.armor, "DEF"),
                                  ("Шлем", p.head, "DEF"),
@@ -321,7 +326,7 @@ class ScreensRenderer(BaseRenderer):
         p = game.player
 
         # ── Что может носить этот класс ──
-        from core.data import class_data, WCLASS_NAMES, ARMOR_TYPE_NAMES
+        from core.data import ARMOR_TYPE_NAMES, WCLASS_NAMES, class_data
         cls = class_data(p.class_key)
         weapons = ', '.join(WCLASS_NAMES.get(w, w)
                             for w in cls.get('weapons', ())) or '—'
@@ -575,7 +580,6 @@ class ScreensRenderer(BaseRenderer):
                   font=T.FONT_SMALL, center=True)
 
     def _draw_shop_buy(self, game, x0, y, cw):
-        from core.config import SHOP_PAGE_SIZE
         stock = game.shop_stock
         total = max(1, (len(stock) + SHOP_PAGE_SIZE - 1) // SHOP_PAGE_SIZE)
         page = min(game.shop.page, total - 1)
@@ -625,7 +629,6 @@ class ScreensRenderer(BaseRenderer):
                       font=T.FONT_SMALL, align_right=True)
 
     def _draw_shop_sell(self, game, x0, y, cw):
-        from core.config import SHOP_PAGE_SIZE
         items = sorted(game.player.inventory.items())
         if not items:
             self.text("  (рюкзак пуст)", x0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
@@ -1014,7 +1017,6 @@ class ScreensRenderer(BaseRenderer):
 
     def _draw_promotion_nodes(self, game, ctrl, cx, cy, cw, r, mouse):
         """Узлы повышения класса вокруг центрального узла древа."""
-        from core import skills as sk
         from core.data import class_data
         options = ctrl.promotion_options()
         if not options:
@@ -1361,8 +1363,8 @@ class ScreensRenderer(BaseRenderer):
     def draw_craft(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
-        from core.config import HAMMER_SIZE
         from core import skills as sk
+        from core.config import HAMMER_SIZE
         game._ui_hits['craft'] = {'hammer': [], 'tabs': []}
 
         self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
@@ -1755,7 +1757,6 @@ class ScreensRenderer(BaseRenderer):
     def draw_quests(self, game):
         self._modal_bg(game)
         cx0, cy0, cw, ch = game._modal_content_rect
-        from core.data import QUESTS
         self.text("КВЕСТЫ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         y = cy0 + 56
         # Секция + отступ до карточек (синхронизировано с button_rects)
@@ -1841,7 +1842,7 @@ class ScreensRenderer(BaseRenderer):
             self.text(val, left_x + 260, y_col, T.TEXT, font=T.FONT_BODY)
             y_col += 34
 
-        from core.data import MONSTERS, BOSSES
+        from core.data import BOSSES, MONSTERS
         y_col = y
         self.text("─── УБИТО ПО ТИПАМ ───", right_x, y_col,
                   (190, 172, 138), font=T.FONT_H2)

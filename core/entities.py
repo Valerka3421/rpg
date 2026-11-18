@@ -1,9 +1,16 @@
 """Сущности мира."""
 from dataclasses import dataclass
-from core.config import (COL_PLAYER, COL_TEXT, Tile,
-                         PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN)
-from core.data import (ITEMS, CLASSES, class_data, class_stats, parse_item_key,
-                      xp_to_next, STATUS_MODS, default_skills)
+
+from core.config import COL_PLAYER, COL_TEXT, PLAYER_ATTACK_COOLDOWN, PLAYER_MOVE_COOLDOWN, Tile
+from core.data import (
+    CLASSES,
+    ITEMS,
+    STATUS_MODS,
+    class_stats,
+    default_skills,
+    parse_item_key,
+    xp_to_next,
+)
 
 
 class Entity:
@@ -75,8 +82,7 @@ class Player(Entity):
         внутренними _w_crit_bonus / _a_dodge_bonus / и т.д. для
         использования в property dodge/crit.
         """
-        from core.config import (DODGE_CAP, DODGE_TOTAL_CAP,
-                                  CRIT_BASE_CAP, CRIT_TOTAL_CAP)
+        from core.config import CRIT_BASE_CAP, CRIT_TOTAL_CAP, DODGE_CAP, DODGE_TOTAL_CAP
         str_   = data.get('str', 5)
         agi    = data.get('agi', 5)
         vit    = data.get('vit', 5)

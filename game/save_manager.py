@@ -3,15 +3,21 @@
 Извлечено из game/game.py для уменьшения размера файла.
 Game.save() и Game.load() делегируют сюда.
 """
-import os
 import json
-from core.config import SAVE_VERSION, DATA_DIR
-from core.save import (entity_to_dict, entity_from_dict,
-                       player_to_dict, player_from_dict,
-                       dungeon_to_dict, dungeon_from_dict,
-                       dungeon_cache_to_dict, dungeon_cache_from_dict,
-                       save_slot_path)
-from core import config
+import os
+
+from core.config import SAVE_VERSION
+from core.save import (
+    dungeon_cache_from_dict,
+    dungeon_cache_to_dict,
+    dungeon_from_dict,
+    dungeon_to_dict,
+    entity_from_dict,
+    entity_to_dict,
+    player_from_dict,
+    player_to_dict,
+    save_slot_path,
+)
 
 
 def save_game(game, path=None, slot=None, silent=False):
@@ -38,7 +44,7 @@ def load_game(game, path=None, slot=None):
         path = save_slot_path(getattr(game, 'current_slot', 1))
     if not os.path.exists(path):
         return False
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         data = json.load(f)
     if data.get('version', 0) > SAVE_VERSION:
         return False
@@ -73,7 +79,6 @@ def _build_save_dict(game):
 
 def _apply_save_dict(game, data):
     """Применить загруженный dict к игре."""
-    from core.entities import Entity
     p_data = data.get('player', {})
     if p_data:
         game.player = player_from_dict(p_data)

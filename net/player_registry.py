@@ -3,11 +3,11 @@
 Извлечено из net/core.py для уменьшения размера файла.
 GameCore делегирует сюда операции add/remove/serialize игроков.
 """
-from core.config import MAP_W, MAP_H, REGEN_TICK_INTERVAL
-from core.entities import Player, Entity
+
 from core import rules
+from core.config import MAP_H, MAP_W, REGEN_TICK_INTERVAL
 from core.data import MONSTERS_BY_CH
-import random
+from core.entities import Player
 
 
 def add_player(core, pid, class_key='warrior'):

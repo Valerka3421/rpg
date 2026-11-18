@@ -1,10 +1,11 @@
 """TCP-сервер: держит GameCore, рассылает snapshot 20 раз/сек."""
+import argparse
+import json
+import os
 import socket
 import threading
-import json
 import time
-import os
-import argparse
+
 from core import config
 from core.config import DATA_DIR
 from net.core import GameCore
@@ -51,7 +52,7 @@ class Server:
         if not os.path.exists(self.players_save_path):
             return
         try:
-            with open(self.players_save_path, 'r', encoding='utf-8') as f:
+            with open(self.players_save_path, encoding='utf-8') as f:
                 self.saved_players = json.load(f)
             print(f"[SERVER] loaded {len(self.saved_players)} saved players")
         except Exception as e:
@@ -279,7 +280,7 @@ class Server:
                                             self.saved_players[t] = \
                                                 self.core._player_to_dict(qp)
                                     self._flush_saved_players()
-                                    print(f"[SERVER] world + players saved")
+                                    print("[SERVER] world + players saved")
                                 except Exception as e:
                                     print(f"[SERVER] save error: {e}")
                             continue

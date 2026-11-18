@@ -1,7 +1,7 @@
 """Тесты игровых данных."""
 import random
-from core.data import (ITEMS, BOSSES, scale_stats,
-                       make_shop_stock, reroll_price)
+
+from core.data import BOSSES, ITEMS, make_shop_stock, reroll_price, scale_stats
 
 
 def test_all_items_have_required_fields():

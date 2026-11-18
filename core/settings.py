@@ -1,8 +1,8 @@
 """Настройки игры — сохранение/загрузка settings.json."""
-import os
 import json
-from core.config import DATA_DIR
+import os
 
+from core.config import DATA_DIR
 
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 
@@ -18,7 +18,7 @@ def load_settings():
     if not os.path.exists(SETTINGS_FILE):
         return dict(DEFAULTS)
     try:
-        with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
+        with open(SETTINGS_FILE, encoding='utf-8') as f:
             data = json.load(f)
         merged = dict(DEFAULTS)
         merged.update(data)

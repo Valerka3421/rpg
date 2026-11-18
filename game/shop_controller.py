@@ -1,9 +1,15 @@
 """Контроллер магазина: покупка, продажа, реролл, пагинация."""
 import pygame
+
 from core import rules
 from core.config import SHOP_PAGE_SIZE
-from core.data import (make_shop_stock, make_city_shop_stock, reroll_price,
-                       item_display_name, is_city_shop_npc)
+from core.data import (
+    is_city_shop_npc,
+    item_display_name,
+    make_city_shop_stock,
+    make_shop_stock,
+    reroll_price,
+)
 
 
 class ShopController:

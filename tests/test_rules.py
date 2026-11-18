@@ -2,9 +2,9 @@
 import random
 
 from core import rules
-from core.config import Tile, MAP_W, MAP_H, BOSS_BREATH_INTERVAL
-from core.entities import Player, Entity, Dungeon
+from core.config import BOSS_BREATH_INTERVAL, MAP_H, MAP_W, Tile
 from core.data import xp_to_next
+from core.entities import Dungeon, Entity, Player
 
 
 def _monster(x=0, y=0, hp=10, atk=3, df=0, ch='g', xp=5, **kw):

@@ -1,17 +1,26 @@
 """Игровое поле: карта, сущности, HUD, мини-карта, floating texts."""
+import math
+
+import pygame
+
 from core import config
 from core import overworld as ov
-import pygame
-import math
-from core.config import (TILE, MAP_W, MAP_H, MAX_DEPTH, Tile,
-                         MINIMAP_SCALE, MINIMAP_MARGIN, FOV_RADIUS)
-from core.data import STATUSES, CLASSES
-from render.theme import Theme as T
-from render.sprites import Sprites
-from render.tiles import Tiles
+from core.config import (
+    FOV_RADIUS,
+    MAP_H,
+    MAP_W,
+    MAX_DEPTH,
+    MINIMAP_MARGIN,
+    MINIMAP_SCALE,
+    TILE,
+    Tile,
+)
+from core.data import CLASSES, STATUSES
 from render.base_renderer import BaseRenderer
-
 from render.constants import MONSTER_SPRITES
+from render.sprites import Sprites
+from render.theme import Theme as T
+from render.tiles import Tiles
 
 # Глубокие тени Stoneshard — не серые, а холодные сине-зелёные.
 DARK_TINT = (5, 7, 12)
@@ -431,7 +440,7 @@ class GameRenderer(BaseRenderer):
             self.icons.draw_item(key, px, py, size=size)
 
     def _draw_monsters(self, game, cam_x, cam_y):
-        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP, ANIM_ATTACK_AMP
+        from core.config import ANIM_ATTACK_AMP, ANIM_IDLE_AMP, ANIM_IDLE_SPEED
         for m in game.dungeon.monsters:
             if m.hp <= 0 or (m.x, m.y) not in game.visible:
                 continue
@@ -525,7 +534,7 @@ class GameRenderer(BaseRenderer):
         px = (self._rx(game.player) - cam_x) * TILE
         py = (self._ry(game.player) - cam_y) * TILE
 
-        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP, ANIM_ATTACK_AMP
+        from core.config import ANIM_ATTACK_AMP, ANIM_IDLE_AMP, ANIM_IDLE_SPEED
         bob = math.sin(game.player.anim_time * ANIM_IDLE_SPEED) * ANIM_IDLE_AMP
         thrust_x, thrust_y = 0, 0
         if game.player.attack_anim > 0:
@@ -550,7 +559,7 @@ class GameRenderer(BaseRenderer):
     def _draw_remote_player(self, player, cam_x, cam_y):
         px = (self._rx(player) - cam_x) * TILE
         py = (self._ry(player) - cam_y) * TILE
-        from core.config import ANIM_IDLE_SPEED, ANIM_IDLE_AMP
+        from core.config import ANIM_IDLE_AMP, ANIM_IDLE_SPEED
         bob = math.sin(player.anim_time * ANIM_IDLE_SPEED) * ANIM_IDLE_AMP
         thrust_x = thrust_y = 0
         if player.attack_anim > 0:

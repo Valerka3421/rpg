@@ -1,11 +1,12 @@
 """Контроллер меню: главное, сейвы, настройки, выбор класса."""
-from core import config
 import sys
-import pygame
-from core.data import CLASS_ORDER
-from core.save import (save_slot_path, save_slot_exists)
-from core.settings import save_settings
 
+import pygame
+
+from core import config
+from core.data import CLASS_ORDER
+from core.save import save_slot_exists, save_slot_path
+from core.settings import save_settings
 
 # Допустимые символы адреса хоста: IPv4, имя хоста и порт.
 _MP_HOST_CHARS = set('abcdefghijklmnopqrstuvwxyz0123456789.-:')
@@ -300,6 +301,7 @@ class MenuController:
     def _has_mp_save(self):
         """Есть ли сохранение мультиплеера (мир или игроки)."""
         import os
+
         from core.config import DATA_DIR
         for fname in ('savegame_mp_world.json', 'savegame_mp_players.json'):
             if os.path.exists(os.path.join(DATA_DIR, fname)):
@@ -466,9 +468,7 @@ class MenuController:
                 Audio.play('menu_select')
             elif key in (pygame.K_LEFT, pygame.K_a):
                 self.adjust_setting(-1)
-            elif key in (pygame.K_RIGHT, pygame.K_d):
-                self.adjust_setting(1)
-            elif key in (pygame.K_RETURN, pygame.K_SPACE):
+            elif key in (pygame.K_RIGHT, pygame.K_d) or key in (pygame.K_RETURN, pygame.K_SPACE):
                 self.adjust_setting(1)
             elif key == pygame.K_ESCAPE:
                 self.save_settings_and_back()

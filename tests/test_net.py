@@ -4,9 +4,9 @@ import socket
 import threading
 import time
 
-from core.config import Tile, MAP_H
-from core.entities import Entity
+from core.config import MAP_H, Tile
 from core.data import xp_to_next
+from core.entities import Entity
 from net.core import GameCore
 from net.server import Server
 

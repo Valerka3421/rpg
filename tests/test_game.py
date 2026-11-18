@@ -4,10 +4,10 @@ import random
 from unittest.mock import patch
 
 import pygame
+import pytest
 
-from core.config import MAX_DEPTH, Tile, INVENTORY_PAGE_SIZE, SHOP_PAGE_SIZE
+from core.config import INVENTORY_PAGE_SIZE, MAX_DEPTH, SHOP_PAGE_SIZE, Tile
 from core.entities import Entity
-
 from render import Renderer
 
 
@@ -413,7 +413,7 @@ def test_level_up(make_game):
 
 
 def test_rarity_parse():
-    from core.data import parse_item_key, make_loot_key, item_display_name
+    from core.data import item_display_name, make_loot_key, parse_item_key
     assert parse_item_key('sword') == ('sword', 0)
     assert parse_item_key('sword+2') == ('sword', 2)
     assert make_loot_key('sword', 0) == 'sword'
@@ -422,7 +422,7 @@ def test_rarity_parse():
 
 
 def test_rarity_color():
-    from core.data import item_display_color, RARITY_COLORS, ITEMS
+    from core.data import ITEMS, RARITY_COLORS, item_display_color
     assert item_display_color('sword+1') == RARITY_COLORS[1]
     assert item_display_color('sword+2') == RARITY_COLORS[2]
     assert item_display_color('sword+3') == RARITY_COLORS[3]
@@ -430,7 +430,7 @@ def test_rarity_color():
 
 
 def test_rarity_sell_price():
-    from core.data import item_sell_price, ITEMS
+    from core.data import ITEMS, item_sell_price
     assert item_sell_price('sword') == ITEMS['sword']['sell']
     assert item_sell_price('sword+2') == ITEMS['sword']['sell'] + 20
 
@@ -536,13 +536,13 @@ def test_inventory_pagination(make_game):
     g.player.inventory = {f'item_{i}': 1 for i in range(130)}
     assert g.inv_pages_count() == 2
     g.inv_page = 0
-    g.inv_next_page();
+    g.inv_next_page()
     assert g.inv_page == 1
-    g.inv_next_page();
+    g.inv_next_page()
     assert g.inv_page == 1
-    g.inv_prev_page();
+    g.inv_prev_page()
     assert g.inv_page == 0
-    g.inv_prev_page();
+    g.inv_prev_page()
     assert g.inv_page == 0
 
 
@@ -887,9 +887,9 @@ def test_greedy_more_gold(make_game):
 
 
 def test_has_los_strict_diagonal():
+    from core.config import MAP_H, MAP_W
     from core.entities import Dungeon
     from core.world import has_los
-    from core.config import MAP_W, MAP_H
     d = Dungeon(MAP_W, MAP_H)
     for y in range(5):
         for x in range(5):
@@ -900,9 +900,9 @@ def test_has_los_strict_diagonal():
 
 
 def test_has_los_clear_path():
+    from core.config import MAP_H, MAP_W
     from core.entities import Dungeon
     from core.world import has_los
-    from core.config import MAP_W, MAP_H
     d = Dungeon(MAP_W, MAP_H)
     for y in range(5):
         for x in range(5):
@@ -983,7 +983,7 @@ def test_dungeon_cache_limited_in_save(make_game, tmp_path):
     g.current_slot = 1
     path = str(tmp_path / "save.json")
     g.save(path=path)
-    with open(path, 'r', encoding='utf-8') as f:
+    with open(path, encoding='utf-8') as f:
         data = json.load(f)
     assert len(data['dungeon_cache']) <= 3
 

@@ -34,8 +34,9 @@ def test_city_wall_ring_and_gates():
 
 def test_city_center_reaches_all_gates():
     from collections import deque
+
     from core.config import Tile
-    from core.locations import generate_location, VILLAGE_GATES
+    from core.locations import VILLAGE_GATES, generate_location
     d = generate_location('village')
     start = ov.VILLAGE_CENTER
     seen = {start}
@@ -246,7 +247,7 @@ def test_guard_ignores_monsters_beyond_radius(make_game):
 
 def test_mana_is_saved_and_loaded():
     from core.entities import Player
-    from core.save import player_to_dict, player_from_dict
+    from core.save import player_from_dict, player_to_dict
     p = Player()
     p.mana = 3
     data = player_to_dict(p)

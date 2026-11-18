@@ -1,7 +1,5 @@
 """Данные монстров, боссов и масштабирование статов."""
 import random
-from dataclasses import dataclass, field
-
 
 MONSTERS = {
     'rat':      {'ch': 'r', 'name': 'Крыса',  'hp': 3,  'atk': 1, 'df': 0, 'xp': 3,  'color': (170, 150, 130), 'min_depth': 1, 'ability': 'poison', 'gold': False},

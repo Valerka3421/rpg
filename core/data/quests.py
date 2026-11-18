@@ -1,12 +1,16 @@
 """Квесты и доска поручений."""
 import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .items import (ITEMS, make_loot_key, parse_item_key,
-                    item_display_name, item_display_color,
-                    item_sell_price)
-from .monsters import BOSSES, MONSTERS, MONSTER_DROPS
-
+from .items import (
+    ITEMS,
+    item_display_color,
+    item_display_name,
+    item_sell_price,
+    make_loot_key,
+    parse_item_key,
+)
+from .monsters import BOSSES, MONSTER_DROPS, MONSTERS
 
 QUESTS = {
     'q_rats': {

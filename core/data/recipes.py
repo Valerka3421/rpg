@@ -1,9 +1,7 @@
 """Навыки крафта, рецепты и кривая опыта."""
 import random
-from dataclasses import dataclass, field
 
-from .items import ITEMS, roll_rarity, parse_item_key, get_item_data, make_loot_key
-
+from .items import ITEMS, make_loot_key, roll_rarity
 
 SKILLS = {
     'blacksmith': {

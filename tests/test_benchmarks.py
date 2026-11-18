@@ -12,20 +12,23 @@ os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
 os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 
 import pygame
+
 pygame.init()
 pygame.font.init()
 
 from core import config
+
 # Важно: НЕ модифицируем глобальный config.SCREEN_W при импорте —
 # это портит другие тесты (например, test_promotion_nodes_live_inside_class_tree,
 # который зависит от дефолтного 1600x900). Вместо этого — fixture с teardown.
 _ORIG_W, _ORIG_H = config.SCREEN_W, config.SCREEN_H
 
-from core.entities import Player
-from core.world import generate_overworld, generate_dungeon, compute_fov
-from core.rules import resolve_attack
-from core.save import dungeon_to_dict, dungeon_from_dict
 import json
+
+from core.entities import Player
+from core.rules import resolve_attack
+from core.save import dungeon_from_dict, dungeon_to_dict
+from core.world import compute_fov, generate_dungeon, generate_overworld
 
 
 @pytest.fixture(autouse=True)

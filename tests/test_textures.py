@@ -3,7 +3,7 @@ import pygame
 import pytest
 
 from render import textures
-from render.tiles import Tiles, SIZE
+from render.tiles import SIZE, Tiles
 
 
 @pytest.fixture(autouse=True)

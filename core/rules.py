@@ -13,25 +13,40 @@
 import random
 from dataclasses import dataclass, field
 
+from core import skills
 from core.config import (
-    Tile, MONSTER_ACTION_INTERVAL, MONSTER_ACTION_JITTER,
-    BOSS_ACTION_INTERVAL, BOSS_BREATH_INTERVAL, BOSS_BREATH_RANGE,
+    BOSS_ACTION_INTERVAL,
+    BOSS_BREATH_INTERVAL,
     BOSS_BREATH_POWER,
-    # Боевые константы — вынесены из магических чисел в config
-    DMG_SPREAD, CRIT_MULT, XP_LEVEL_GUARD,
-    DODGE_CAP, DODGE_TOTAL_CAP, CRIT_BASE_CAP, CRIT_TOTAL_CAP,
+    BOSS_BREATH_RANGE,
+    CRIT_MULT,
+    DMG_SPREAD,
+    MONSTER_ACTION_INTERVAL,
+    MONSTER_ACTION_JITTER,
     THORNS_DAMAGE,
+    XP_LEVEL_GUARD,
+    Tile,
 )
 from core.data import (
-    ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
-    roll_monster_drops, roll_rarity, make_loot_key, parse_item_key,
-    item_display_name, item_display_color, item_sell_price, xp_to_next,
-    item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
-    SKILLS, default_skills, skill_xp_to_next,
+    ABILITY_TO_STATUS,
+    BOSS_DROPS,
+    ITEMS,
+    MONSTERS_BY_CH,
+    SKILLS,
+    STATUSES,
+    item_category,
+    item_display_color,
+    item_display_name,
+    item_sell_price,
+    make_loot_key,
+    parse_item_key,
+    roll_mana_crystal,
+    roll_monster_drops,
+    roll_rarity,
+    select_recipe,
+    xp_to_next,
 )
-from core.entities import Player, Entity, Projectile, Dungeon
-from core import skills
-
+from core.entities import Dungeon, Entity, Player, Projectile
 
 # ════════════════════ ДАЛЬНОБОЙНЫЕ АТАКИ ════════════════════
 # Соответствие типа атаки → цвет/скорость снаряда (для рендера и логики).

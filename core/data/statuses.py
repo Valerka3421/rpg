@@ -1,6 +1,4 @@
 """Статус-эффекты и модификаторы."""
-import random
-from dataclasses import dataclass, field
 
 
 STATUSES = {

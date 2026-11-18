@@ -14,7 +14,9 @@
     assets/skills/craft/blacksmith:0.png — Основы ковки
 """
 import os
+
 import pygame
+
 from core.config import ASSETS_DIR
 
 _SKILLS_DIR = os.path.join(ASSETS_DIR, 'skills')

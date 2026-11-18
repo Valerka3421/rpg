@@ -5,9 +5,6 @@ Game.handle_key делегирует сюда dispatch_game_keys().
 """
 
 import pygame
-from core import config
-from core.config import (COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP,
-                          COL_HEAL, COL_DODGE, COL_CRIT, COL_MERCH)
 
 
 def dispatch_game_keys(game, key, scancode=0, unicode='', mods=0):

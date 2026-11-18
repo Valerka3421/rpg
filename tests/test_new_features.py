@@ -3,17 +3,21 @@ from types import SimpleNamespace
 
 import pygame
 
-from core.config import MAP_W, MAP_H, Tile
-from core.data import (MONSTERS, SKILLS, CRAFT_TABS, generate_board_quests,
-                       mana_crystal_for, roll_mana_crystal, item_recipes)
-from core.world import BIOME_MONSTERS, FOREST_MONSTERS
-from core.entities import Dungeon, Player
-from core import rules
-from core import harvest
-from core import locations
+from core import harvest, locations, rules
 from core import overworld as ov
-from core.save import (player_to_dict, player_from_dict,
-                       dungeon_to_dict, dungeon_from_dict)
+from core.config import MAP_H, MAP_W, Tile
+from core.data import (
+    CRAFT_TABS,
+    MONSTERS,
+    SKILLS,
+    generate_board_quests,
+    item_recipes,
+    mana_crystal_for,
+    roll_mana_crystal,
+)
+from core.entities import Dungeon, Player
+from core.save import dungeon_from_dict, dungeon_to_dict, player_from_dict, player_to_dict
+from core.world import BIOME_MONSTERS, FOREST_MONSTERS
 
 
 # ── Карта и локации ──
@@ -406,8 +410,9 @@ def test_bushes_have_berries_and_regrow(make_game):
 
 
 def test_deer_is_passive_and_drops_no_gold(make_game):
-    from core.data import MONSTERS, MONSTER_DROPS
     from types import SimpleNamespace
+
+    from core.data import MONSTER_DROPS, MONSTERS
     assert MONSTERS['deer'].get('passive') is True
     deer = SimpleNamespace(ch='e', boss=False, max_hp=8, xp_value=8)
     reward = rules.roll_kill_reward(deer, depth=1)
@@ -531,8 +536,9 @@ def test_credits_tab_in_main_menu(make_game, renderer):
 # ── Полноэкранный режим мультиплеера не должен ронять игру ──
 def test_display_falls_back_to_window_on_error(monkeypatch):
     import pygame
-    import core.display as display_mod
+
     import core.settings as settings_mod
+    import render.display as display_mod
 
     class FakeSurface:
         def get_size(self):
@@ -567,7 +573,8 @@ def test_display_falls_back_to_window_on_error(monkeypatch):
 
 def test_display_reuses_matching_surface(monkeypatch):
     import pygame
-    import core.display as display_mod
+
+    import render.display as display_mod
 
     class FakeSurface:
         def get_size(self):
@@ -666,8 +673,8 @@ def test_boss_key_drops_always_and_unlocks_door(make_game):
 
 
 def test_boss_barriers_open_after_kill():
-    from core.world import generate_dungeon, clear_boss_barriers
     from core.config import Tile
+    from core.world import clear_boss_barriers, generate_dungeon
     # Барьеры арены больше не замуровывают её при генерации.
     d = generate_dungeon(5)
     assert clear_boss_barriers(d) is False

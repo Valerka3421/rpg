@@ -6,9 +6,10 @@
 затемнены, Tile.FLOOR — светлые, лестницы/выходы/GATE — цветом.
 """
 import pygame
-from core import config, overworld as ov
-from core.config import Tile
 
+from core import config
+from core import overworld as ov
+from core.config import Tile
 
 # Палитра биомов для квадратов на большой карте.
 BIOME_COLORS = {

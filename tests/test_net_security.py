@@ -11,8 +11,7 @@ import time
 import pytest
 
 from core.config import Tile
-from core.entities import Player, Entity
-
+from core.entities import Entity, Player
 
 # ── P2: Malformed network messages ──
 
@@ -107,7 +106,7 @@ def test_server_rejects_huge_buffer():
     assert len(huge_buf) > MAX_MSG_SIZE
     # В _client_loop это условие: if len(buf) > MAX_MSG_SIZE: break
     # Проверяем, что лимит существует и работает
-    assert MAX_MSG_SIZE < len(huge_buf)
+    assert len(huge_buf) > MAX_MSG_SIZE
 
 
 # ── P2: DevConsole блокируется в мультиплеере ──
@@ -145,8 +144,8 @@ def test_dev_console_blocked_in_multiplayer():
 
 def test_hmac_signature_verification():
     """HMAC подпись сообщения проверяется корректно."""
-    import hmac
     import hashlib
+    import hmac
     key = b'session_secret_key'
     msg = {'type': 'move', 'dx': 1, 'dy': 0}
     payload = json.dumps(msg).encode()
@@ -168,6 +167,7 @@ def test_hmac_signature_verification():
 def test_server_password_option_exists():
     """Server.__init__ должен принимать опциональный server_password."""
     import inspect
+
     from net.server import Server
     sig = inspect.signature(Server.__init__)
     params = list(sig.parameters.keys())
@@ -205,6 +205,7 @@ def test_dev_console_uses_scrypt_not_sha256():
 def test_token_file_permissions_set():
     """_get_or_create_player_token должен вызывать chmod 0o600."""
     import inspect
+
     from net.client import _get_or_create_player_token
     src = inspect.getsource(_get_or_create_player_token)
     # Должен содержать вызов chmod с 0o600

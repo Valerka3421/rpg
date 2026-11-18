@@ -1,9 +1,10 @@
 """Главное меню, сохранения, настройки, выбор класса."""
-from core import config
 import pygame
-from render.theme import Theme as T
-from core.data import CLASSES, CLASS_ORDER
+
+from core import config
+from core.data import CLASS_ORDER, CLASSES
 from render.base_renderer import BaseRenderer
+from render.theme import Theme as T
 
 
 class MenuRenderer(BaseRenderer):
@@ -182,6 +183,7 @@ class MenuRenderer(BaseRenderer):
 
     def _draw_slot(self, rect, slot, info, selected, mode, game=None):
         from datetime import datetime
+
         from core.data import CLASSES
 
         x, y, w, h = rect
@@ -464,8 +466,8 @@ class MenuRenderer(BaseRenderer):
                   font=T.FONT_SMALL, align_right=True)
 
     def _preview_stats(self, cls, class_key='default'):
-        from core.entities import Player
         from core.data import class_stats
+        from core.entities import Player
         st = class_stats(class_key)
         stats = Player.preview_stats({
             'str': st.get('str', 5), 'agi': st.get('agi', 5),

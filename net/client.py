@@ -1,12 +1,13 @@
 """pygame-клиент: ввод → сервер, отрисовка из snapshot."""
+import argparse
+import ipaddress
+import json
+import os as _os
 import socket
 import threading
-import json
-import argparse
-import pygame
 import uuid
-import os as _os
-import ipaddress
+
+import pygame
 
 
 def _player_token_path():
@@ -17,7 +18,7 @@ def _get_or_create_player_token():
     path = _player_token_path()
     try:
         if _os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 t = f.read().strip()
                 if t:
                     return t
@@ -146,9 +147,7 @@ class SettingsMenu:
             self.selected = (self.selected + 1) % len(self.rows)
         elif key in (pygame.K_LEFT, pygame.K_a):
             self._adjust(-1)
-        elif key in (pygame.K_RIGHT, pygame.K_d):
-            self._adjust(1)
-        elif key in (pygame.K_RETURN, pygame.K_SPACE):
+        elif key in (pygame.K_RIGHT, pygame.K_d) or key in (pygame.K_RETURN, pygame.K_SPACE):
             self._adjust(1)
         elif key == pygame.K_ESCAPE:
             return 'back'
@@ -265,7 +264,7 @@ class Client:
 
     def _class_select_screen(self, screen, sw, sh):
         """Экран выбора класса. Возвращает class_key или None (отмена)."""
-        from core.data import CLASSES, CLASS_ORDER, class_stats
+        from core.data import CLASS_ORDER, CLASSES, class_stats
         from core.entities import Player
 
         font_big = pygame.font.SysFont('consolas', 32, bold=True)
@@ -380,8 +379,8 @@ class Client:
 
     def start(self):
         from audio import Audio
-        from core.settings import load_settings, save_settings
         from core import config
+        from core.settings import load_settings, save_settings
 
         _s = load_settings()
         _res = _s.get('resolution', [1280, 720])
@@ -390,7 +389,7 @@ class Client:
 
         pygame.init()
         Audio.init(volume=_s.get('volume', 7))
-        from core.display import set_mode as set_display_mode
+        from render.display import set_mode as set_display_mode
         screen = set_display_mode((SW, SH), _s.get('fullscreen'), _s)
         # Fullscreen может занять весь рабочий стол — берём фактический размер
         SW, SH = screen.get_width(), screen.get_height()
@@ -437,8 +436,8 @@ class Client:
         pygame.display.set_caption(f"Этельгард MP — pid {self.my_pid}")
         clock = pygame.time.Clock()
 
-        from render import Renderer
         from net.view import ClientView
+        from render import Renderer
         renderer = Renderer(screen)
         view = ClientView(send_fn=self.send)
         threading.Thread(target=self.recv_loop, daemon=True).start()
@@ -450,7 +449,7 @@ class Client:
         def apply_display():
             """Применить полноэкранный режим и перепривязать рендереры."""
             nonlocal screen, SW, SH
-            from core.display import set_mode as set_display_mode
+            from render.display import set_mode as set_display_mode
             screen = set_display_mode((SW, SH), _s.get('fullscreen'), _s)
             # Fullscreen (borderless) даёт размер рабочего стола
             SW, SH = screen.get_width(), screen.get_height()

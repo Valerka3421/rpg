@@ -1,8 +1,8 @@
 """Диалоги с NPC: Старейшина, Торговец, горожане."""
-from core import config
-from core.data import is_city_shop_npc
 import pygame
 
+from core import config
+from core.data import is_city_shop_npc
 
 # Циклические реплики при выборе «Поговорить о мире»
 LORE_ELDER = [
@@ -179,8 +179,7 @@ class DialogueController:
             self.game.screen_mode = 'game'
 
     def button_rects(self):
-        from core.config import (MODAL_MARGIN_X, MODAL_MARGIN_Y,
-                                 MODAL_CONTENT_PAD, MODAL_TOP_PAD)
+        from core.config import MODAL_CONTENT_PAD, MODAL_MARGIN_X, MODAL_MARGIN_Y, MODAL_TOP_PAD
         panel_x = MODAL_MARGIN_X
         panel_w = config.SCREEN_W - MODAL_MARGIN_X * 2
         panel_h = config.SCREEN_H - MODAL_MARGIN_Y * 2

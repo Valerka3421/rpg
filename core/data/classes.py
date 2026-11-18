@@ -1,9 +1,6 @@
 """Классы персонажей и их эволюции."""
-import random
-from dataclasses import dataclass, field
 
-from .items import ITEMS, parse_item_key, get_item_data
-
+from .items import ITEMS, parse_item_key
 
 WCLASS_NAMES = {
     'sword': 'мечи', 'greatsword': 'двуручники', 'axe': 'топоры',

@@ -1,7 +1,7 @@
 """Тесты генерации, LOS, FOV, BFS."""
-from core.config import Tile, MAP_W, MAP_H
+from core.config import MAP_H, MAP_W, Tile
 from core.entities import Dungeon
-from core.world import generate_dungeon, has_los, compute_fov, bfs_toward_player
+from core.world import bfs_toward_player, compute_fov, generate_dungeon, has_los
 
 
 def _make_open(size=20):
@@ -130,8 +130,8 @@ def test_overworld_has_resources():
 
 def test_overworld_village_layout_walkable():
     """Старт — в центре деревни, дома и колодец остаются препятствиями."""
-    from core.world import generate_overworld
     from core import overworld as ov
+    from core.world import generate_overworld
     d = generate_overworld()
     sx, sy = ov.VILLAGE_CENTER
     assert d.tiles[sy][sx] == Tile.FLOOR
@@ -146,8 +146,8 @@ def test_overworld_village_layout_walkable():
 
 
 def test_overworld_dungeon_entrance_is_in_rock_biome():
-    from core.world import generate_overworld
     from core import overworld as ov
+    from core.world import generate_overworld
     d = generate_overworld()
     assert ov.region_of(*ov.DUNGEON_POS) == ov.DUNGEON_REGION
     assert ov.biome_at(*ov.DUNGEON_POS) == 'rock'
@@ -169,8 +169,8 @@ def test_overworld_has_eight_distinct_biomes():
 
 
 def test_overworld_spawn_reaches_dungeon_and_all_regions():
-    from core.world import generate_overworld, _flood_fill_reachable
     from core import overworld as ov
+    from core.world import _flood_fill_reachable, generate_overworld
     d = generate_overworld()
     reachable = _flood_fill_reachable(d, ov.VILLAGE_CENTER)
     assert ov.DUNGEON_POS in reachable
@@ -182,8 +182,8 @@ def test_overworld_spawn_reaches_dungeon_and_all_regions():
 
 
 def test_overworld_roads_are_always_walkable():
-    from core.world import generate_overworld
     from core import overworld as ov
+    from core.world import generate_overworld
     d = generate_overworld()
     for y in range(MAP_H):
         for x in range(MAP_W):
@@ -192,8 +192,8 @@ def test_overworld_roads_are_always_walkable():
 
 
 def test_overworld_dungeon_area_has_ruins_texture():
-    from core.world import generate_overworld
     from core import overworld as ov
+    from core.world import generate_overworld
     from render.tiles import _VARIANTS
     d = generate_overworld()
     assert ov.ground_kind(*ov.DUNGEON_POS) == 'dungeon_ruins'
@@ -212,8 +212,8 @@ def test_overworld_dungeon_area_has_ruins_texture():
 
 
 def test_overworld_tile_kinds_are_registered_for_rendering():
-    from core.world import generate_overworld
     from core import overworld as ov
+    from core.world import generate_overworld
     from render.tiles import _VARIANTS
     d = generate_overworld()
     for y in range(MAP_H):
@@ -231,9 +231,9 @@ def test_fov_blocks_wall_gap():
     _old = _cfg.FOG_OF_WAR_ENABLED
     _cfg.FOG_OF_WAR_ENABLED = True
     try:
+        from core.config import MAP_H, MAP_W, Tile
         from core.entities import Dungeon
         from core.world import compute_fov
-        from core.config import Tile, MAP_W, MAP_H
         d = Dungeon(MAP_W, MAP_H)
         for y in range(MAP_H):
             for x in range(MAP_W):
@@ -254,9 +254,9 @@ def test_fov_blocks_wall_gap():
 
 def test_fov_sees_adjacent_wall():
     """Стена в 1 клетке — видна."""
+    from core.config import MAP_H, MAP_W, Tile
     from core.entities import Dungeon
     from core.world import compute_fov
-    from core.config import Tile, MAP_W, MAP_H
     d = Dungeon(MAP_W, MAP_H)
     for y in range(MAP_H):
         for x in range(MAP_W):

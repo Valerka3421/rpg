@@ -8,7 +8,6 @@ import pytest
 from core import config, rules
 from core.entities import Entity
 
-
 PASSWORD = 'test-secret'
 
 

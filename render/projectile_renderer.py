@@ -10,7 +10,9 @@
 Координаты — в тайлах. Перевод в пиксели через view_origin и TILE.
 """
 import math
+
 import pygame
+
 from core import config
 
 
@@ -23,10 +25,10 @@ def draw_projectiles(screen, projectiles, view_origin):
     for p in projectiles:
         px = ox + p.x * tile + tile // 2
         py = oy + p.y * tile + tile // 2
-        _draw_one(screen, p, px, py)
+        _draw_one(screen, p, px, py, tile)
 
 
-def _draw_one(screen, p, px, py):
+def _draw_one(screen, p, px, py, tile):
     if p.kind == 'arrow':
         # Тонкая линия от центра к цели, длиной ~20px
         dx = p.tx - p.x
@@ -67,7 +69,6 @@ def _draw_one(screen, p, px, py):
         perp_x, perp_y = -uy, ux
         pts = [(px, py)]
         steps = 4
-        step_len = min(20, dist * tile / steps) if dist > 0 else 20
         for i in range(1, steps):
             t = i / steps
             base_x = px + dx * tile * 0.3 * t

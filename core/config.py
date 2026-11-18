@@ -139,9 +139,8 @@ SAVE_VERSION = 8
 # Пароль по умолчанию — НЕ публикуется в README. Переопределяется через
 # переменную окружения ETHELGARD_DEV_PASSWORD (или сразу хешем через
 # ETHELGARD_DEV_PASSWORD_HASH).
-DEV_CONSOLE_PASSWORD_HASH = (
-    '0670b05790a5a75f60c941b10e7866c3347b3261b216e4881145c4bb5f172f4a'
-)
+DEV_CONSOLE_PASSWORD_HASH = None  # по умолчанию консоль отключена;
+                                       # задайте ETHELGARD_DEV_PASSWORD env var
 DEV_CONSOLE_MAX_ATTEMPTS = 3
 DEV_CONSOLE_LOCK_SECONDS = 30
 
@@ -190,7 +189,8 @@ def dev_console_password_hash():
         )
         return 'scrypt:' + dk.hex()
 
-    # 3. Дефолт (sha256 — оставлен для совместимости со старыми сборками).
+    # 3. Дефолт: None — консоль отключена, пока не задан ETHELGARD_DEV_PASSWORD.
+    #    Раньше здесь лежал хеш слова 'ethelgard' — любой мог сбрутфорсить.
     return DEV_CONSOLE_PASSWORD_HASH
 
 
@@ -232,7 +232,7 @@ def verify_dev_console_password(entered: str, expected_hash: str) -> bool:
     """
     import hmac
     if not expected_hash or not entered:
-        return False
+        return False  # консоль отключена, пока не задан ETHELGARD_DEV_PASSWORD
     # scrypt-хеш — имеет префикс 'scrypt:'
     if expected_hash.startswith('scrypt:'):
         salt = _load_dev_console_salt()

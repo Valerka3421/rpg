@@ -14,10 +14,10 @@ from __future__ import annotations
 import random
 from collections import deque
 
+from core import overworld as ov
 from core.config import Tile
 from core.data import MONSTERS
 from core.entities import Dungeon, Entity, Room
-from core import overworld as ov
 from core.harvest import make_harvestable
 
 # Размер обычной карты локации. Старый биом занимал ~33×23 клетки внутри
@@ -521,7 +521,6 @@ def _scatter_ruins(d, center, density):
 
 def _generate_ruins(key):
     """Руины города: по дороге от кладбища, иногда — сундук с ресурсами."""
-    spec = LOCATIONS[key]
     d = Dungeon(LOCATION_W, LOCATION_H)
     _fill_floor(d)
     center = (LOCATION_W // 2, LOCATION_H // 2)

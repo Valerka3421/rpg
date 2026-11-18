@@ -1,23 +1,27 @@
 """Точка входа. Запуск: python main.py"""
+import logging
 import os
 import sys
-import time
 import threading
+import time
 
 # Окно игры центрируется при каждом создании/смене размера.
 os.environ.setdefault('SDL_VIDEO_CENTERED', '1')
 
 # 1) Настройки — ДО импорта game/render
 from core.settings import load_settings
+
+log = logging.getLogger('ethelgard')
 _settings = load_settings()
 
 from core import config
+
 _res = _settings.get('resolution', [1280, 720])
 config.set_resolution(_res[0], _res[1])
 
 import pygame
 
-from core.display import set_mode as set_display_mode
+from render.display import set_mode as set_display_mode
 
 
 # ════════════════════════ СМЕНА РАЗРЕШЕНИЯ ════════════════════════
@@ -86,7 +90,7 @@ def _run_game_loop(game, screen, clock):
                 try:
                     game.save(silent=True)
                 except Exception:
-                    pass
+                    log.exception('Автосейв перед MP не удался')
             return result
 
         # ── Смена разрешения ──
@@ -173,7 +177,7 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
             try:
                 server.stop()
             except Exception:
-                pass
+                log.exception('Ошибка остановки сервера')
 
 
 # ════════════════════════ КОНЕЧНЫЙ АВТОМАТ ════════════════════════

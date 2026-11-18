@@ -1,9 +1,14 @@
 """Round-trip сериализации."""
-from core.entities import Player, Entity, Room, Dungeon
-from core.config import MAP_W, MAP_H, Tile
-from core.save import (entity_to_dict, entity_from_dict,
-                       player_to_dict, player_from_dict,
-                       dungeon_to_dict, dungeon_from_dict)
+from core.config import MAP_H, MAP_W, Tile
+from core.entities import Dungeon, Entity, Player, Room
+from core.save import (
+    dungeon_from_dict,
+    dungeon_to_dict,
+    entity_from_dict,
+    entity_to_dict,
+    player_from_dict,
+    player_to_dict,
+)
 
 
 def test_entity_roundtrip():

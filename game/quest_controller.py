@@ -1,6 +1,7 @@
 """UI для списка квестов: принять, сдать."""
-from core import config
 import pygame
+
+from core import config
 from core.data import QUESTS
 
 
@@ -72,8 +73,7 @@ class QuestController:
             self.activate(self.selection)
 
     def button_rects(self):
-        from core.config import (MODAL_MARGIN_X, MODAL_CONTENT_PAD,
-                                 MODAL_TOP_PAD)
+        from core.config import MODAL_CONTENT_PAD, MODAL_MARGIN_X, MODAL_TOP_PAD
         panel_x = MODAL_MARGIN_X
         panel_w = config.SCREEN_W - MODAL_MARGIN_X * 2
         bw = panel_w - MODAL_CONTENT_PAD * 2

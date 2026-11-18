@@ -1,6 +1,6 @@
 """Тесты сущностей."""
-from core.entities import Player, Entity, Room, Dungeon
 from core.config import Tile
+from core.entities import Dungeon, Entity, Player, Room
 
 
 def test_player_defaults():

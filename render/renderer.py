@@ -1,12 +1,12 @@
 """Фасад рендера. Делегирует в специализированные модули."""
-from render.theme import Theme as T
-from render.sprites import Sprites
 from render.base_renderer import BaseRenderer
+from render.game_renderer import GameRenderer
 from render.icon_renderer import IconRenderer
 from render.menu_renderer import MenuRenderer
-from render.game_renderer import GameRenderer
-from render.screens_renderer import ScreensRenderer
 from render.overlay_renderer import OverlayRenderer
+from render.screens_renderer import ScreensRenderer
+from render.sprites import Sprites
+from render.theme import Theme as T
 
 
 class Renderer:

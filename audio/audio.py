@@ -1,9 +1,11 @@
 """Процедурные звуки через pygame.mixer. Работает без ассетов."""
-import os
-import math
-import random
 import array
+import math
+import os
+import random
+
 import pygame
+
 from core.config import ASSETS_DIR
 
 

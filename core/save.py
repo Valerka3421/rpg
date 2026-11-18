@@ -1,13 +1,14 @@
 """Сериализация + слоты + dungeon_cache."""
-import os
 import json
-from core.config import MAP_W, MAP_H, DATA_DIR, Tile
+import os
+
+from core.config import DATA_DIR, MAP_H, MAP_W, Tile
 
 # Имя BASE_DIR сохранено для тестов/совместимости, но указывает на
 # записываемый каталог (рядом с exe или в %APPDATA%), а не на _MEIPASS.
 BASE_DIR = DATA_DIR
 from core.data import xp_to_next
-from core.entities import Entity, Player, Room, Dungeon
+from core.entities import Dungeon, Entity, Player, Room
 
 
 # ── Базовые сериализаторы ──
@@ -325,7 +326,7 @@ def save_slot_info(slot):
     if not os.path.exists(path):
         return None
     try:
-        with open(path, 'r', encoding='utf-8') as f:
+        with open(path, encoding='utf-8') as f:
             data = json.load(f)
         p = data.get('player', {})
         return {

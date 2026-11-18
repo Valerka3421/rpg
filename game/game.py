@@ -1,40 +1,75 @@
 """Ядро игры: состояние, движение, бой, предметы, save/load, маршрутизация input."""
-from core import config, rules, overworld as ov, locations
+import json
 import os
 import random
-import json
-import pygame
 import time
 
-from core.quests import QuestLog
-from game.dialogue_controller import DialogueController
-from game.quest_controller import QuestController
-from game.stats_controller import StatsController
-from core.config import (
-    TILE, MAP_W, MAP_H, MAX_DEPTH, MERCHANT_FLOORS, Tile, INVENTORY_PAGE_SIZE,
-    PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN, SAVE_VERSION,
-    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL, FOV_RADIUS,
-    COL_TEXT, COL_DIM, COL_GOLD, COL_DMG, COL_XP, COL_CRIT,
-    COL_HEAL, COL_DODGE, COL_WIN, COL_MERCH,
-)
-from core.data import (BOSSES, parse_item_key, item_display_name, MONSTERS_BY_CH,
-                       ITEMS, CITY_NPC_NAMES, CITY_NPC_GLYPHS, is_city_shop_npc)
-from core.entities import Player, Entity, Message, FloatText
-from core.world import (generate_dungeon, generate_overworld, place_entry_tile,
-                        has_los, compute_fov, bfs_toward_player)
-from core.save import (entity_to_dict, entity_from_dict,
-                       player_to_dict, player_from_dict,
-                       dungeon_to_dict, dungeon_from_dict,
-                       dungeon_cache_to_dict, dungeon_cache_from_dict,
-                       save_slot_path)
-from render import Renderer
-from core.settings import load_settings, save_settings
-from game.menu_controller import MenuController
-from game.shop_controller import ShopController
-from game.craft_controller import CraftController
-from game.skills_controller import SkillsController
-from game.dev_console_controller import DevConsoleController
+import pygame
 
+from core import config, locations, rules
+from core import overworld as ov
+from core.config import (
+    COL_CRIT,
+    COL_DIM,
+    COL_DMG,
+    COL_DODGE,
+    COL_GOLD,
+    COL_HEAL,
+    COL_MERCH,
+    COL_TEXT,
+    COL_WIN,
+    COL_XP,
+    INVENTORY_PAGE_SIZE,
+    MAP_H,
+    MAP_W,
+    MAX_DEPTH,
+    MERCHANT_FLOORS,
+    PLAYER_MOVE_COOLDOWN,
+    REGEN_TICK_INTERVAL,
+    SAVE_VERSION,
+    STATUS_TICK_INTERVAL,
+    TILE,
+    Tile,
+)
+from core.data import (
+    BOSSES,
+    CITY_NPC_GLYPHS,
+    CITY_NPC_NAMES,
+    ITEMS,
+    MONSTERS_BY_CH,
+    is_city_shop_npc,
+    item_display_name,
+    parse_item_key,
+)
+from core.entities import Entity, FloatText, Message, Player
+from core.quests import QuestLog
+from core.save import (
+    dungeon_cache_from_dict,
+    dungeon_cache_to_dict,
+    dungeon_from_dict,
+    dungeon_to_dict,
+    entity_from_dict,
+    entity_to_dict,
+    player_from_dict,
+    player_to_dict,
+    save_slot_path,
+)
+from core.settings import load_settings, save_settings
+from core.world import (
+    bfs_toward_player,
+    generate_dungeon,
+    has_los,
+    place_entry_tile,
+)
+from game.craft_controller import CraftController
+from game.dev_console_controller import DevConsoleController
+from game.dialogue_controller import DialogueController
+from game.menu_controller import MenuController
+from game.quest_controller import QuestController
+from game.shop_controller import ShopController
+from game.skills_controller import SkillsController
+from game.stats_controller import StatsController
+from render import Renderer
 
 # Порядок характеристик для цифровых клавиш в окне статов
 STAT_ORDER = ('str', 'agi', 'vit', 'luk', 'df_stat', 'int')
@@ -312,7 +347,7 @@ class Game:
                     and self.overworld.tiles[by][bx] != Tile.WALL):
                 e = Entity(bx, by, 1, 1, 0, 0, "Доска поручений", "B",
                            (206, 170, 96), 0)
-                e.is_npc = True;
+                e.is_npc = True
                 e.npc_type = 'quest_board'
                 e.board_depth_min, e.board_depth_max = 0, 4
                 return e
@@ -329,7 +364,7 @@ class Game:
                     and not any(m.x == tx and m.y == ty for m in self.dungeon.monsters)):
                 e = Entity(tx, ty, 1, 1, 0, 0, "Доска поручений", "B",
                            (206, 170, 96), 0)
-                e.is_npc = True;
+                e.is_npc = True
                 e.npc_type = 'quest_board'
                 e.board_depth_min = self.depth
                 e.board_depth_max = min(self.depth + 4, 20)
@@ -608,7 +643,7 @@ class Game:
             self.log("Сохранения нет. Сначала F5.", COL_DMG)
             return False
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 data = json.load(f)
 
             version = int(data.get('version', 5))
@@ -866,7 +901,7 @@ class Game:
 
     def map_tile_under(self, pos):
         """Клетка карты под курсором или None (курсор вне игрового поля)."""
-        from core.config import TILE, MAP_W, MAP_H
+        from core.config import MAP_H, MAP_W, TILE
         ox, oy = config.view_origin()
         mx, my = pos
         if not (ox <= mx < ox + config.VIEW_W * TILE
@@ -969,7 +1004,6 @@ class Game:
 
     def harvestable_kind_at(self, x, y):
         """'bush'/'tree'/'ore' для клетки или None."""
-        from core import harvest as harvest_mod
         record = self.dungeon.harvestables.get((x, y))
         if record is not None:
             return record.get('kind')
@@ -1654,7 +1688,7 @@ class Game:
                                 'class_select', 'menu_controls',
                                 'menu_credits', 'menu_multiplayer',
                                 'menu_mp_join'):
-            self.menu.handle_key(key, scancode, unicode, mods);
+            self.menu.handle_key(key, scancode, unicode, mods)
             return
         if self.screen_mode == 'shop':
             self.shop.handle_key(key); return
@@ -1663,13 +1697,13 @@ class Game:
         if self.screen_mode == 'skills':
             self.skills_ui.handle_key(key, scancode); return
         if self.screen_mode == 'dialogue':
-            self.dialogue.handle_key(key, scancode);
+            self.dialogue.handle_key(key, scancode)
             return
         if self.screen_mode == 'quests':
-            self.quests.handle_key(key, scancode);
+            self.quests.handle_key(key, scancode)
             return
         if self.screen_mode == 'stats_run':
-            self.stats_run.handle_key(key, scancode);
+            self.stats_run.handle_key(key, scancode)
             return
 
         # Управление в игре
@@ -1685,16 +1719,16 @@ class Game:
         # Скролл лога — только в игровом режиме
         if self.screen_mode == 'game':
             if scancode == 0x2F or key in (pygame.K_PAGEUP, pygame.K_LEFTBRACKET):
-                self.scroll_log(3);
+                self.scroll_log(3)
                 return
             if scancode == 0x30 or key in (pygame.K_PAGEDOWN, pygame.K_RIGHTBRACKET):
-                self.scroll_log(-3);
+                self.scroll_log(-3)
                 return
             if key == pygame.K_HOME:
-                self.scroll_log(10_000);
+                self.scroll_log(10_000)
                 return
             if key == pygame.K_END:
-                self.log_scroll = 0;
+                self.log_scroll = 0
                 return
 
         # Экраны статов / инвентаря
@@ -1780,7 +1814,7 @@ class Game:
             self.update_fov()
             return
         if key == pygame.K_l:
-            self.quests.open();
+            self.quests.open()
             return
         if key == pygame.K_k:
             self.craft.open(); return
@@ -1803,7 +1837,7 @@ class Game:
                 self.screen_mode = 'game'
                 return
         if key == pygame.K_TAB:
-            self.stats_run.open();
+            self.stats_run.open()
             return
 
         # Bigmap закрывается по Esc и по любой необработанной клавише.
@@ -1879,7 +1913,7 @@ class Game:
                 return True
 
         # Клик по NPC на карте
-        from core.config import TILE, MAP_W, MAP_H
+        from core.config import MAP_H, MAP_W, TILE
         cam_x = max(0, min(self.player.x - config.VIEW_W // 2, MAP_W - config.VIEW_W))
         cam_y = max(0, min(self.player.y - config.VIEW_H // 2, MAP_H - config.VIEW_H))
         ox, oy = config.view_origin()
@@ -2107,11 +2141,11 @@ class Game:
 
     def open_shop(self):
         if not self.merchant:
-            self.log("На этом этаже нет торговца.", COL_DIM);
+            self.log("На этом этаже нет торговца.", COL_DIM)
             return
         if max(abs(self.player.x - self.merchant.x),
                abs(self.player.y - self.merchant.y)) > 1:
-            self.log("Подойди ближе к торговцу.", COL_DIM);
+            self.log("Подойди ближе к торговцу.", COL_DIM)
             return
         self.shop.open()
 

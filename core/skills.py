@@ -14,7 +14,7 @@
 Эффекты узлов складываются в словарь бонусов, который читает
 ``Player.recalc`` (характеристики) и боевые правила (вампиризм, золото).
 """
-from core.data import CLASSES, ITEMS, class_data
+from core.data import CLASSES, class_data
 
 SKILL_CAP = 25
 CLASS_CHANGE_LEVELS = (5, 15)

@@ -9,8 +9,6 @@
 (см. ``render/screens_renderer.draw_dev_console``).
 """
 import difflib
-import hashlib
-import hmac
 import random
 import time
 
@@ -18,10 +16,8 @@ import pygame
 
 from core import config, rules, skills
 from core.config import Tile
-from core.data import (ITEMS, MONSTERS, BOSSES, parse_item_key, make_loot_key,
-                       item_display_name)
+from core.data import BOSSES, ITEMS, MONSTERS, item_display_name, make_loot_key, parse_item_key
 from core.entities import Entity
-
 
 COMMANDS = {
     'help': 'список команд',

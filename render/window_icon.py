@@ -5,7 +5,6 @@ import pygame
 
 from core.config import ASSETS_DIR
 
-
 ICON_PATH = os.path.join(ASSETS_DIR, 'icon.png')
 
 

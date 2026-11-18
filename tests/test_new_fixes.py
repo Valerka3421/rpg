@@ -2,15 +2,23 @@
 city ruins, cardinal gates, fog of war disable, dungeon connectivity.
 """
 import random
+
 import pytest
 
-from core import rules, config, overworld as ov
+from core import config, rules
+from core import overworld as ov
 from core.config import Tile
-from core.entities import Player, Entity, Projectile, Dungeon
-from core.world import (generate_overworld, generate_dungeon, compute_fov,
-                        _build_city_ruins, _place_cardinal_gates,
-                        _all_rooms_connected, _connect_l_corridor)
-from core.data import ITEMS, item_category, CLASSES
+from core.data import CLASSES, ITEMS, item_category
+from core.entities import Dungeon, Entity, Player, Projectile
+from core.world import (
+    _all_rooms_connected,
+    _build_city_ruins,
+    _connect_l_corridor,
+    _place_cardinal_gates,
+    compute_fov,
+    generate_dungeon,
+    generate_overworld,
+)
 
 
 # ── #2: Все зелья в категории alchemy ──

@@ -5,9 +5,9 @@ import pygame
 import pytest
 
 from core import config
-from core.config import MAP_W, MAP_H, MINIMAP_SCALE, MINIMAP_MARGIN, Tile
-from core.entities import Player, Entity
+from core.config import MAP_H, MAP_W, MINIMAP_MARGIN, MINIMAP_SCALE, Tile
 from core.data import CLASSES
+from core.entities import Entity, Player
 from net.view import ClientView
 from render.theme import Theme
 

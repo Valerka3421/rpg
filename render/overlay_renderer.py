@@ -1,8 +1,9 @@
 """Смерть, победа, подсказка внизу."""
-from core import config
 import pygame
-from render.theme import Theme as T
+
+from core import config
 from render.base_renderer import BaseRenderer
+from render.theme import Theme as T
 
 
 class OverlayRenderer(BaseRenderer):

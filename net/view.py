@@ -3,13 +3,11 @@ import time
 
 import pygame
 
-from core import config
-from core import rules
-from core.config import MAP_W, MAP_H, Tile, SHOP_PAGE_SIZE, INVENTORY_PAGE_SIZE
-from core.entities import Player, Entity, Dungeon, Message
+from core import config, rules
+from core.config import INVENTORY_PAGE_SIZE, MAP_H, MAP_W, SHOP_PAGE_SIZE, Tile
+from core.data import ITEMS, QUESTS, parse_item_key
+from core.entities import Dungeon, Entity, Message, Player
 from core.quests import QuestLog
-from core.world import compute_fov
-from core.data import ITEMS, parse_item_key, QUESTS, item_display_name
 from game.dialogue_controller import DialogueController
 
 # За сколько секунд клиент «догоняет» позицию из снапшота
@@ -378,7 +376,6 @@ class ClientView:
 
     def _click_map_player(self, pos):
         """Клик по другому игроку на поле — попап «Обмен / Дуэль»."""
-        from core.config import TILE
         hit = self._map_tile_under(pos)
         if hit is None:
             self.player_popup = None
@@ -556,8 +553,8 @@ class ClientView:
         p.legs = pd.get('legs', pd.get('leggings'))
         p.boots = pd.get('boots')
         if 'skills' in pd:
-            from core.data import default_skills
             from core import skills as sk
+            from core.data import default_skills
             p.skills = default_skills()
             for skill, val in (pd.get('skills') or {}).items():
                 skill = sk.canon_skill(skill)
@@ -821,8 +818,7 @@ class _MPQuestController:
             self.activate(self.selection)
 
     def button_rects(self):
-        from core.config import (MODAL_MARGIN_X, MODAL_CONTENT_PAD,
-                                 MODAL_TOP_PAD)
+        from core.config import MODAL_CONTENT_PAD, MODAL_MARGIN_X, MODAL_TOP_PAD
         panel_x = MODAL_MARGIN_X
         panel_w = config.SCREEN_W - MODAL_MARGIN_X * 2
         bw = panel_w - MODAL_CONTENT_PAD * 2

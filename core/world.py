@@ -2,11 +2,10 @@
 import random
 from collections import deque
 
-from core.config import MAP_W, MAP_H, FOV_RADIUS, Tile
-from core.data import MONSTERS, BOSSES, ITEMS, scale_stats, scale_boss_stats
-from core.entities import Entity, Room, Dungeon
 from core import overworld as ov
-
+from core.config import FOV_RADIUS, MAP_H, MAP_W, Tile
+from core.data import BOSSES, ITEMS, MONSTERS, scale_boss_stats, scale_stats
+from core.entities import Dungeon, Entity, Room
 
 OVERWORLD_RESOURCES = ('mushroom', 'wood', 'stone', 'ore')
 

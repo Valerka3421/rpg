@@ -1,6 +1,7 @@
 """Общие примитивы для всех рендереров: текст, градиент, кнопки, сравнение."""
-from core import config
 import pygame
+
+from core import config
 from render.theme import Theme as T
 
 

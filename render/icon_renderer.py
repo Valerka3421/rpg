@@ -1,13 +1,14 @@
 """Все процедурные иконки 64×64: классы, монстры, NPC, предметы, тайлы."""
-import pygame
 import math
+
+import pygame
+
 from core.config import TILE
-from core.data import ITEMS, parse_item_key, item_display_color, MATERIAL_KEYS
-from render.theme import Theme as T
-from render.sprites import Sprites
+from core.data import ITEMS, MATERIAL_KEYS, item_display_color, parse_item_key
 from render import textures
 from render.base_renderer import BaseRenderer
-
+from render.sprites import Sprites
+from render.theme import Theme as T
 
 CANVAS = 64
 CX = 32

@@ -3,33 +3,54 @@
 Все правила боя/лута/статусов берутся из :mod:`core.rules` — того же
 модуля, что использует одиночная игра, поэтому режимы не расходятся.
 """
-import random
 import json
 import os
+import random
 import time
 
-from core.config import (
-    MAP_W, MAP_H, MERCHANT_FLOORS, Tile,
-    PLAYER_MOVE_COOLDOWN, PLAYER_ATTACK_COOLDOWN,
-    STATUS_TICK_INTERVAL, REGEN_TICK_INTERVAL, SAVE_VERSION,
-    COL_TEXT, COL_GOLD, COL_XP, COL_DMG, COL_HEAL, COL_MERCH,
-)
-from core import rules
-from core import skills
-from core import overworld as ov
-from core.data import (BOSSES, make_shop_stock, reroll_price, item_sell_price,
-                       item_display_name, xp_to_next, ITEMS,
-                       craft_skill_reward, item_category, select_recipe,
-                       MONSTERS_BY_CH)
-from core.entities import Player, Entity
-from core.quests import QuestLog
-from core.data import QUESTS
-from core.world import (
-    generate_overworld, generate_dungeon, place_entry_tile, has_los,
-    bfs_toward_player, clear_boss_barriers,
-)
-from core.save import dungeon_to_dict, dungeon_from_dict
 from core import harvest as harvest_mod
+from core import overworld as ov
+from core import rules, skills
+from core.config import (
+    COL_DMG,
+    COL_GOLD,
+    COL_HEAL,
+    COL_MERCH,
+    COL_TEXT,
+    COL_WIN,
+    COL_XP,
+    MAP_H,
+    MAP_W,
+    MERCHANT_FLOORS,
+    PLAYER_ATTACK_COOLDOWN,
+    PLAYER_MOVE_COOLDOWN,
+    REGEN_TICK_INTERVAL,
+    SAVE_VERSION,
+    STATUS_TICK_INTERVAL,
+    Tile,
+)
+from core.data import (
+    BOSSES,
+    ITEMS,
+    MONSTERS_BY_CH,
+    QUESTS,
+    item_display_name,
+    item_sell_price,
+    make_shop_stock,
+    reroll_price,
+    xp_to_next,
+)
+from core.entities import Entity, Player
+from core.quests import QuestLog
+from core.save import dungeon_from_dict, dungeon_to_dict
+from core.world import (
+    bfs_toward_player,
+    clear_boss_barriers,
+    generate_dungeon,
+    generate_overworld,
+    has_los,
+    place_entry_tile,
+)
 
 
 class GameCore:
@@ -250,7 +271,7 @@ class GameCore:
         if not os.path.exists(path):
             return False
         try:
-            with open(path, 'r', encoding='utf-8') as f:
+            with open(path, encoding='utf-8') as f:
                 data = json.load(f)
             if 'overworld' not in data:
                 # Сейв старого формата (v5): хранил только текущую карту
@@ -1025,8 +1046,6 @@ class GameCore:
                     self._event(f"Опыт поделен: {killer_xp} убийце, "
                                 f"{share} каждому союзнику", COL_XP)
             self.quest_log.update_kill(monster.ch)
-        else:
-            inventory = {}
         for item_key in reward.drops:
             # Добыча сразу в инвентарь убийцы (или в первый свободный).
             target_inv = killer.inventory if killer is not None else {}

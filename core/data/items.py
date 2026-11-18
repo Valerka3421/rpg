@@ -1,7 +1,5 @@
 """Данные предметов: оружие, броня, зелья, ресурсы."""
 import random
-from dataclasses import dataclass, field
-
 
 ITEMS = {
     # Зелья
