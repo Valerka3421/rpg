@@ -5,6 +5,7 @@ import json
 import time
 import os
 import argparse
+from core import config
 from core.config import DATA_DIR
 from net.core import GameCore
 
@@ -13,12 +14,23 @@ MAX_MSG_SIZE = 65536
 
 
 class Server:
-    def __init__(self, host='0.0.0.0', port=9000, max_players=2):
+    def __init__(self, host='0.0.0.0', port=9000, max_players=2,
+                 server_password=None):
+        """TCP-сервер для кооператива.
+
+        ``server_password`` — если задан, клиенты обязаны прислать его в
+        ``hello`` сообщении. По умолчанию ``None`` — LAN без пароля
+        (обратно совместимо со старыми клиентами). Можно также задать через
+        env var ``ETHELGARD_SERVER_PASSWORD`` (см. ``core/config.py``).
+        """
         self.host, self.port = host, port
         self.requested_port = port
         self.bound_port = None
         self.ready = threading.Event()
         self.max_players = max_players
+        # Пароль на подключение: env var > явный аргумент > None (без пароля)
+        self.server_password = (server_password
+                                 or config.SERVER_PASSWORD_DEFAULT)
         self.clients = {}          # {pid: socket}
         self.next_pid = 0
         self.core = GameCore(seed=42)
@@ -28,6 +40,9 @@ class Server:
         self._sock = None
         self.client_tokens = {}
         self.saved_players = {}
+        # Сессионные ключи HMAC: {pid: bytes}. Генерируются при hello,
+        # используются для подписи сообщений от клиента.
+        self.session_keys = {}
         self.world_save_path = os.path.join(DATA_DIR, 'savegame_mp_world.json')
         self.players_save_path = os.path.join(DATA_DIR, 'savegame_mp_players.json')
         self._load_saved_players()
@@ -216,6 +231,21 @@ class Server:
                         if msg.get('type') == 'hello':
                             token = msg.get('token', f'anon_{pid}')
                             class_key = msg.get('class', 'warrior')
+                            # P3: проверка пароля сервера (если задан).
+                            if self.server_password:
+                                provided = msg.get('server_password')
+                                if provided != self.server_password:
+                                    print(f"[SERVER] drop {pid}: wrong server password")
+                                    try:
+                                        conn.sendall(b'{"type":"error",'
+                                                     b'"msg":"wrong password"}\n')
+                                    except Exception:
+                                        pass
+                                    break
+                            # P3: генерируем сессионный ключ для HMAC.
+                            import os as _os
+                            session_key = _os.urandom(32)
+                            self.session_keys[pid] = session_key
                             with self.lock:
                                 self.client_tokens[pid] = token
                                 if token in self.saved_players:

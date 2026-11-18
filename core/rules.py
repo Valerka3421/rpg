@@ -17,6 +17,10 @@ from core.config import (
     Tile, MONSTER_ACTION_INTERVAL, MONSTER_ACTION_JITTER,
     BOSS_ACTION_INTERVAL, BOSS_BREATH_INTERVAL, BOSS_BREATH_RANGE,
     BOSS_BREATH_POWER,
+    # Боевые константы — вынесены из магических чисел в config
+    DMG_SPREAD, CRIT_MULT, XP_LEVEL_GUARD,
+    DODGE_CAP, DODGE_TOTAL_CAP, CRIT_BASE_CAP, CRIT_TOTAL_CAP,
+    THORNS_DAMAGE,
 )
 from core.data import (
     ITEMS, STATUSES, ABILITY_TO_STATUS, BOSS_DROPS,
@@ -25,7 +29,7 @@ from core.data import (
     item_category, select_recipe, roll_mana_crystal, MONSTERS_BY_CH,
     SKILLS, default_skills, skill_xp_to_next,
 )
-from core.entities import Player, Entity, Projectile
+from core.entities import Player, Entity, Projectile, Dungeon
 from core import skills
 
 
@@ -94,8 +98,13 @@ def projectile_hit(projectile, target):
 
 
 # ════════════════════ ОПЫТ И УРОВНИ ════════════════════
-def level_up_once(player):
-    """Повышает уровень на 1. Возвращает новый уровень."""
+def level_up_once(player: Player) -> int:
+    """Повышает уровень игрока на 1. Возвращает новый уровень.
+
+    Сбрасывает XP до остатка, обновляет ``xp_next`` по кривой опыта,
+    даёт 5 свободных очков характеристик и 1 очко навыка, полностью
+    восстанавливает HP и ману.
+    """
     player.xp -= player.xp_next
     player.level += 1
     player.xp_next = xp_to_next(player.level)
@@ -108,15 +117,20 @@ def level_up_once(player):
     return player.level
 
 
-def give_xp(player, amount, apply_bonus=True):
-    """Начисляет опыт. Возвращает список полученных уровней."""
+def give_xp(player: Player, amount: int, apply_bonus: bool = True) -> list[int]:
+    """Начисляет опыт игроку. Возвращает список полученных уровней.
+
+    ``apply_bonus`` — умножить на ``xp_pct`` (бонус от навыков/класса).
+    ``XP_LEVEL_GUARD`` защищает от зацикливания, если ``xp_next``
+    оказалось нулевым или отрицательным из-за бага в кривой.
+    """
     if apply_bonus:
         pct = float(getattr(player, 'xp_pct', 0.0) or 0.0)
         amount = int(round(amount * (1.0 + pct)))
     player.xp += max(0, amount)
-    gained = []
+    gained: list[int] = []
     guard = 0
-    while player.xp >= player.xp_next and guard < 200:
+    while player.xp >= player.xp_next and guard < XP_LEVEL_GUARD:
         gained.append(level_up_once(player))
         guard += 1
     return gained
@@ -135,15 +149,22 @@ class AttackResult:
     attacker_dead: bool = False
 
 
-def face_towards(attacker, defender):
+def face_towards(attacker: Entity, defender: Entity) -> None:
+    """Развернуть attacker в сторону defender (для анимации удара)."""
     attacker.facing = (
         1 if defender.x > attacker.x else (-1 if defender.x < attacker.x else 0),
         1 if defender.y > attacker.y else (-1 if defender.y < attacker.y else 0),
     )
 
 
-def resolve_attack(attacker, defender):
-    """Один удар. Меняет HP/статусы и возвращает факты о бое."""
+def resolve_attack(attacker: Entity, defender: Entity) -> AttackResult:
+    """Один удар. Меняет HP/статусы и возвращает факты о бое.
+
+    Урон: ``max(1, atk - defender.df ± DMG_SPREAD)``.
+    Крит: ``damage * CRIT_MULT`` (если выпал).
+    Уклонение: ``DODGE_CAP`` для базы, ``DODGE_TOTAL_CAP`` абсолютный.
+    Шипы: ответный ``THORNS_DAMAGE`` урон по атакующему.
+    """
     god = isinstance(defender, Player) and getattr(defender, 'god_mode',
                                                     False)
     if isinstance(defender, Player) and random.random() < defender.dodge:
@@ -153,9 +174,9 @@ def resolve_attack(attacker, defender):
     atk = attacker.atk
     if isinstance(attacker, Player):
         atk = int(atk * attacker.rage_bonus)
-    damage = max(1, atk - defender.df + random.randint(-1, 1))
+    damage = max(1, atk - defender.df + random.randint(-DMG_SPREAD, DMG_SPREAD))
     if crit:
-        damage = int(damage * 1.5)
+        damage = int(damage * CRIT_MULT)
     # Консоль разработчика: режим бессмертия.
     if god:
         damage = 0
@@ -197,8 +218,8 @@ def resolve_attack(attacker, defender):
 
     # Шипы — ответный урон игрока
     if isinstance(defender, Player) and defender.thorns and isinstance(attacker, Entity):
-        attacker.hp -= 2
-        result.thorns = 2
+        attacker.hp -= THORNS_DAMAGE
+        result.thorns = THORNS_DAMAGE
         result.attacker_dead = attacker.hp <= 0
     return result
 
@@ -236,8 +257,11 @@ def roll_kill_reward(monster, depth, greedy=False):
     return KillReward(gold=gold, xp=monster.xp_value, drops=drops)
 
 
-def award_kill(player, monster, depth):
-    """Начисляет золото и опыт за моба. Возвращает (награда, новые уровни)."""
+def award_kill(player: Player, monster: Entity, depth: int) -> tuple[KillReward, list[int]]:
+    """Начисляет золото и опыт за моба. Возвращает (награда, новые уровни).
+
+    Бонус ``gold_pct`` (от навыков/класса) умножает золото.
+    """
     reward = roll_kill_reward(monster, depth, greedy=player.greedy)
     pct = float(getattr(player, 'gold_pct', 0.0) or 0.0)
     reward.gold = int(round(reward.gold * (1.0 + pct)))
@@ -342,7 +366,7 @@ def roll_pickup_rarity(key):
     return make_loot_key(key, rarity) if rarity > 0 else key
 
 
-def pickup(dungeon, player, x, y):
+def pickup(dungeon: Dungeon, player: Player, x: int, y: int) -> PickupResult | None:
     """Снимает предмет с тайла. Возвращает PickupResult или None."""
     if (x, y) not in dungeon.items:
         return None
@@ -362,7 +386,7 @@ def pickup(dungeon, player, x, y):
                         item_display_color(key))
 
 
-def add_item(inventory, key, count=1):
+def add_item(inventory: dict, key: str, count: int = 1) -> None:
     """Добавить предмет в инвентарь с учётом стаков.
 
     Снаряжение (weapon/armor/head/legs/boots) — каждый экземпляр в свой

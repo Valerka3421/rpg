@@ -50,9 +50,30 @@ class Entity:
 class Player(Entity):
     # Единая формула статов — используется и в recalc, и в UI превью класса.
     @staticmethod
-    def preview_stats(data):
-        """data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs,
-        effects (пассивные бонусы класса и навыков), level."""
+    def preview_stats(data: dict) -> dict:
+        """Превью статов из словаря данных (для UI выбора класса).
+
+        Делегирует в ``_compute_stats`` — единая формула для ``recalc`` и
+        ``preview_stats``, чтобы они не разошлись.
+
+        data: dict с str/agi/vit/luk/df_stat/weapon/armor/head/legs/boots,
+        effects (пассивные бонусы класса и навыков), level.
+        """
+        return Player._compute_stats(data)
+
+    @staticmethod
+    def _compute_stats(data: dict) -> dict:
+        """Единая формула пересчёта статов из экипировки/эффектов.
+
+        Вызывается из ``preview_stats`` (для UI) и из ``recalc`` (для
+        актуального игрока). Любое изменение формулы — в одном месте.
+
+        Возвращает dict с max_hp, atk, df, dodge, crit, max_mana и
+        внутренними _w_crit_bonus / _a_dodge_bonus / и т.д. для
+        использования в property dodge/crit.
+        """
+        from core.config import (DODGE_CAP, DODGE_TOTAL_CAP,
+                                  CRIT_BASE_CAP, CRIT_TOTAL_CAP)
         str_   = data.get('str', 5)
         agi    = data.get('agi', 5)
         vit    = data.get('vit', 5)
@@ -91,11 +112,11 @@ class Player(Entity):
         skill_dodge = effects.get('dodge', 0.0)
         skill_crit = effects.get('crit', 0.0)
 
-        dodge_base = min(0.30, agi * 0.015)
-        dodge_total = max(0.0, min(0.40, dodge_base + w_dodge + a_dodge
+        dodge_base = min(DODGE_CAP, agi * 0.015)
+        dodge_total = max(0.0, min(DODGE_TOTAL_CAP, dodge_base + w_dodge + a_dodge
                                     + skill_dodge))
-        crit_base = min(0.40, luk * 0.02)
-        crit_total = min(0.50, crit_base + w_crit + skill_crit)
+        crit_base = min(CRIT_BASE_CAP, luk * 0.02)
+        crit_total = min(CRIT_TOTAL_CAP, crit_base + w_crit + skill_crit)
 
         return {
             'max_hp': 15 + vit * 2 + hp_extra + int(effects.get('hp', 0)),

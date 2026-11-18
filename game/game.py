@@ -1127,10 +1127,12 @@ class Game:
         self.add_float(monster.x, monster.y - 0.6, f"+{reward.gold}g", COL_GOLD)
         for item_key in reward.drops:
             # Добыча сразу попадает в инвентарь — не нужно бегать по тайлам.
-            self.player.inventory[item_key] = (
-                self.player.inventory.get(item_key, 0) + 1)
+            # add_item учитывает стаки и не-стакаемое снаряжение.
+            rules.add_item(self.player.inventory, item_key, 1)
             self.quest_log.update_collect(item_key, self.player.inventory)
             self.log(f"Добыча: {item_display_name(item_key)}", COL_GOLD)
+            self.add_float(monster.x, monster.y - 0.4,
+                           f"+{item_display_name(item_key)}", COL_HEAL)
 
         if monster.boss:
             # Погиб босс: замурованные выходы его арены открываются.
@@ -1961,11 +1963,18 @@ class Game:
             self.update_fov()
             self._last_fov_pos = (self.player.x, self.player.y)
 
-        # Реген
+        # Реген — теперь использует config.REGEN_HP_PER_TICK/MANA_PER_TICK
+        # (замедленный: было +1 HP каждые 2 сек, стало +1 HP каждые 5 сек).
         if self.regen_timer <= 0:
             self.regen_timer += REGEN_TICK_INTERVAL
+            from core import config as _cfg
             if self.player.regen and self.player.hp < self.player.max_hp:
-                self.player.hp += 1
+                self.player.hp = min(self.player.max_hp,
+                                     self.player.hp + _cfg.REGEN_HP_PER_TICK)
+            # Мана регенерируется всегда, но медленно
+            if self.player.mana < self.player.max_mana:
+                self.player.mana = min(self.player.max_mana,
+                                       self.player.mana + _cfg.REGEN_MANA_PER_TICK)
 
         # Тик статусов
         if self.status_tick_timer <= 0:

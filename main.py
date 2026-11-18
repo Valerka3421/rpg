@@ -176,15 +176,35 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
                 pass
 
 
-# ════════════════════════ MAIN ════════════════════════
-def main():
-    pygame.init()
-    if not pygame.font.get_init():
-        pygame.font.init()
+# ════════════════════════ КОНЕЧНЫЙ АВТОМАТ ════════════════════════
+# Замена while True с пересозданием Game — явный конечный автомат.
+# Состояния: MENU → SINGLE_PLAYER | MP_HOST | MP_CLIENT → MENU.
+# Чище для отладки и логирования, не пересоздаёт Game без нужды.
 
-    while True:
-        # Клиент мультиплеера мог завершить pygame (например, старые
-        # сборки звали pygame.quit()) — перед новым меню поднимаем его.
+class AppState:
+    """Состояния главного цикла приложения."""
+    MENU = 'menu'
+    SINGLE_PLAYER = 'single_player'
+    MP_HOST = 'mp_host'
+    MP_CLIENT = 'mp_client'
+    EXIT = 'exit'
+
+
+def _enter_state(state, screen, clock, mp_result=None):
+    """Обработать переход в состояние. Возвращает следующее состояние.
+
+    SINGLE_PLAYER → запускает game loop, возвращает MENU или EXIT.
+    MP_HOST / MP_CLIENT → запускает multiplayer, возвращает MENU.
+    MENU → возвращает SINGLE_PLAYER / MP_HOST / MP_CLIENT / EXIT
+    (создаёт Game и ждёт выбора пользователя).
+    """
+    if state == AppState.EXIT:
+        return AppState.EXIT
+
+    if state in (AppState.SINGLE_PLAYER, AppState.MENU):
+        # Создаём/переиспользуем Game для single-player петли.
+        from game import Game
+        # Клиент мультиплеера мог завершить pygame — поднимаем.
         if not pygame.get_init():
             pygame.init()
         if not pygame.font.get_init():
@@ -193,43 +213,77 @@ def main():
         screen = set_display_mode(
             (config.SCREEN_W, config.SCREEN_H),
             settings_now.get('fullscreen', False), settings_now)
-        pygame.display.set_caption(f"Этельгард — {config.SCREEN_W}×{config.SCREEN_H}")
+        pygame.display.set_caption(
+            f"Этельгард — {config.SCREEN_W}×{config.SCREEN_H}")
         from render.window_icon import apply_window_icon
         apply_window_icon()
-        clock = pygame.time.Clock()
-
-        # Пересоздать Game при каждой итерации (возврат из MP → новое меню)
-        from game import Game
         game = Game(screen)
-
         result = _run_game_loop(game, screen, clock)
-
         if result is None:
-            break
-
+            return AppState.EXIT
         mode = result.get('mode')
         if mode == 'mp_host':
-            if result.get('fresh_start'):
-                import os as _os
-                _base = config.DATA_DIR
-                for fname in ('savegame_mp_world.json',
-                              'savegame_mp_players.json'):
-                    try:
-                        _os.remove(_os.path.join(_base, fname))
-                    except FileNotFoundError:
-                        pass
-                    except Exception as e:
-                        print(f"[MP] fresh_start remove {fname}: {e}")
-                print("[MP] fresh start — старый сейв удалён")
-            _run_multiplayer(as_host=True,
-                             port=result.get('port', 9000),
-                             skip_class_select=result.get('skip_class', False))
-        elif mode == 'mp_join':
-            _run_multiplayer(as_host=False,
-                             host_addr=result.get('host', 'localhost'),
-                             port=result.get('port', 9000),
-                             skip_class_select=False)
-        # цикл повторяется → новое меню
+            return AppState.MP_HOST, result
+        if mode == 'mp_join':
+            return AppState.MP_CLIENT, result
+        return AppState.MENU
+
+    if state == AppState.MP_HOST:
+        result = mp_result or {}
+        if result.get('fresh_start'):
+            import os as _os
+            _base = config.DATA_DIR
+            for fname in ('savegame_mp_world.json', 'savegame_mp_players.json'):
+                try:
+                    _os.remove(_os.path.join(_base, fname))
+                except FileNotFoundError:
+                    pass
+                except Exception as e:
+                    print(f"[MP] fresh_start remove {fname}: {e}")
+            print("[MP] fresh start — старый сейв удалён")
+        _run_multiplayer(as_host=True,
+                         port=result.get('port', 9000),
+                         skip_class_select=result.get('skip_class', False))
+        return AppState.MENU
+
+    if state == AppState.MP_CLIENT:
+        result = mp_result or {}
+        _run_multiplayer(as_host=False,
+                         host_addr=result.get('host', 'localhost'),
+                         port=result.get('port', 9000),
+                         skip_class_select=False)
+        return AppState.MENU
+
+    return AppState.EXIT
+
+
+# ════════════════════════ MAIN ════════════════════════
+def main():
+    """Точка входа. Конечный автомат AppState.
+
+    Заменяет прежний ``while True`` с пересозданием Game —
+    явные переходы проще логировать и отлаживать.
+    """
+    pygame.init()
+    if not pygame.font.get_init():
+        pygame.font.init()
+    clock = pygame.time.Clock()
+    screen = None
+
+    state = AppState.MENU
+    mp_result = None
+    while state != AppState.EXIT:
+        # _enter_state возвращает либо AppState, либо кортеж (state, mp_result)
+        ret = _enter_state(state, screen, clock, mp_result)
+        if isinstance(ret, tuple):
+            state, mp_result = ret
+        else:
+            state, mp_result = ret, None
+        # Получить актуальный screen после SINGLE_PLAYER петли
+        if hasattr(pygame.display, 'get_surface'):
+            s = pygame.display.get_surface()
+            if s is not None:
+                screen = s
 
     pygame.quit()
     sys.exit(0)
