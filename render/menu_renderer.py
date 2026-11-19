@@ -2,7 +2,7 @@
 import pygame
 
 from core import config
-from core.data import CLASS_ORDER, CLASSES
+from core.data import CLASS_ORDER, CLASSES, class_stats
 from render.base_renderer import BaseRenderer
 from render.theme import Theme as T
 
@@ -410,15 +410,26 @@ class MenuRenderer(BaseRenderer):
         self.draw_back_button(game)
 
     # ════════════════════════ ВЫБОР КЛАССА ════════════════════════
+    # Роли базовых классов — для подписи в предпросмотре.
+    _CLASS_ROLES = {
+        'warrior': 'Воин ближнего боя',
+        'mage': 'Маг стихий',
+        'rogue': 'Мастер ловкости',
+        'artisan': 'Мастер ремёсел',
+    }
+
     def draw_class_select(self, game):
+        """Слева — список классов, справа — крупный живой предпросмотр."""
         self.draw_gradient_bg((10, 9, 7), (30, 24, 18))
         cx = config.SCREEN_W // 2
         title = T.render("ВЫБОР КЛАССА", (214, 178, 98), T.FONT_H1)
-        self.screen.blit(title, (cx - title.get_width() // 2, 80))
-        self.text("Каждый класс — уникальный старт", cx, 148,
-                  T.TEXT_DIM, font=T.FONT_SMALL, center=True)
+        self.screen.blit(title, (cx - title.get_width() // 2, 30))
+        self.text("Наведи или выбери класс — справа показано, как он выглядит "
+                  "и с чем начинает", cx, 80, T.TEXT_DIM,
+                  font=T.FONT_SMALL, center=True)
 
-        for i, (idx, rect) in enumerate(game.menu.button_rects()):
+        rects = game.menu.button_rects()
+        for i, (idx, rect) in enumerate(rects):
             if i >= len(CLASS_ORDER):
                 break
             key = CLASS_ORDER[i]
@@ -427,46 +438,184 @@ class MenuRenderer(BaseRenderer):
             self.draw_button_bg(rect, selected)
             self._draw_class_card(rect, cls, selected, key)
             if selected:
-                ax = rect[0] - 22
+                ax = rect[0] - 16
                 ay = rect[1] + rect[3] // 2
                 pygame.draw.polygon(self.screen, (206, 166, 82),
                                     [(ax, ay - 7), (ax + 12, ay), (ax, ay + 7)])
+
+        key = CLASS_ORDER[game.menu.class_selection]
+        self._draw_class_preview(game, key, CLASSES[key])
+
+        self.text("↑/↓ — выбор · Enter — начать · Esc — назад",
+                  config.SCREEN_W - 70, config.SCREEN_H - 46, T.TEXT_MUTED,
+                  font=T.FONT_SMALL, align_right=True)
         self.draw_back_button(game)
 
     def _draw_class_card(self, rect, cls, selected, class_key='default'):
-        from core.data import class_stats
+        """Компактная карточка класса в левом списке."""
         x, y, w, h = rect
         color = cls['color']
         name_color = color if selected else T.TEXT_DIM
-        self.text(cls['name'], x + 24, y + 14, name_color, font=T.FONT_H2)
-
-        atk, df, hp, dodge, crit = self._preview_stats(cls, class_key)
-        self.text(f"ATK {atk}   DEF {df}   HP {hp}   Укл {dodge}%   Крит {crit}%",
-                  x + 24, y + 44, T.TEXT, font=T.FONT_SMALL)
+        self.text(cls['name'], x + 22, y + 12, name_color, font=T.FONT_H2)
+        tier = cls.get('tier', 1)
+        tier_label = f"{tier}-я ступень"
+        self.text(tier_label, x + w - 20, y + 16, T.TEXT_MUTED,
+                  font=T.FONT_TINY, align_right=True)
+        self.text(self.fit_text(cls['desc'], w - 44, T.FONT_SMALL),
+                  x + 22, y + 44, T.TEXT if selected else T.TEXT_MUTED,
+                  font=T.FONT_SMALL)
         st = class_stats(class_key)
-        self.text(f"STR {st.get('str', 5)}   AGI {st.get('agi', 5)}   "
-                  f"VIT {st.get('vit', 5)}   "
-                  f"LUK {st.get('luk', 5)}   DEF {st.get('df_stat', 5)}   "
-                  f"INT {st.get('int', 5)}",
-                  x + 24, y + 64, T.TEXT_MUTED, font=T.FONT_TINY)
+        self.text(f"STR {st.get('str', 5)} · AGI {st.get('agi', 5)} · "
+                  f"VIT {st.get('vit', 5)} · LUK {st.get('luk', 5)}",
+                  x + 22, y + 66, T.TEXT_MUTED, font=T.FONT_TINY)
 
-        self.text(cls['desc'], x + w - 24, y + 14, T.TEXT_DIM,
-                  font=T.FONT_SMALL, align_right=True)
+    def _draw_class_preview(self, game, class_key, cls):
+        """Крупная панель: спрайт, характеристики, перк и стартовый набор."""
+        px, py, pw, ph = game.menu.class_preview_rect()
+        color = cls['color']
+        panel = pygame.Surface((pw, ph), pygame.SRCALPHA)
+        panel.fill((26, 22, 18, 236))
+        pygame.draw.rect(panel, (*color, 90), panel.get_rect(),
+                         width=2, border_radius=12)
+        self.screen.blit(panel, (px, py))
 
-        gear = []
+        # ── Заголовок ──
+        self.text(cls['name'], px + 28, py + 18, color, font=T.FONT_H1)
+        role = self._CLASS_ROLES.get(cls.get('base', class_key),
+                                     'Приключенец')
+        self.text(f"{role} · {cls.get('tier', 1)}-я ступень",
+                  px + 28, py + 58, T.TEXT_DIM, font=T.FONT_SMALL)
+
+        # ── Портрет персонажа ──
+        start = game.menu.class_start_rect()
+        limit_y = start[1] - 14
+        portrait = min(180, max(140, int(ph * 0.26)))
+        bx, by = px + 28, py + 80
+        pygame.draw.rect(self.screen, (16, 14, 11),
+                         (bx, by, portrait, portrait), border_radius=10)
+        pygame.draw.rect(self.screen, (*color, 120),
+                         (bx, by, portrait, portrait), width=2,
+                         border_radius=10)
+        if self.icons is not None:
+            self.icons.draw_player(class_key, bx + 4, by + 4,
+                                   size=portrait - 8)
+        self.text("как выглядит в игре", bx + portrait // 2, by + portrait + 6,
+                  T.TEXT_MUTED, font=T.FONT_TINY, center=True)
+
+        # ── Стартовый набор под портретом (левая колонка) ──
+        gear_y = by + portrait + 26
+        self.text("СТАРТОВЫЙ НАБОР", bx, gear_y, T.GOLD, font=T.FONT_SMALL)
+        gear = self._start_gear(cls)
+        gy = gear_y + 24
+        for item in gear[:3]:
+            self.text(f"• {item}", bx, gy, T.TEXT_DIM, font=T.FONT_SMALL)
+            gy += 17
+        if len(gear) > 3:
+            self.text(f"• и ещё {len(gear) - 3}", bx, gy,
+                      T.TEXT_MUTED, font=T.FONT_SMALL)
+
+        # ── Характеристики в правой колонке ──
+        sx = bx + portrait + 34
+        stats = self._preview_stats(cls, class_key)
+        chips = (
+            ("ATK", str(stats['atk']), (222, 150, 110)),
+            ("DEF", str(stats['df']), (150, 170, 200)),
+            ("HP", str(stats['max_hp']), T.HP_CRIT),
+            ("MP", str(stats['max_mana']), (120, 160, 255)),
+            ("Уклонение", f"{int(stats['dodge'] * 100)}%", T.DODGE),
+            ("Крит", f"{int(stats['crit'] * 100)}%", T.CRIT),
+        )
+        right_w = px + pw - 28 - sx
+        gap = 8
+        chip_w = max(96, (right_w - gap * 2) // 3)
+        chip_h = 48
+        for i, (label, value, chip_color) in enumerate(chips):
+            col, row = i % 3, i // 3
+            cxp = sx + col * (chip_w + gap)
+            cyp = by + row * (chip_h + gap)
+            T.rounded_rect(self.screen, (34, 29, 23),
+                           (cxp, cyp, chip_w, chip_h), radius=8,
+                           border_color=(70, 60, 46))
+            self.text(label, cxp + 12, cyp + 5, T.TEXT_MUTED,
+                      font=T.FONT_TINY)
+            self.text(value, cxp + chip_w - 12, cyp + 18, chip_color,
+                      font=T.FONT_H2, align_right=True)
+
+        # ── Базовые атрибуты с полосками ──
+        st = class_stats(class_key)
+        attrs = (
+            ("STR", st.get('str', 5), (220, 120, 100)),
+            ("AGI", st.get('agi', 5), (140, 200, 130)),
+            ("VIT", st.get('vit', 5), (220, 120, 110)),
+            ("LUK", st.get('luk', 5), (220, 200, 110)),
+            ("DEF", st.get('df_stat', 5), (150, 170, 210)),
+            ("INT", st.get('int', 5), (130, 170, 240)),
+        )
+        ay = by + 2 * (chip_h + gap) + 8
+        self.text("БАЗОВЫЕ ХАРАКТЕРИСТИКИ", sx, ay, T.GOLD,
+                  font=T.FONT_SMALL)
+        ay += 22
+        max_val = 12
+        for label, value, bar_color in attrs:
+            self.text(label, sx, ay - 1, T.TEXT, font=T.FONT_SMALL)
+            track = (sx + 52, ay + 4, max(24, right_w - 80), 10)
+            T.bar(self.screen, track, min(1.0, value / max_val), bar_color,
+                  bg_color=(20, 18, 15))
+            self.text(str(value), px + pw - 28, ay - 1, bar_color,
+                      font=T.FONT_SMALL, align_right=True)
+            ay += 20
+
+        # ── Перк ──
+        perk = cls.get('perk') or cls.get('desc', '')
+        self.text("ОСОБЕННОСТЬ", sx, ay + 6, T.GOLD, font=T.FONT_SMALL)
+        ty = ay + 28
+        for line in self._wrap_text(perk, right_w, T.FONT_SMALL):
+            if ty > limit_y:
+                break
+            self.text(line, sx, ty, T.TEXT, font=T.FONT_SMALL)
+            ty += 19
+
+        # ── Кнопка «Начать» ──
+        start = game.menu.class_start_rect()
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        hover = (start[0] <= mx <= start[0] + start[2]
+                 and start[1] <= my <= start[1] + start[3])
+        bg = T.shade(color, 1.15 if hover else 0.92)
+        T.rounded_rect(self.screen, bg, start, radius=9,
+                       border_color=T.shade(color, 1.4))
+        label_color = (20, 16, 12) if sum(color) > 420 else (250, 246, 238)
+        self.text(f"НАЧАТЬ ЗА {cls['name'].upper()}", start[0] + start[2] // 2,
+                  start[1] + 13, label_color, font=T.FONT_H2, center=True)
+
+    def _start_gear(self, cls):
         from core.data import ITEMS
-        if cls.get('start_weapon'):
+        gear = []
+        if cls.get('start_weapon') and cls['start_weapon'] in ITEMS:
             gear.append(ITEMS[cls['start_weapon']]['name'])
-        if cls.get('start_armor'):
+        if cls.get('start_armor') and cls['start_armor'] in ITEMS:
             gear.append(ITEMS[cls['start_armor']]['name'])
-        for k, v in cls.get('start_items', {}).items():
-            gear.append(f"{v}x {ITEMS[k]['name']}")
-        self.text("Старт: " + (", ".join(gear) if gear else "ничего"),
-                  x + w - 24, y + 44, T.TEXT_MUTED,
-                  font=T.FONT_SMALL, align_right=True)
+        for k, v in (cls.get('start_items') or {}).items():
+            if k in ITEMS:
+                gear.append(f"{v}× {ITEMS[k]['name']}")
+        return gear or ["Пустые руки — всё впереди"]
+
+    def _wrap_text(self, text, max_w, font):
+        """Разбивает строку по словам под заданную ширину."""
+        words = str(text).split()
+        lines, line = [], ''
+        for word in words:
+            test = f"{line} {word}".strip()
+            if not line or font.size(test)[0] <= max_w:
+                line = test
+            else:
+                lines.append(line)
+                line = word
+        if line:
+            lines.append(line)
+        return lines
 
     def _preview_stats(self, cls, class_key='default'):
-        from core.data import class_stats
+        """Производные статы для предпросмотра класса (одна формула — Player)."""
         from core.entities import Player
         st = class_stats(class_key)
         stats = Player.preview_stats({
@@ -478,5 +627,5 @@ class MenuRenderer(BaseRenderer):
             'armor': cls.get('start_armor'),
             'effects': cls.get('effects', {}),
         })
-        return (stats['atk'], stats['df'], stats['max_hp'],
-                int(stats['dodge'] * 100), int(stats['crit'] * 100))
+        return stats
+

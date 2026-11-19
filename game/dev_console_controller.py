@@ -293,12 +293,19 @@ class DevConsoleController:
         self._out(text, config.COL_XP)
 
     def _cmd_level(self, args):
-        target = self._int_arg(args, 0, low=1, high=99, what='уровень')
+        # В игре нет максимального уровня — команда не ограничена сверху.
+        # Оставлен лишь защитный предел на один скачок, чтобы случайный
+        # ввод вроде «level 999999999» не подвесил цикл прокачки.
+        target = self._int_arg(args, 0, low=1, what='уровень')
         if target is None:
             return
         player = self.game.player
         if target <= player.level:
             self._out(f'Текущий уровень уже {player.level}.', config.COL_DIM)
+            return
+        if target - player.level > 1000:
+            self._out('Слишком большой скачок за раз (макс. +1000).',
+                      config.COL_DMG)
             return
         while player.level < target:
             level = rules.level_up_once(player)

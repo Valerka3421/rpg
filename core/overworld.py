@@ -66,11 +66,23 @@ def _city_wall_cells() -> Any:
 CITY_WALL_CELLS = _city_wall_cells()
 
 # ── Горожане ──
-# Стражник стоит у южных ворот, ремесленники — на площади.
+# Стражники стоят у каждых из четырёх городских ворот (север, восток,
+# запад, юг). ``GUARD_POS`` оставлен как «главный» южный пост: на него
+# опираются старые сохранения и тесты.
 GUARD_POS = (50, 41)
 BLACKSMITH_POS = (40, 32)
 ALCHEMIST_POS = (60, 32)
 INNKEEPER_POS = (48, 31)
+
+# Посты стражников внутри города, в трёх клетках от ворот. Южный пост
+# идёт последним — именно он считается «главным» стражником.
+GUARD_POSTS = (
+    (VILLAGE_CENTER[0], VILLAGE_RECT[1] + 3),                   # север
+    (VILLAGE_RECT[0] + VILLAGE_RECT[2] - 4, VILLAGE_CENTER[1]),  # восток
+    (VILLAGE_RECT[0] + 3, VILLAGE_CENTER[1]),                   # запад
+    GUARD_POS,                                                  # юг
+)
+
 CITY_NPC_POS = {
     'guard': GUARD_POS,
     'blacksmith': BLACKSMITH_POS,

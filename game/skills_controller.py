@@ -6,7 +6,7 @@
 """
 import pygame
 
-from core import skills
+from core import config, skills
 from core.data import CLASSES
 
 
@@ -15,13 +15,69 @@ class SkillsController:
         self.game = game
         self.tab = skills.TAB_CLASS
         self.selection = 0
+        # Смещение большого отдельного окна древа навыков. Окно можно
+        # перетаскивать за заголовок (см. handle_mouse_motion).
+        self.panel_offset = [0, 0]
+        self.dragging = False
+        self._drag_last = (0, 0)
+
+    # ── Окно древа ──
+    def panel_size(self):
+        """Размер отдельного крупного фрейма древа навыков."""
+        w = min(config.SCREEN_W - 24,
+                max(900, int(config.SCREEN_W * 0.88)))
+        h = min(config.SCREEN_H - 24,
+                max(560, int(config.SCREEN_H * 0.88)))
+        return w, h
+
+    def panel_rect(self):
+        """Текущий прямоугольник окна с учётом перетаскивания."""
+        w, h = self.panel_size()
+        x = (config.SCREEN_W - w) // 2 + self.panel_offset[0]
+        y = (config.SCREEN_H - h) // 2 + self.panel_offset[1]
+        x = max(8, min(x, config.SCREEN_W - w - 8))
+        y = max(8, min(y, config.SCREEN_H - h - 8))
+        return (x, y, w, h)
+
+    def start_drag(self, pos):
+        self.dragging = True
+        self._drag_last = pos
+        return True
+
+    def handle_mouse_motion(self, pos, pressed=None):
+        """Перемещение окна при зажатой ЛКМ. True — кадр обработан."""
+        if not self.dragging:
+            return False
+        if pressed is None:
+            try:
+                pressed = pygame.mouse.get_pressed()[0]
+            except Exception:
+                pressed = True
+        if not pressed:
+            self.dragging = False
+            return False
+        dx = pos[0] - self._drag_last[0]
+        dy = pos[1] - self._drag_last[1]
+        self._drag_last = pos
+        if dx == 0 and dy == 0:
+            return True
+        w, h = self.panel_size()
+        x = min(max(8, self.panel_rect()[0] + dx),
+                config.SCREEN_W - w - 8)
+        y = min(max(8, self.panel_rect()[1] + dy),
+                config.SCREEN_H - h - 8)
+        self.panel_offset[0] = x - (config.SCREEN_W - w) // 2
+        self.panel_offset[1] = y - (config.SCREEN_H - h) // 2
+        return True
 
     # ── Открытие/закрытие ──
     def open(self):
+        self.dragging = False
         self.game.screen_mode = 'skills'
         self.clamp()
 
     def close(self):
+        self.dragging = False
         self.game.screen_mode = 'game'
 
     # ── Навигация ──

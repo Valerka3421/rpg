@@ -480,3 +480,27 @@ def test_bind_socket_reports_failure_when_all_ports_busy():
 
     assert server._bind_socket(DeadSock()) is False
     assert server.bound_port is None
+
+
+# ── Сохранение персонажа по IP ──
+def test_player_saved_under_ip_and_token(tmp_path):
+    """Персонаж пишется и под токен, и под IP; поиск по IP работает."""
+    server = Server(host='127.0.0.1', port=9300, max_players=1)
+    server.players_save_path = str(tmp_path / 'players.json')
+    server.saved_players = {}
+    server.core.add_player(7, 'warrior')
+    server.client_tokens[7] = 'token-7'
+    server.client_ips[7] = '10.1.2.3'
+
+    assert server._save_player_record(7, server.core.players[7])
+    assert 'token-7' in server.saved_players
+    assert 'ip:10.1.2.3' in server.saved_players
+    assert (server.saved_players['token-7']
+            == server.saved_players['ip:10.1.2.3'])
+
+    # Новый клиент с тем же IP, но другим токеном находит сохранение.
+    saved = server._find_saved_player('fresh-token', 'ip:10.1.2.3')
+    assert saved is not None
+    assert saved['class_key'] == 'warrior'
+    assert server._find_saved_player('nobody', 'ip:0.0.0.0') is None
+

@@ -17,8 +17,10 @@ class ShopController:
         self.game = game
         self.page = 0
 
-    def open(self, npc_type=None):
+    def open(self, npc_type=None, submode='buy'):
         g = self.game
+        if submode not in ('buy', 'sell'):
+            submode = 'buy'
         if npc_type is None:
             npc_type = getattr(g, 'active_shop_npc', None)
         if is_city_shop_npc(npc_type):
@@ -32,7 +34,7 @@ class ShopController:
                 return
             g.active_shop_npc = npc_type
             g.shop_stock = make_city_shop_stock(npc_type)
-            g.shop_submode = 'buy'
+            g.shop_submode = submode
             self.page = 0
             g.screen_mode = 'shop'
             return
@@ -45,7 +47,7 @@ class ShopController:
                abs(g.player.y - g.merchant.y)) > 1:
             g.log("Подойди ближе к торговцу.", (110, 110, 130))
             return
-        g.shop_submode = 'buy'
+        g.shop_submode = submode
         self.page = 0
         g.screen_mode = 'shop'
 

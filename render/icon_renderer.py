@@ -931,6 +931,10 @@ class IconRenderer(BaseRenderer):
             self._draw_rogue(s)
         elif class_key == 'paladin':
             self._draw_paladin(s)
+        elif class_key == 'mage':
+            self._draw_mage(s)
+        elif class_key == 'artisan':
+            self._draw_artisan(s)
         else:
             self._draw_adventurer(s)
         if size != CANVAS:
@@ -1132,6 +1136,69 @@ class IconRenderer(BaseRenderer):
                          (CX - 20, 28), (CX - 20, 40), 2)
         pygame.draw.line(s, (200, 60, 60),
                          (CX - 24, 32), (CX - 16, 32), 2)
+
+    def _draw_mage(self, s):
+        # Ноги (тёмно-синяя мантия)
+        pygame.draw.rect(s, (38, 44, 78), (CX - 10, 46, 8, 14))
+        pygame.draw.rect(s, (38, 44, 78), (CX + 2, 46, 8, 14))
+        # Длинная мантия
+        pygame.draw.polygon(s, (62, 84, 150), [
+            (CX - 12, 24), (CX + 12, 24), (CX + 17, 56), (CX - 17, 56),
+        ])
+        pygame.draw.polygon(s, (34, 48, 96), [
+            (CX - 12, 24), (CX + 12, 24), (CX + 17, 56), (CX - 17, 56),
+        ], 2)
+        # Пояс-шнур и звёздная искра
+        pygame.draw.line(s, (200, 178, 96), (CX - 13, 36), (CX + 13, 36), 2)
+        pygame.draw.circle(s, (230, 226, 160), (CX, 30), 3)
+        # Голова и седая борода
+        pygame.draw.circle(s, (238, 208, 168), (CX, 14), 9)
+        pygame.draw.circle(s, (176, 148, 110), (CX, 14), 9, 1)
+        pygame.draw.polygon(s, (220, 220, 226), [
+            (CX - 6, 18), (CX + 6, 18), (CX + 3, 28), (CX - 3, 28),
+        ])
+        pygame.draw.circle(s, (18, 18, 26), (CX - 3, 12), 2)
+        pygame.draw.circle(s, (18, 18, 26), (CX + 3, 12), 2)
+        # Островерхий колпак
+        pygame.draw.polygon(s, (54, 70, 132), [
+            (CX - 10, 8), (CX + 10, 8), (CX + 5, 0), (CX - 2, 2),
+        ])
+        pygame.draw.polygon(s, (34, 48, 96), [
+            (CX - 10, 8), (CX + 10, 8), (CX + 5, 0), (CX - 2, 2),
+        ], 1)
+        # Посох с кристаллом
+        pygame.draw.line(s, (128, 92, 50), (CX + 22, 16), (CX + 22, 54), 3)
+        pygame.draw.circle(s, (140, 200, 255), (CX + 22, 12), 6)
+        pygame.draw.circle(s, (230, 245, 255), (CX + 22, 12), 6, 1)
+        pygame.draw.circle(s, (255, 255, 255), (CX + 20, 10), 1)
+
+    def _draw_artisan(self, s):
+        # Ноги (кожаные штаны)
+        pygame.draw.rect(s, (86, 64, 42), (CX - 11, 46, 9, 14))
+        pygame.draw.rect(s, (86, 64, 42), (CX + 2, 46, 9, 14))
+        pygame.draw.rect(s, (54, 40, 26), (CX - 11, 46, 9, 14), 1)
+        pygame.draw.rect(s, (54, 40, 26), (CX + 2, 46, 9, 14), 1)
+        # Фартук и рубаха
+        pygame.draw.polygon(s, (150, 116, 72), [
+            (CX - 13, 24), (CX + 13, 24), (CX + 16, 48), (CX - 16, 48),
+        ])
+        pygame.draw.polygon(s, (102, 76, 46), [
+            (CX - 13, 24), (CX + 13, 24), (CX + 16, 48), (CX - 16, 48),
+        ], 2)
+        pygame.draw.polygon(s, (108, 78, 48), [
+            (CX - 8, 30), (CX + 8, 30), (CX + 10, 52), (CX - 10, 52),
+        ])
+        pygame.draw.line(s, (60, 44, 28), (CX - 9, 40), (CX + 9, 40), 1)
+        # Голова и ободок-очки
+        pygame.draw.circle(s, (238, 206, 166), (CX, 14), 9)
+        pygame.draw.circle(s, (176, 146, 108), (CX, 14), 9, 2)
+        pygame.draw.circle(s, (18, 18, 22), (CX - 3, 14), 2)
+        pygame.draw.circle(s, (18, 18, 22), (CX + 3, 14), 2)
+        pygame.draw.line(s, (60, 44, 28), (CX - 7, 15), (CX + 7, 15), 1)
+        # Молот на плече
+        pygame.draw.line(s, (128, 92, 52), (CX - 18, 20), (CX + 2, 6), 3)
+        pygame.draw.rect(s, (176, 182, 192), (CX + 0, 0, 14, 10))
+        pygame.draw.rect(s, (100, 106, 116), (CX + 0, 0, 14, 10), 1)
 
     def _draw_adventurer(self, s):
         # Ноги

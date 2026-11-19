@@ -87,7 +87,8 @@ class DialogueController:
             self.current_line = LORE_MERCHANT[0]
         elif npc_type in LORE_CITY:
             if is_city_shop_npc(npc_type):
-                self.options = [('shop', 'Торговля'),
+                self.options = [('shop', 'Купить'),
+                                ('shop_sell', 'Продать предметы'),
                                 ('talk', 'Поговорить'),
                                 ('close', 'Уйти')]
             else:
@@ -107,15 +108,16 @@ class DialogueController:
         choice = self.options[self.selection][0]
         if choice == 'close':
             self.game.screen_mode = 'game'
-        elif choice == 'shop':
+        elif choice in ('shop', 'shop_sell'):
+            submode = 'sell' if choice == 'shop_sell' else 'buy'
             if is_city_shop_npc(self.npc_type):
                 opener = getattr(self.game, 'open_city_shop', None)
                 if opener is not None:
-                    opener(self.npc_type)
+                    opener(self.npc_type, submode)
                 else:
-                    self.game.shop.open(self.npc_type)
+                    self.game.shop.open(self.npc_type, submode)
             else:
-                self.game.shop.open()
+                self.game.shop.open(submode=submode)
         elif choice == 'quests':
             self.game.quests.open()
         elif choice == 'talk':

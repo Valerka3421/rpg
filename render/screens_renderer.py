@@ -26,14 +26,14 @@ class ScreensRenderer(BaseRenderer):
         super().__init__(screen)
         self.icons = icons
 
-    def _modal_bg(self, game):
+    def _modal_bg(self, game, rect=None):
         """Затемнение + панель + крестик + возврат rect контента."""
         from core.config import MODAL_CLOSE_PAD, MODAL_CLOSE_SIZE, MODAL_CONTENT_PAD, MODAL_TOP_PAD
         ov = pygame.Surface((config.SCREEN_W, config.SCREEN_H), pygame.SRCALPHA)
         ov.fill((6, 5, 4, 165))
         self.screen.blit(ov, (0, 0))
 
-        rect = game._modal_panel_rect()
+        rect = rect or game._modal_panel_rect()
         panel = pygame.Surface((rect[2], rect[3]), pygame.SRCALPHA)
         pygame.draw.rect(panel, (30, 26, 21, 238), panel.get_rect(), border_radius=10)
         pygame.draw.rect(panel, (78, 66, 48, 255), panel.get_rect(),
@@ -55,6 +55,7 @@ class ScreensRenderer(BaseRenderer):
                          (cx + r, cy - r), (cx - r, cy + r), 3)
 
         game._modal_close_rect = (xx, yy, size, size)
+        game._modal_panel_rect_current = rect
         game._modal_content_rect = (
             rect[0] + MODAL_CONTENT_PAD,
             rect[1] + MODAL_TOP_PAD,
@@ -65,7 +66,8 @@ class ScreensRenderer(BaseRenderer):
 
     def _modal_right(self, game):
         from core.config import MODAL_CLOSE_PAD, MODAL_CLOSE_SIZE, MODAL_CONTENT_PAD
-        rect = game._modal_panel_rect()
+        rect = (getattr(game, '_modal_panel_rect_current', None)
+                or game._modal_panel_rect())
         return rect[0] + rect[2] - MODAL_CONTENT_PAD - MODAL_CLOSE_SIZE - MODAL_CLOSE_PAD - 6
 
     # ════════════════════════ СТАТЫ ════════════════════════
@@ -556,11 +558,23 @@ class ScreensRenderer(BaseRenderer):
         header = CITY_NPC_NAMES.get(npc_type, 'ТОРГОВЕЦ') if city_shop \
             else "ТОРГОВЕЦ"
         self.text(header.upper(), cx0, cy0, T.MERCH, font=T.FONT_H1)
-        mode = "ПОКУПКА" if game.shop_submode == 'buy' else "ПРОДАЖА"
-        T.badge(self.screen, cx0 + 240, cy0 + 8, mode,
-                color=T.BG if game.shop_submode == 'buy' else T.TEXT,
-                bg=T.MERCH if game.shop_submode == 'buy' else T.HP_CRIT,
-                font=T.FONT_BODY)
+        # Переключатель режима — крупная кликабельная кнопка, а не только
+        # горячая клавиша S: продажа должна быть очевидной в городе.
+        buying = game.shop_submode == 'buy'
+        mode = "ПОКУПКА" if buying else "ПРОДАЖА"
+        mode_rect = (cx0 + 236, cy0 + 4, 176, 30)
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
+        hover = (mode_rect[0] <= mx <= mode_rect[0] + mode_rect[2]
+                 and mode_rect[1] <= my <= mode_rect[1] + mode_rect[3])
+        mode_bg = (T.MERCH if buying else T.HP_CRIT)
+        if hover:
+            mode_bg = T.shade(mode_bg, 1.25)
+        T.rounded_rect(self.screen, mode_bg, mode_rect, radius=6,
+                       border_color=T.shade(mode_bg, 1.5))
+        mode_color = T.BG if buying else (255, 245, 235)
+        self.text(f"{mode}  ⇄", mode_rect[0] + mode_rect[2] // 2,
+                  mode_rect[1] + 6, mode_color, font=T.FONT_BODY, center=True)
+        game._ui_hits['shop']['mode'] = mode_rect
         where = "Город Этельгард" if city_shop else f"Глубина {game.depth}"
         self.text(where, self._modal_right(game), cy0 + 8,
                   T.TEXT_DIM, align_right=True)
@@ -573,8 +587,10 @@ class ScreensRenderer(BaseRenderer):
         else:
             y = T.section(self.screen, cx0, y, cw, "Продать")
             self._draw_shop_sell(game, cx0, y, cw)
-        hint = ("S — режим · Q/E — страницы" if city_shop
-                else "S — режим · R — обновить · Q/E — страницы")
+        action = "купить" if buying else "продать"
+        hint = f"S / кнопка — режим · клик — {action} · Q/E — страницы"
+        if not city_shop:
+            hint += " · R — обновить"
         self.text(hint,
                   cx0 + cw // 2, cy0 + ch - 22, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
@@ -629,7 +645,9 @@ class ScreensRenderer(BaseRenderer):
                       font=T.FONT_SMALL, align_right=True)
 
     def _draw_shop_sell(self, game, x0, y, cw):
-        items = sorted(game.player.inventory.items())
+        # Тот же порядок и разбиение на стаки, что и в ShopController.sell:
+        # иначе клик по строке продавал бы не тот предмет.
+        items = rules.inventory_stacks(game.player.inventory)
         if not items:
             self.text("  (рюкзак пуст)", x0, y, T.TEXT_MUTED, font=T.FONT_SMALL)
             return
@@ -660,13 +678,29 @@ class ScreensRenderer(BaseRenderer):
 
     # ════════════════════════ ДРЕВО НАВЫКОВ ════════════════════════
     def draw_skills(self, game):
-        self._modal_bg(game)
+        # Древо живёт в собственном крупном окне, которое можно двигать
+        # мышью за заголовок. Обычная модалка тут не используется.
+        ctrl = game.skills_ui
+        panel = ctrl.panel_rect()
+        self._modal_bg(game, panel)
         cx0, cy0, cw, ch = game._modal_content_rect
         from core import skills as sk
         from core.data import class_data
         p = game.player
-        ctrl = game.skills_ui
-        game._ui_hits['skills'] = {'tabs': [], 'rows': [], 'promotion': []}
+        game._ui_hits['skills'] = {
+            'tabs': [], 'rows': [], 'promotion': [],
+            # Вся верхняя полоса с заголовком — «ручка» перетаскивания.
+            'drag': (panel[0], panel[1], panel[2], 96),
+        }
+
+        # Ручка-«гриф» по центру заголовка: подсказывает, что окно можно
+        # тащить. Крестик обрабатывается раньше и остаётся кликабельным.
+        gx = panel[0] + panel[2] // 2 - 14
+        gy = panel[1] + 16
+        for row in range(2):
+            for col in range(3):
+                pygame.draw.circle(self.screen, (126, 108, 76),
+                                   (gx + col * 8, gy + row * 7), 2)
 
         cls = class_data(p.class_key)
         self.text("ДРЕВО НАВЫКОВ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
@@ -686,11 +720,6 @@ class ScreensRenderer(BaseRenderer):
                                  sk, class_data)
         else:
             self._draw_craft_tab(game, cx0, y, cw, ch, ctrl, sk)
-
-        hints = ("↑/↓ — выбор · Enter — изучить · наведение — описание · "
-                 "Q/E — вкладки · N/Esc — закрыть")
-        self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
-                  font=T.FONT_SMALL, center=True)
 
     # ── Графическая ветка класса ──
     # Цвет значка по главному эффекту узла — как цветные иконки на референсе.
@@ -1429,7 +1458,7 @@ class ScreensRenderer(BaseRenderer):
             y = T.section(self.screen, cx0, y, cw, "Все рецепты")
             y += 6
 
-        if game.craft.minigame_active:
+        if getattr(game.craft, 'minigame_active', False):
             self._draw_minigame(game, cx0, y, cw)
             return
 
@@ -1516,7 +1545,7 @@ class ScreensRenderer(BaseRenderer):
             game._ui_hits['craft']['next'] = next_rect
 
         hints = "Q/E — вкладки · ←/→ — страницы · 1–8 — создать · K/Esc — закрыть"
-        if game.craft.minigame_active:
+        if getattr(game.craft, 'minigame_active', False):
             hints = "Создание запускает мини-игру качества. " + hints
         self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)

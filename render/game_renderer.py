@@ -700,41 +700,53 @@ class GameRenderer(BaseRenderer):
                              log_rect[2] - 24, panel_h - 12)
 
     def _draw_stats_column(self, game, x, y):
+        """Компактная карточка героя слева от лога.
+
+        Каждый ресурс — отдельная строка с подписью, полосой и точным
+        значением справа. Строки не пересекаются даже при длинном имени
+        класса/локации: всё, что может разрастись, обрезается fit_text.
+        """
         p = game.player
         right = x + 376
-        self.text("HP", x, y + 4, T.TEXT, font=T.FONT_SMALL)
-        bar_rect = (x + 30, y, 180, 22)
-        ratio = p.hp / max(1, p.max_hp)
-        T.bar(self.screen, bar_rect, ratio, T.HP, pulse=(ratio < 0.3))
-        surf = T.render(f"{p.hp}/{p.max_hp}", (255, 255, 255), T.FONT_SMALL)
-        self.screen.blit(surf, (bar_rect[0] + (bar_rect[2] - surf.get_width()) // 2,
-                                bar_rect[1] + 4))
-        # Имя класса — в правой части первой строки, не наезжая на ману/XP.
-        class_name = getattr(p, 'class_name', 'Приключенец')
-        self.text(self.fit_text(class_name, 150, T.FONT_SMALL),
-                  right, y + 4, T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
 
-        # Мана — ресурс свитков и рун.
-        max_mana = max(1, getattr(p, 'max_mana', 0))
-        mana = getattr(p, 'mana', 0)
-        self.text("MP", x, y + 30, (120, 160, 255), font=T.FONT_SMALL)
-        mana_rect = (x + 30, y + 27, 180, 12)
-        T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
-              bg_color=(20, 24, 48))
-        self.text(f"{mana}/{max_mana}", x + 218, y + 28, (140, 170, 255),
-                  font=T.FONT_TINY)
-        self.text(f"${p.gold}", right, y + 27, T.GOLD, font=T.FONT_SMALL,
+        # ── Шапка: класс и уровень слева, золото справа ──
+        class_name = getattr(p, 'class_name', 'Приключенец')
+        header = f"{class_name}  ·  Ур.{p.level}"
+        self.text(self.fit_text(header, 210, T.FONT_SMALL), x, y + 2,
+                  T.TITLE_LIGHT, font=T.FONT_SMALL)
+        self.text(f"${p.gold}", right, y + 2, T.GOLD, font=T.FONT_SMALL,
                   align_right=True)
 
-        # Опыт
-        self.text(f"Ур.{p.level}", x, y + 48, T.TEXT, font=T.FONT_BODY)
-        xp_rect = (x + 70, y + 52, 160, 10)
+        # ── HP ──
+        self.text("HP", x, y + 26, T.HP_CRIT, font=T.FONT_SMALL)
+        hp_rect = (x + 30, y + 24, 180, 18)
+        ratio = p.hp / max(1, p.max_hp)
+        T.bar(self.screen, hp_rect, ratio, T.HP, pulse=(ratio < 0.3))
+        surf = T.render(f"{p.hp}/{p.max_hp}", (255, 245, 238), T.FONT_SMALL)
+        self.screen.blit(surf, (hp_rect[0] + (hp_rect[2] - surf.get_width()) // 2,
+                                hp_rect[1] + 2))
+
+        # ── MP ──
+        max_mana = max(1, getattr(p, 'max_mana', 0))
+        mana = getattr(p, 'mana', 0)
+        self.text("MP", x, y + 50, (120, 160, 255), font=T.FONT_SMALL)
+        mana_rect = (x + 30, y + 48, 180, 12)
+        T.bar(self.screen, mana_rect, mana / max_mana, (90, 130, 240),
+              bg_color=(20, 24, 48))
+        self.text(f"{mana}/{max_mana}", right, y + 46, (140, 170, 255),
+                  font=T.FONT_SMALL, align_right=True)
+
+        # ── Опыт ──
+        self.text("XP", x, y + 68, T.XP, font=T.FONT_SMALL)
+        xp_rect = (x + 30, y + 66, 180, 10)
         T.bar(self.screen, xp_rect, p.xp / max(1, p.xp_next), T.XP,
               bg_color=(20, 30, 50))
-        self.text(f"{p.xp}/{p.xp_next}", right, y + 48, T.XP,
+        self.text(f"{p.xp}/{p.xp_next}", right, y + 64, T.XP,
                   font=T.FONT_SMALL, align_right=True)
-        self.text(f"ATK {p.atk}", x, y + 66, T.TEXT, font=T.FONT_BODY)
-        self.text(f"DEF {p.df}", x + 100, y + 66, T.TEXT, font=T.FONT_BODY)
+
+        # ── Боевые показатели и место ──
+        self.text(f"ATK {p.atk}", x, y + 86, T.TEXT, font=T.FONT_SMALL)
+        self.text(f"DEF {p.df}", x + 100, y + 86, T.TEXT, font=T.FONT_SMALL)
         if game.world_mode == 'overworld':
             fn = getattr(game, 'location_title', None)
             if fn:
@@ -745,9 +757,11 @@ class GameRenderer(BaseRenderer):
                 loc = ov.location_title(game.player.x, game.player.y)
         else:
             loc = f"Подземелье {game.depth}/{MAX_DEPTH}"
-        self.text(self.fit_text(loc, 170, T.FONT_SMALL), right, y + 66,
+        self.text(self.fit_text(loc, 170, T.FONT_SMALL), right, y + 86,
                   T.TEXT_DIM, font=T.FONT_SMALL, align_right=True)
-        badge_y = y + 90
+
+        # ── Подсказки/очки внизу карточки ──
+        badge_y = y + 108
         if p.free_points > 0:
             T.badge(self.screen, x, badge_y, f"● {p.free_points} очков (C)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
@@ -757,7 +771,7 @@ class GameRenderer(BaseRenderer):
                     f"● {p.skill_points} навыков (N)",
                     color=T.GOLD, bg=(50, 40, 15), font=T.FONT_SMALL)
         self.text(f"[F5] слот {game.current_slot}",
-                  right, y + 90, T.TEXT_MUTED, font=T.FONT_TINY,
+                  right, y + 108, T.TEXT_MUTED, font=T.FONT_TINY,
                   align_right=True)
 
     def _draw_log_panel(self, game, x, y, w, h):

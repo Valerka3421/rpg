@@ -263,57 +263,243 @@ class Client:
         pygame.event.pump()
 
     def _class_select_screen(self, screen, sw, sh):
-        """Экран выбора класса. Возвращает class_key или None (отмена)."""
+        """Экран выбора класса. Возвращает class_key или None (отмена).
+
+        Слева — список базовых классов, справа — крупный предпросмотр:
+        спрайт персонажа, производные статы, перк и стартовый набор.
+        """
         from core.data import CLASS_ORDER, CLASSES, class_stats
         from core.entities import Player
+        from render.icon_renderer import IconRenderer
+        from render.theme import Theme as T
 
-        font_big = pygame.font.SysFont('consolas', 32, bold=True)
-        font = pygame.font.SysFont('consolas', 20, bold=True)
-        font_sm = pygame.font.SysFont('consolas', 14)
-        selected = 0
+        icons = IconRenderer(screen)
+        font_big = T.FONT_H1
+        font_h2 = T.FONT_H2
+        font_sm = T.FONT_SMALL
+        font_tiny = T.FONT_TINY
+
+        roles = {
+            'warrior': 'Воин ближнего боя', 'mage': 'Маг стихий',
+            'rogue': 'Мастер ловкости', 'artisan': 'Мастер ремёсел',
+        }
         n = len(CLASS_ORDER)
+        selected = 0
+
+        # ── Геометрия ──
+        bx = 60
+        bw = min(400, int(sw * 0.28))
+        by = 112
+        bh = 96
+        gap = 12
+        px = bx + bw + 28
+        pw = sw - px - 60
+        py = 100
+        ph = sh - py - 88
+        start_w, start_h = 300, 50
+        start_rect = (px + (pw - start_w) // 2,
+                      py + ph - start_h - 18, start_w, start_h)
+
+        def wrap(text, max_w):
+            words = str(text).split()
+            lines, line = [], ''
+            for word in words:
+                test = f"{line} {word}".strip()
+                if not line or font_sm.size(test)[0] <= max_w:
+                    line = test
+                else:
+                    lines.append(line)
+                    line = word
+            if line:
+                lines.append(line)
+            return lines
+
+        def gear_list(cls):
+            from core.data import ITEMS
+            gear = []
+            if cls.get('start_weapon') and cls['start_weapon'] in ITEMS:
+                gear.append(ITEMS[cls['start_weapon']]['name'])
+            if cls.get('start_armor') and cls['start_armor'] in ITEMS:
+                gear.append(ITEMS[cls['start_armor']]['name'])
+            for k, v in (cls.get('start_items') or {}).items():
+                if k in ITEMS:
+                    gear.append(f"{v}× {ITEMS[k]['name']}")
+            return gear or ["Пустые руки — всё впереди"]
 
         while True:
             screen.fill((14, 12, 10))
             title = font_big.render('ВЫБОР КЛАССА', True, (214, 178, 98))
-            screen.blit(title, (sw // 2 - title.get_width() // 2, 40))
+            screen.blit(title, (sw // 2 - title.get_width() // 2, 30))
+            sub = font_sm.render(
+                'Наведи или выбери класс — справа показано, как он выглядит',
+                True, (150, 140, 120))
+            screen.blit(sub, (sw // 2 - sub.get_width() // 2, 84))
 
-            bw = sw - 120
-            bh = 110
-            bx = 60
-            by = 120
-            gap = 14
-
+            # ── Список классов ──
             for i, key in enumerate(CLASS_ORDER):
                 cls = CLASSES[key]
                 y = by + i * (bh + gap)
                 sel = (i == selected)
-                bg = (96, 76, 44) if sel else (44, 39, 31)
-                border = (206, 166, 82) if sel else (72, 62, 46)
-                pygame.draw.rect(screen, bg, (bx, y, bw, bh), border_radius=8)
+                bg = (52, 43, 31) if sel else (34, 30, 24)
+                border = (206, 166, 82) if sel else (64, 55, 42)
+                pygame.draw.rect(screen, bg, (bx, y, bw, bh),
+                                 border_radius=8)
                 pygame.draw.rect(screen, border, (bx, y, bw, bh), 2,
                                  border_radius=8)
-
-                name = font.render(cls['name'], True, cls['color'])
+                name = font_h2.render(
+                    cls['name'], True,
+                    cls['color'] if sel else (150, 140, 120))
                 screen.blit(name, (bx + 20, y + 12))
+                tier = font_tiny.render(
+                    f"{cls.get('tier', 1)}-я ступень", True, (98, 90, 74))
+                screen.blit(tier, (bx + bw - tier.get_width() - 16, y + 16))
+                desc = font_sm.render(
+                    cls['desc'][:40], True,
+                    (222, 214, 198) if sel else (120, 112, 96))
+                screen.blit(desc, (bx + 20, y + 44))
+                st = class_stats(key)
+                stat_line = font_tiny.render(
+                    f"STR {st.get('str', 5)} · AGI {st.get('agi', 5)} · "
+                    f"VIT {st.get('vit', 5)} · LUK {st.get('luk', 5)}",
+                    True, (130, 122, 104))
+                screen.blit(stat_line, (bx + 20, y + 68))
+                if sel:
+                    ay = y + bh // 2
+                    pygame.draw.polygon(screen, (206, 166, 82), [
+                        (bx - 15, ay - 7), (bx - 3, ay), (bx - 15, ay + 7)])
 
-                stats = Player.preview_stats({
-                    **class_stats(key),
-                    'weapon': cls.get('start_weapon'),
-                    'armor': cls.get('start_armor'),
-                    'effects': cls.get('effects', {}),
-                })
-                line = (f"ATK {stats['atk']}  DEF {stats['df']}  "
-                        f"HP {stats['max_hp']}  MP {stats['max_mana']}  "
-                        f"Укл {int(stats['dodge'] * 100)}%  "
-                        f"Крит {int(stats['crit'] * 100)}%")
-                screen.blit(font_sm.render(line, True, (222, 214, 198)),
-                            (bx + 20, y + 42))
-                screen.blit(font_sm.render(cls['desc'], True, (150, 140, 120)),
-                            (bx + 20, y + 68))
+            # ── Панель предпросмотра ──
+            key = CLASS_ORDER[selected]
+            cls = CLASSES[key]
+            color = cls['color']
+            pygame.draw.rect(screen, (26, 22, 18), (px, py, pw, ph),
+                             border_radius=12)
+            pygame.draw.rect(screen, color, (px, py, pw, ph), 2,
+                             border_radius=12)
+            icons.text(cls['name'], px + 28, py + 16, color, font=font_big)
+            role = roles.get(cls.get('base', key), 'Приключенец')
+            icons.text(f"{role} · {cls.get('tier', 1)}-я ступень",
+                       px + 28, py + 56, (150, 140, 120), font=font_sm)
+
+            # Портрет + стартовый набор (левая колонка)
+            limit_y = start_rect[1] - 12
+            portrait = min(170, max(130, int(ph * 0.26)))
+            bx2, by2 = px + 24, py + 80
+            pygame.draw.rect(screen, (16, 14, 11),
+                             (bx2, by2, portrait, portrait), border_radius=10)
+            pygame.draw.rect(screen, color,
+                             (bx2, by2, portrait, portrait), 2,
+                             border_radius=10)
+            icons.draw_player(key, bx2 + 3, by2 + 3, size=portrait - 6)
+            icons.text("как выглядит в игре", bx2 + portrait // 2,
+                       by2 + portrait + 4, (98, 90, 74),
+                       font=font_tiny, center=True)
+            gear_y = by2 + portrait + 24
+            icons.text('СТАРТОВЫЙ НАБОР', bx2, gear_y, (206, 166, 82),
+                       font=font_sm)
+            gy = gear_y + 22
+            gear = gear_list(cls)
+            for item in gear[:3]:
+                icons.text(f"• {item}", bx2, gy, (150, 140, 120),
+                           font=font_sm)
+                gy += 17
+            if len(gear) > 3:
+                icons.text(f"• и ещё {len(gear) - 3}", bx2, gy,
+                           (98, 90, 74), font=font_sm)
+
+            # Производные статы
+            stats = Player.preview_stats({
+                **class_stats(key),
+                'weapon': cls.get('start_weapon'),
+                'armor': cls.get('start_armor'),
+                'effects': cls.get('effects', {}),
+            })
+            chips = (
+                ('ATK', str(stats['atk']), (222, 150, 110)),
+                ('DEF', str(stats['df']), (150, 170, 200)),
+                ('HP', str(stats['max_hp']), (220, 84, 64)),
+                ('MP', str(stats['max_mana']), (120, 160, 255)),
+                ('Уклонение', f"{int(stats['dodge'] * 100)}%",
+                 (150, 166, 178)),
+                ('Крит', f"{int(stats['crit'] * 100)}%", (232, 178, 74)),
+            )
+            sx = bx2 + portrait + 24
+            available = px + pw - 24 - sx
+            cgap = 8
+            chip_w = max(96, (available - cgap * 2) // 3)
+            chip_h = 46
+            for i, (label, value, chip_color) in enumerate(chips):
+                col, row = i % 3, i // 3
+                cxp = sx + col * (chip_w + cgap)
+                cyp = by2 + row * (chip_h + cgap)
+                pygame.draw.rect(screen, (34, 29, 23),
+                                 (cxp, cyp, chip_w, chip_h),
+                                 border_radius=8)
+                pygame.draw.rect(screen, (70, 60, 46),
+                                 (cxp, cyp, chip_w, chip_h), 1,
+                                 border_radius=8)
+                icons.text(label, cxp + 10, cyp + 5, (150, 140, 120),
+                           font=font_tiny)
+                icons.text(value, cxp + chip_w - 10, cyp + 18, chip_color,
+                           font=font_h2, align_right=True)
+
+            # Базовые атрибуты
+            st = class_stats(key)
+            attrs = (
+                ('STR', st.get('str', 5), (220, 120, 100)),
+                ('AGI', st.get('agi', 5), (140, 200, 130)),
+                ('VIT', st.get('vit', 5), (220, 120, 110)),
+                ('LUK', st.get('luk', 5), (220, 200, 110)),
+                ('DEF', st.get('df_stat', 5), (150, 170, 210)),
+                ('INT', st.get('int', 5), (130, 170, 240)),
+            )
+            ay = by2 + 2 * (chip_h + cgap) + 6
+            icons.text('БАЗОВЫЕ ХАРАКТЕРИСТИКИ', sx, ay, (206, 166, 82),
+                       font=font_sm)
+            ay += 22
+            bar_w = px + pw - 28 - (sx + 52)
+            right_w = px + pw - 24 - sx
+            for label, value, bar_color in attrs:
+                icons.text(label, sx, ay, (222, 214, 198), font=font_sm)
+                pygame.draw.rect(screen, (20, 18, 15),
+                                 (sx + 52, ay + 5, max(20, bar_w), 9),
+                                 border_radius=4)
+                fill = int(max(20, bar_w) * min(1.0, value / 12.0))
+                if fill > 0:
+                    pygame.draw.rect(screen, bar_color,
+                                     (sx + 52, ay + 5, fill, 9),
+                                     border_radius=4)
+                icons.text(str(value), px + pw - 28, ay, bar_color,
+                           font=font_sm, align_right=True)
+                ay += 20
+
+            # Перк
+            perk = cls.get('perk') or cls.get('desc', '')
+            icons.text('ОСОБЕННОСТЬ', sx, ay + 6, (206, 166, 82),
+                       font=font_sm)
+            ty = ay + 28
+            for line in wrap(perk, right_w):
+                if ty > limit_y:
+                    break
+                icons.text(line, sx, ty, (222, 214, 198), font=font_sm)
+                ty += 19
+
+            # Кнопка «Начать»
+            mouse = pygame.mouse.get_pos()
+            hover = (start_rect[0] <= mouse[0] <= start_rect[0] + start_w
+                     and start_rect[1] <= mouse[1] <= start_rect[1] + start_h)
+            sbg = T.shade(color, 1.15 if hover else 0.92)
+            T.rounded_rect(screen, sbg, start_rect, radius=9,
+                           border_color=T.shade(color, 1.4))
+            label_color = (20, 16, 12) if sum(color) > 420 else (250, 246, 238)
+            start_label = font_h2.render(
+                f"НАЧАТЬ ЗА {cls['name'].upper()}", True, label_color)
+            screen.blit(start_label, (
+                start_rect[0] + (start_w - start_label.get_width()) // 2,
+                start_rect[1] + (start_h - start_label.get_height()) // 2))
 
             hint = font_sm.render(
-                '↑↓ / мышь — выбор · Enter — начать · Esc — назад',
+                '↑↓ / мышь — выбор · Enter / кнопка — начать · Esc — назад',
                 True, (98, 90, 74))
             screen.blit(hint, (sw // 2 - hint.get_width() // 2, sh - 30))
             pygame.display.flip()
@@ -333,12 +519,18 @@ class Client:
                 if event.type == pygame.MOUSEMOTION:
                     for i in range(n):
                         y = by + i * (bh + gap)
-                        if bx <= event.pos[0] <= bx + bw and y <= event.pos[1] <= y + bh:
+                        if (bx <= event.pos[0] <= bx + bw
+                                and y <= event.pos[1] <= y + bh):
                             selected = i
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if (start_rect[0] <= event.pos[0] <= start_rect[0] + start_w
+                            and start_rect[1] <= event.pos[1]
+                            <= start_rect[1] + start_h):
+                        return CLASS_ORDER[selected]
                     for i in range(n):
                         y = by + i * (bh + gap)
-                        if bx <= event.pos[0] <= bx + bw and y <= event.pos[1] <= y + bh:
+                        if (bx <= event.pos[0] <= bx + bw
+                                and y <= event.pos[1] <= y + bh):
                             return CLASS_ORDER[i]
 
     def send(self, msg):

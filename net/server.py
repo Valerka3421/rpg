@@ -40,6 +40,9 @@ class Server:
         self._last_world_serial = -1
         self._sock = None
         self.client_tokens = {}
+        # IP каждого клиента: персонаж сохраняется и по токену, и по IP,
+        # поэтому прогресс не теряется при смене/потере token-файла.
+        self.client_ips = {}
         self.saved_players = {}
         # Сессионные ключи HMAC: {pid: bytes}. Генерируются при hello,
         # используются для подписи сообщений от клиента.
@@ -66,6 +69,34 @@ class Server:
             os.replace(tmp, self.players_save_path)
         except Exception as e:
             print(f"[SERVER] save players: {e}")
+
+    # ── Сохранение игроков по токену и по IP ──
+    @staticmethod
+    def _ip_key(addr):
+        """Ключ сохранения ``ip:<addr>`` или None, если адрес неизвестен."""
+        if isinstance(addr, (tuple, list)):
+            addr = addr[0] if addr else None
+        if not addr:
+            return None
+        return f'ip:{addr}'
+
+    def _save_player_record(self, pid, player):
+        """Пишет персонажа в оба слота: персональный токен и IP."""
+        token = self.client_tokens.get(pid)
+        data = self.core._player_to_dict(player)
+        if token:
+            self.saved_players[token] = data
+        ip_key = self._ip_key(self.client_ips.get(pid))
+        if ip_key:
+            self.saved_players[ip_key] = data
+        return bool(token or ip_key)
+
+    def _find_saved_player(self, token, ip_key):
+        """Ищет сохранение: сначала токен, затем IP. Возвращает dict|None."""
+        for key in (token, ip_key):
+            if key and key in self.saved_players:
+                return self.saved_players[key]
+        return None
 
     def _bind_socket(self, sock):
         """Занять порт, перебирая следующие, если запрошенный занят."""
@@ -155,9 +186,10 @@ class Server:
 
             with self.lock:
                 self.clients[pid] = conn
+                self.client_ips[pid] = addr[0] if addr else ''
             print(f"[SERVER] player {pid} connected ({addr[0]})")
             threading.Thread(target=self._client_loop,
-                             args=(pid, conn), daemon=True).start()
+                             args=(pid, conn, addr), daemon=True).start()
 
         try:
             sock.close()
@@ -178,9 +210,7 @@ class Server:
         try:
             self.core.save_world(self.world_save_path)
             for qid, qp in self.core.players.items():
-                t = self.client_tokens.get(qid)
-                if t:
-                    self.saved_players[t] = self.core._player_to_dict(qp)
+                self._save_player_record(qid, qp)
             self._flush_saved_players()
         except Exception as e:
             print(f"[SERVER] final save failed: {e}")
@@ -188,11 +218,13 @@ class Server:
     def _drop_client(self, pid, reason=''):
         with self.lock:
             conn = self.clients.pop(pid, None)
-            token = self.client_tokens.pop(pid, None)
-            if token and pid in self.core.players:
-                self.saved_players[token] = \
-                    self.core._player_to_dict(self.core.players[pid])
+            # Сохраняем до удаления токена/IP — иначе запись уйдёт только
+            # под IP и токен потеряет свой слот.
+            if pid in self.core.players:
+                self._save_player_record(pid, self.core.players[pid])
                 self._flush_saved_players()
+            self.client_tokens.pop(pid, None)
+            self.client_ips.pop(pid, None)
             self.core.remove_player(pid)
             no_more_clients = not self.clients
         if conn is not None:
@@ -210,7 +242,7 @@ class Server:
         if reason:
             print(f"[SERVER] player {pid} dropped ({reason})")
 
-    def _client_loop(self, pid, conn):
+    def _client_loop(self, pid, conn, addr=None):
         buf = b''
         while self.running:
             try:
@@ -230,7 +262,7 @@ class Server:
                     try:
                         msg = json.loads(line.decode())
                         if msg.get('type') == 'hello':
-                            token = msg.get('token', f'anon_{pid}')
+                            token = str(msg.get('token') or f'anon_{pid}')
                             class_key = msg.get('class', 'warrior')
                             # P3: проверка пароля сервера (если задан).
                             if self.server_password:
@@ -247,11 +279,16 @@ class Server:
                             import os as _os
                             session_key = _os.urandom(32)
                             self.session_keys[pid] = session_key
+                            ip_key = self._ip_key(addr or
+                                                  self.client_ips.get(pid))
                             with self.lock:
                                 self.client_tokens[pid] = token
-                                if token in self.saved_players:
-                                    p = self.core._player_from_dict(
-                                        self.saved_players[token])
+                                if addr:
+                                    self.client_ips[pid] = addr[0]
+                                saved = self._find_saved_player(token,
+                                                                ip_key)
+                                if saved is not None:
+                                    p = self.core._player_from_dict(saved)
                                     # Позиция из другого сейва может оказаться
                                     # в стене — тогда переселяем в свободную клетку
                                     from core.config import Tile
@@ -264,21 +301,24 @@ class Server:
                                     self.core.move_timers[pid] = 0.0
                                     self.core.attack_timers[pid] = 0.0
                                     self.core.regen_timers[pid] = 2.0
-                                    print(f"[SERVER] {pid} RESTORED ({token[:8]}...)")
+                                    # Запоминаем и под IP, и под токеном:
+                                    # так прогресс найдётся в следующий раз
+                                    # даже при смене token-файла.
+                                    self._save_player_record(pid, p)
+                                    self._flush_saved_players()
+                                    print(f"[SERVER] {pid} RESTORED "
+                                          f"({token[:8]}... ip={ip_key})")
                                 else:
                                     self.core.add_player(pid, class_key)
                                     print(f"[SERVER] {pid} NEW ({token[:8]}...) "
-                                          f"class={class_key}")
+                                          f"class={class_key} ip={ip_key}")
                             continue
                         if msg.get('type') == 'save_world':
                             with self.lock:
                                 try:
                                     self.core.save_world(self.world_save_path)
                                     for qid, qp in self.core.players.items():
-                                        t = self.client_tokens.get(qid)
-                                        if t:
-                                            self.saved_players[t] = \
-                                                self.core._player_to_dict(qp)
+                                        self._save_player_record(qid, qp)
                                     self._flush_saved_players()
                                     print("[SERVER] world + players saved")
                                 except Exception as e:

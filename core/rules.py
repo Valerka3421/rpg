@@ -1017,10 +1017,13 @@ def _learn_book(player, key, item):
         return UseResult(True, 'book', f"Изучено: {item['name']}!", 0,
                          (240, 210, 90))
     if stat in ('str', 'agi', 'vit', 'luk', 'df_stat', 'int'):
-        setattr(player, stat, getattr(player, stat) + item['value'])
+        # У Player нет атрибута ``int`` (это встроенный тип), интеллект
+        # хранится в ``int_stat``. Остальные названия совпадают с полями.
+        attr = 'int_stat' if stat == 'int' else stat
+        setattr(player, attr, getattr(player, attr, 0) + item['value'])
         player.recalc()
         consume(inventory, key)
-        label = {'df_stat': 'DEF'}.get(stat, stat.upper())
+        label = {'df_stat': 'DEF', 'int': 'INT'}.get(stat, stat.upper())
         return UseResult(True, 'book',
                          f"Изучено: +{item['value']} {label}", item['value'],
                          (240, 210, 90))

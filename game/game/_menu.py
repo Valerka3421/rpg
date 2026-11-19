@@ -31,12 +31,12 @@ class MenuMixin:
         self.shop.open()
 
 
-    def open_city_shop(self, npc_type=None):
+    def open_city_shop(self, npc_type=None, submode='buy'):
         """Открывает магазин горожанина (кузнец/алхимик/трактирщик)."""
         if npc_type is None:
             npc_type = getattr(self, 'active_shop_npc', None)
         if not is_city_shop_npc(npc_type):
-            self.shop.open()
+            self.shop.open(submode=submode)
             return
         npc = next((n for n in getattr(self, 'city_npcs', ())
                     if n.npc_type == npc_type), None)
@@ -48,7 +48,7 @@ class MenuMixin:
                        abs(self.player.y - npc.y)) > 1):
             self.log("Подойди ближе к торговцу.", COL_DIM)
             return
-        self.shop.open(npc_type)
+        self.shop.open(npc_type, submode)
 
 
     def buy_item(self, idx):

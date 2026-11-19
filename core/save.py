@@ -26,6 +26,8 @@ def entity_to_dict(e: Entity) -> dict[str, Any]:
         'statuses': dict(e.statuses),
         'is_npc': e.is_npc,
         'npc_type': e.npc_type,
+        'home_x': getattr(e, 'home_x', None),
+        'home_y': getattr(e, 'home_y', None),
     }
 
 def entity_from_dict(d: dict[str, Any]) -> Entity:
@@ -36,6 +38,8 @@ def entity_from_dict(d: dict[str, Any]) -> Entity:
     e.statuses = dict(d.get('statuses', {}))
     e.is_npc = d.get('is_npc', False)
     e.npc_type = d.get('npc_type')
+    e.home_x = d.get('home_x', e.x)
+    e.home_y = d.get('home_y', e.y)
     return e
 
 def player_to_dict(p: Player) -> dict[str, Any]:

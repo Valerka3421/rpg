@@ -258,6 +258,21 @@ class MenuController:
         self.back()
 
     # ── Ректы кнопок ──
+    def class_preview_rect(self):
+        """Крупная панель предпросмотра выбранного класса."""
+        bw, bx, by = 380, 70, 118
+        px = bx + bw + 34
+        pw = config.SCREEN_W - px - 70
+        py = 112
+        ph = config.SCREEN_H - py - 96
+        return (px, py, pw, ph)
+
+    def class_start_rect(self):
+        """Кнопка «Начать» под предпросмотром."""
+        x, y, w, h = self.class_preview_rect()
+        bw, bh = 320, 52
+        return (x + (w - bw) // 2, y + h - bh - 22, bw, bh)
+
     def button_rects(self):
         m = self.game.screen_mode
         if m == 'menu':
@@ -277,9 +292,11 @@ class MenuController:
             by = 160
             return [(i, (bx, by + i * 60, bw, bh)) for i in range(6)]
         elif m == 'class_select':
-            bw, bh = 800, 92
-            bx = (config.SCREEN_W - bw) // 2
-            by = 160
+            # Слева — компактный список классов, справа — крупный
+            # предпросмотр выбранного (см. draw_class_select).
+            bw, bh = 380, 96
+            bx = 70
+            by = 118
             return [(i, (bx, by + i * (bh + 14), bw, bh))
                     for i in range(len(CLASS_ORDER))]
         if m == 'menu_multiplayer':
@@ -548,6 +565,15 @@ class MenuController:
                             self.delete_slot(slot_num)
                         return True
 
+        # ── Кнопка «Начать» на экране выбора класса ──
+        if self.game.screen_mode == 'class_select':
+            sx, sy, sw, sh = self.class_start_rect()
+            if sx <= mx <= sx + sw and sy <= my <= sy + sh:
+                from audio import Audio
+                Audio.play('menu_select')
+                self.confirm_class()
+                return True
+
         # ── Кнопки ──
         for idx, rect in self.button_rects():
             x, y, w, h = rect
@@ -573,8 +599,15 @@ class MenuController:
                     if idx == 5:
                         self.game.screen_mode = 'menu_controls'
                 elif m == 'class_select':
-                    self.class_selection = idx
-                    self.confirm_class()
+                    # Первый клик только выбирает (справа показывается
+                    # предпросмотр), повторный клик по выбранному классу
+                    # или кнопка «Начать» — старт.
+                    if idx == self.class_selection:
+                        from audio import Audio
+                        Audio.play('menu_select')
+                        self.confirm_class()
+                    else:
+                        self.class_selection = idx
                 elif m == 'menu_multiplayer':
                     self.mp_selection = idx
                     self._activate_mp()

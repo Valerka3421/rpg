@@ -504,6 +504,11 @@ class ClientView:
         return False
 
     def _click_shop(self, pos):
+        mode_rect = self._ui_hits['shop'].get('mode')
+        if mode_rect and self._hit(mode_rect, pos):
+            self.shop_submode = 'sell' if self.shop_submode == 'buy' else 'buy'
+            self.shop.page = 0
+            return True
         for idx, rect in self._ui_hits['shop']['rows']:
             if self._hit(rect, pos):
                 abs_idx = self.shop.page * SHOP_PAGE_SIZE + idx
@@ -738,9 +743,9 @@ class _ShopStub:
         self.view = view
         self.page = 0
 
-    def open(self):
+    def open(self, npc_type=None, submode='buy'):
         self.view.screen_mode = 'shop'
-        self.view.shop_submode = 'buy'
+        self.view.shop_submode = submode if submode in ('buy', 'sell') else 'buy'
         self.page = 0
 
     def pages_count(self):
@@ -848,6 +853,11 @@ class _CraftStub:
         self.view = view
         self.tab = 'all'
         self.page = 0
+        # Полей мини-игры у MP-клиента нет: сервер считает качество сам.
+        # Атрибуты обязательны — общий ScreensRenderer.draw_craft их читает.
+        self.minigame_active = False
+        self.minigame = None
+        self.quantity = 1
 
     @staticmethod
     def tabs():
@@ -885,6 +895,13 @@ class _CraftStub:
 
     def next_page(self):
         self.page = min(self.pages_count() - 1, self.page + 1)
+
+    def change_quantity(self, delta):
+        self.quantity = max(1, min(9, self.quantity + int(delta)))
+
+    def handle_click(self, pos):
+        # Мини-игры в MP нет — клик по полю ничего не делает.
+        return False
 
     def open(self):
         # Экран открывает ClientView через screen_mode.

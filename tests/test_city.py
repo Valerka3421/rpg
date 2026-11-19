@@ -209,11 +209,13 @@ def test_scroll_needs_mana():
     assert p.hp == 1
 
 
-def test_guard_damages_monsters_near_gate(make_game):
+def test_guard_approaches_and_damages_monsters_near_gate(make_game):
+    """Стражник идёт к мобу в радиусе 5 и бьёт только вплотную."""
     from core.data import MONSTERS
     from core.entities import Entity
     g = make_game()
     guard = next(n for n in g.city_npcs if n.npc_type == 'guard')
+    home = (guard.home_x, guard.home_y)
     data = MONSTERS['wolf']
     m = Entity(guard.x, guard.y - 3, data['hp'], data['hp'], data['atk'],
                data['df'], data['name'], data['ch'], data['color'],
@@ -222,11 +224,50 @@ def test_guard_damages_monsters_near_gate(make_game):
     g.player.xp = 0
     g.player.gold = 0
     hp_before = m.hp
+
+    # Первый тик: моб далеко (3 клетки) — урона нет, стражник делает шаг.
     g._guard_timer = 0.0
     g._update_city_guard(0.0)
+    assert m.hp == hp_before
+    assert (guard.x, guard.y) != home
+
+    # Даём стражнику дойти: урон появляется только по соседству.
+    for _ in range(20):
+        if m.hp < hp_before:
+            break
+        g._guard_timer = 0.0
+        g._update_city_guard(0.0)
     assert m.hp < hp_before
+    assert max(abs(guard.x - m.x), abs(guard.y - m.y)) <= 1
     assert g.player.xp == 0
     assert g.player.gold == 0
+
+
+def test_guard_returns_home_after_kill(make_game):
+    """После убийства моба стражник возвращается на клетку спавна."""
+    from core.data import MONSTERS
+    from core.entities import Entity
+    g = make_game()
+    guard = next(n for n in g.city_npcs if n.npc_type == 'guard')
+    home = (guard.home_x, guard.home_y)
+    data = MONSTERS['wolf']
+    m = Entity(guard.x, guard.y - 2, 1, 1, data['atk'], data['df'],
+               data['name'], data['ch'], data['color'], data['xp'])
+    g.dungeon.monsters.append(m)
+    g._guard_timer = 0.0
+    g._update_city_guard(0.0)          # шаг к мобу
+    for _ in range(20):
+        g._guard_timer = 0.0
+        g._update_city_guard(0.0)
+        if m not in g.dungeon.monsters:
+            break
+    assert m not in g.dungeon.monsters
+    for _ in range(20):
+        if (guard.x, guard.y) == home:
+            break
+        g._guard_timer = 0.0
+        g._update_city_guard(0.0)
+    assert (guard.x, guard.y) == home
 
 
 def test_guard_ignores_monsters_beyond_radius(make_game):

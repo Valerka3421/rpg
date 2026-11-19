@@ -192,6 +192,10 @@ class InputMixin:
                                 'menu_credits', 'menu_multiplayer',
                                 'menu_mp_join'):
             self.menu.handle_mouse_motion(pos)
+            return
+        if self.screen_mode == 'skills':
+            # Перетаскивание окна древа навыков за заголовок.
+            self.skills_ui.handle_mouse_motion(pos)
 
 
     def handle_mouse_click(self, pos):
@@ -369,6 +373,11 @@ class InputMixin:
 
     def _handle_skills_click(self, pos):
         hits = self._ui_hits.get('skills', {})
+        drag_rect = hits.get('drag')
+        if drag_rect and self._hit(drag_rect, pos):
+            self.skills_ui.start_drag(pos)
+            return True
+        self.skills_ui.dragging = False
         for tab, rect in hits.get('tabs', []):
             if self._hit(rect, pos):
                 self.skills_ui.set_tab(tab)
@@ -390,6 +399,11 @@ class InputMixin:
     def _handle_shop_click(self, pos):
         """Клик по строке товара/предмета в магазине."""
         hits = self._ui_hits.get('shop', {})
+        mode_rect = hits.get('mode')
+        if mode_rect and self._hit(mode_rect, pos):
+            self.shop_submode = 'sell' if self.shop_submode == 'buy' else 'buy'
+            self.shop.page = 0
+            return True
         for idx, rect in hits.get('rows', []):
             if self._hit(rect, pos):
                 if self.shop_submode == 'buy':

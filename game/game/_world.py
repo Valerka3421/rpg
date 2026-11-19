@@ -92,10 +92,16 @@ class WorldMixin:
 
 
     def _spawn_city_npcs(self):
-        """Расставляет горожан по площади и у ворот."""
+        """Расставляет горожан на площади и стражников у всех ворот."""
         npcs = []
         occupied = set(self.occupied_tiles())
-        for npc_type, (nx, ny) in ov.CITY_NPC_POS.items():
+        # Сначала торговцы, затем четыре стражника: последним идёт южный,
+        # поэтому ``CITY_NPC_POS['guard']`` указывает на него же.
+        posts = [(kind, pos[0], pos[1])
+                 for kind, pos in ov.CITY_NPC_POS.items() if kind != 'guard']
+        posts.extend(('guard', pos[0], pos[1])
+                     for pos in getattr(ov, 'GUARD_POSTS', (ov.GUARD_POS,)))
+        for npc_type, nx, ny in posts:
             name = CITY_NPC_NAMES.get(npc_type, npc_type)
             ch, color = CITY_NPC_GLYPHS.get(npc_type, ('?', (200, 200, 200)))
             tx, ty = nx, ny
@@ -110,6 +116,9 @@ class WorldMixin:
             e = Entity(tx, ty, 1, 1, atk, 0, name, ch, color, 0)
             e.is_npc = True
             e.npc_type = npc_type
+            # Клетка спавна — «дом» стражника: к ней он возвращается
+            # после боя и от неё отсчитывает радиус поиска цели.
+            e.home_x, e.home_y = tx, ty
             if npc_type == 'guard':
                 # Стражник бессмертен: мобы его не убивают, а урон низкий.
                 e.immortal = True
