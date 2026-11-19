@@ -270,7 +270,7 @@ class Client:
         """
         from core.data import CLASS_ORDER, CLASSES, class_stats
         from core.entities import Player
-        from render.icon_renderer import IconRenderer
+        from render.icons import IconRenderer
         from render.theme import Theme as T
 
         icons = IconRenderer(screen)

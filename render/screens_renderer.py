@@ -157,27 +157,6 @@ class ScreensRenderer(BaseRenderer):
             sx += w + 34
         y += 28
 
-        y = T.section(self.screen, cx0, y, cw, "Экипировка")
-        from core.data import ITEMS, item_display_color, item_display_name, parse_item_key
-        for label, key, stat in (("Оружие", p.weapon, "ATK"),
-                                 ("Броня", p.armor, "DEF"),
-                                 ("Шлем", p.head, "DEF"),
-                                 ("Поножи", p.legs, "DEF"),
-                                 ("Обувь", getattr(p, 'boots', None), "DEF")):
-            if key:
-                base, lvl = parse_item_key(key)
-                it = ITEMS.get(base, {})
-                self.icons.draw_item(key, cx0, y, size=28)
-                self.text(f"{label}:  {item_display_name(key)}",
-                          cx0 + 40, y + 6, item_display_color(key))
-                self.text(f"+{it.get('value', 0) + lvl} {stat}",
-                          self._modal_right(game), y + 6, T.TEXT_DIM,
-                          font=T.FONT_SMALL, align_right=True)
-            else:
-                self.text(f"  {label}: —", cx0, y + 6, T.TEXT_MUTED,
-                          font=T.FONT_SMALL)
-            y += 34
-
     def _d_atk(self, p):
         base = 2; str_part = p.str // 2
         if p.weapon:
@@ -243,7 +222,7 @@ class ScreensRenderer(BaseRenderer):
         self.text("ИНВЕНТАРЬ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"${p.gold}", self._modal_right(game), cy0 + 8, T.GOLD,
                   align_right=True)
-        self.text("Q/E — страницы   H/B/N — снять шлем/поножи/обувь",
+        self.text("Q/E — страницы   U/V/H/B/N — снять снаряжение",
                   self._modal_right(game), cy0 + 34, T.TEXT_MUTED,
                   font=T.FONT_SMALL, align_right=True)
 
@@ -323,11 +302,29 @@ class ScreensRenderer(BaseRenderer):
         if hovered[0]:
             self._draw_inventory_tooltip(game, hovered[0], (mx, my))
 
+    @staticmethod
+    def _wrap_lines(text, font, max_w):
+        """Разбивает текст на строки по словам под заданную ширину."""
+        lines = []
+        current = ''
+        for word in str(text).split():
+            candidate = word if not current else f"{current} {word}"
+            if not current or font.size(candidate)[0] <= max_w:
+                current = candidate
+            else:
+                lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines or ['']
+
     def _draw_equipment_panel(self, game, x, y, w, h, mx, my, hovered):
-        """Левая панель: подсказка класса, силуэт и ячейки экипировки."""
+        """Левая панель: силуэт, ячейки экипировки и подсказка класса."""
         p = game.player
 
         # ── Что может носить этот класс ──
+        # Подсказка живёт внизу панели и переносится по словам, чтобы
+        # длинные списки брони/оружия были видны целиком.
         from core.data import ARMOR_TYPE_NAMES, WCLASS_NAMES, class_data
         cls = class_data(p.class_key)
         weapons = ', '.join(WCLASS_NAMES.get(w, w)
@@ -335,15 +332,14 @@ class ScreensRenderer(BaseRenderer):
         armor = ', '.join(ARMOR_TYPE_NAMES.get(a, a)
                           for a in cls.get('armor_types', ())) or '—'
         hint = f"Оружие: {weapons}. Броня: {armor}."
-        hint = self.fit_text(hint, w - 4, T.FONT_TINY)
-        self.text(hint, x + w // 2, y + 2, (170, 180, 160),
-                  font=T.FONT_TINY, center=True)
+        hint_lines = self._wrap_lines(hint, T.FONT_TINY, w - 12)
+        hint_h = len(hint_lines) * 14 + 6
+        hint_y = y + h - hint_h
 
         # ── Силуэт персонажа ──
-        char_size = min(h - 340, 160, w - 40)
-        char_size = max(char_size, 100)
+        char_size = min(120, max(80, int(h * 0.22)), w - 40)
         char_x = x + (w - char_size) // 2
-        char_y = y + 30
+        char_y = y + 20
 
         # Подложка под силуэт
         T.rounded_rect(self.screen, (26, 24, 32),
@@ -353,32 +349,34 @@ class ScreensRenderer(BaseRenderer):
         # Персонаж (используем тот же draw_player, что и на поле)
         self.icons.draw_player(p.class_key, char_x, char_y, size=char_size)
 
-        # ── 5 ячеек: голова, руки, тело, ноги, обувь ──
-        slot_size = min(64, (w - 40) // 2 - 8)
-        slots_y = char_y + char_size + 20
+        # ── Ячейки: голова, тело, ноги, обувь — вертикально;
+        #    руки (оружие) — сбоку от тела. ──
+        slots_y = char_y + char_size + 24
+        avail = max(120, hint_y - slots_y - 6)
+        slot_size = max(30, min(48, avail // 4 - 34, (w - 40) // 2 - 8))
+        cell_gap = 10
+        row_step = slot_size + 34
+        group_w = 2 * slot_size + cell_gap
+        gx = x + (w - group_w) // 2
 
-        # Сетка 2 колонки × 3 строки
         slots = [
             ('head', 'Голова', 0, 0),
-            ('weapon', 'Руки', 1, 0),
             ('armor', 'Тело', 0, 1),
-            ('legs', 'Ноги', 1, 1),
-            ('boots', 'Обувь', 0, 2),
+            ('weapon', 'Руки', 1, 1),
+            ('legs', 'Ноги', 0, 2),
+            ('boots', 'Обувь', 0, 3),
         ]
-        cell_gap = 10
-        grid_w = 2 * slot_size + cell_gap
-        gx = x + (w - grid_w) // 2
 
         for slot_key, label, gcol, grow in slots:
             sx = gx + gcol * (slot_size + cell_gap)
-            sy = slots_y + grow * (slot_size + cell_gap + 22)
+            sy = slots_y + grow * row_step
             rect = (sx, sy, slot_size, slot_size)
             item_key = getattr(p, slot_key, None)
             hover = self._in_rect(rect, (mx, my))
 
             # Подпись над ячейкой
-            self.text(label, sx + slot_size // 2, sy - 18, T.TEXT_DIM,
-                      font=T.FONT_SMALL, center=True)
+            self.text(label, sx + slot_size // 2, sy - 14, T.TEXT_DIM,
+                      font=T.FONT_TINY, center=True)
 
             # Фон ячейки
             bg = (58, 49, 35) if hover else (32, 28, 22)
@@ -386,11 +384,10 @@ class ScreensRenderer(BaseRenderer):
             T.rounded_rect(self.screen, bg, rect, radius=8, border_color=border)
 
             if item_key:
-                icon_size = slot_size - 12
-                self.icons.draw_item(item_key, sx + 6, sy + 6, size=icon_size)
-                # Название снизу под ячейкой
+                icon_size = slot_size - 10
+                self.icons.draw_item(item_key, sx + 5, sy + 5, size=icon_size)
                 name = self.fit_text(item_display_name(item_key),
-                                     slot_size + 10, T.FONT_TINY)
+                                     slot_size + 8, T.FONT_TINY)
                 self.text(name, sx + slot_size // 2, sy + slot_size + 2,
                           item_display_color(item_key),
                           font=T.FONT_TINY, center=True)
@@ -399,8 +396,14 @@ class ScreensRenderer(BaseRenderer):
                     hovered[0] = ('equip', item_key)
             else:
                 # Пунктирная подсказка «пусто»
-                self.text("—", sx + slot_size // 2, sy + slot_size // 2,
-                          T.TEXT_MUTED, font=T.FONT_BODY, center=True)
+                self.text("—", sx + slot_size // 2,
+                          sy + slot_size // 2 - 8,
+                          T.TEXT_MUTED, font=T.FONT_SMALL, center=True)
+
+        # ── Подсказка класса — внизу секции «Снаряжение» ──
+        for i, line in enumerate(hint_lines):
+            self.text(line, x + w // 2, hint_y + i * 14, (170, 180, 160),
+                      font=T.FONT_TINY, center=True)
 
     def _draw_inv_slot(self, key, count, rect, player_level, game, hover):
         x, y, w, h = rect
@@ -562,7 +565,7 @@ class ScreensRenderer(BaseRenderer):
         # горячая клавиша S: продажа должна быть очевидной в городе.
         buying = game.shop_submode == 'buy'
         mode = "ПОКУПКА" if buying else "ПРОДАЖА"
-        mode_rect = (cx0 + 236, cy0 + 4, 176, 30)
+        mode_rect = (cx0 + (cw - 176) // 2, cy0 + 4, 176, 30)
         mx, my = getattr(game, 'mouse_pos', (-1, -1))
         hover = (mode_rect[0] <= mx <= mode_rect[0] + mode_rect[2]
                  and mode_rect[1] <= my <= mode_rect[1] + mode_rect[3])
@@ -572,7 +575,7 @@ class ScreensRenderer(BaseRenderer):
         T.rounded_rect(self.screen, mode_bg, mode_rect, radius=6,
                        border_color=T.shade(mode_bg, 1.5))
         mode_color = T.BG if buying else (255, 245, 235)
-        self.text(f"{mode}  ⇄", mode_rect[0] + mode_rect[2] // 2,
+        self.text(mode, mode_rect[0] + mode_rect[2] // 2,
                   mode_rect[1] + 6, mode_color, font=T.FONT_BODY, center=True)
         game._ui_hits['shop']['mode'] = mode_rect
         where = "Город Этельгард" if city_shop else f"Глубина {game.depth}"
@@ -951,14 +954,26 @@ class ScreensRenderer(BaseRenderer):
         self._draw_node_counter(cx, cy + r + 8, learned, total, True)
 
     def _draw_class_tree(self, game, nodes, cls, ctrl, x, y, cw, tree_bottom):
-        """Шестиугольное древо: центральный узел класса и две ветви."""
+        """Единое древо: узлы текущего класса и ветки его эволюции.
+
+        Ветки эволюции — не отдельный список под деревом, а нижний ярус
+        того же древа: от центрального узла вниз идёт «ствол», который
+        расходится на доступные классы следующей ступени.
+        """
         top = y
-        tree_h = max(200, tree_bottom - top)
+        mouse = getattr(game, 'mouse_pos', (-1, -1))
+        total_h = max(240, tree_bottom - top)
+
+        # Нижний ярус под ветки эволюции.
+        pr = max(15, min(22, int(total_h * 0.058)))
+        promo_y = tree_bottom - pr - 34
+        tree_h = max(150, promo_y - 64 - top)
+
         cx = x + cw // 2
-        cy = top + int(tree_h * 0.54)
-        r = max(20, min(28, int(tree_h * 0.075)))
+        cy = top + int(tree_h * 0.55)
+        r = max(20, min(28, int(tree_h * 0.085)))
         dx = min(152, int(cw * 0.13))
-        dy = min(92, int(tree_h * 0.24))
+        dy = min(92, int(tree_h * 0.26))
         # Крылья поднимаются от класса вверх, венец — над центральным узлом.
         positions = [
             (cx - dx * 0.85, cy + dy * 0.78),
@@ -997,7 +1012,6 @@ class ScreensRenderer(BaseRenderer):
                 self._dotted_line(pa, pb, (92, 79, 56), 2, 7, 6)
 
         game._ui_hits['skills']['rows'] = []
-        mouse = getattr(game, 'mouse_pos', (-1, -1))
         hovered = None
         for i, node in enumerate(nodes):
             nx, ny = pos[i]
@@ -1009,10 +1023,14 @@ class ScreensRenderer(BaseRenderer):
         self._draw_class_hub(cls, game.player.class_key, cx, cy, r + 12,
                              learned_count, len(nodes))
 
+        # Подпись яруса эволюции — слева, чтобы не мешать стволу.
+        self.text("ЭВОЛЮЦИЯ", x + 6, promo_y - 6, (150, 136, 108),
+                  font=T.FONT_TINY)
+
         # Смена класса — такие же узлы древа, связанные с центром.
-        promo_y = min(tree_bottom - 52, cy + dy * 1.62)
         promo_hover = self._draw_promotion_nodes(
-            game, ctrl, cx, promo_y, cw, r, mouse)
+            game, ctrl, cx, promo_y, cw, r, mouse,
+            hub=(cx, cy + r + 14))
         if promo_hover is not None:
             key = promo_hover
             from core.data import class_data as _class_data
@@ -1026,8 +1044,12 @@ class ScreensRenderer(BaseRenderer):
                           "сбросится с возвратом очков.",
                           T.TEXT_MUTED, T.FONT_TINY))
             if not ready:
-                lines.insert(0, (f"Нужен {req} уровень.", T.HP_CRIT,
-                                 T.FONT_SMALL))
+                if req is None:
+                    lines.insert(0, ("Вершина ветки — смена недоступна.",
+                                     T.TEXT_MUTED, T.FONT_SMALL))
+                else:
+                    lines.insert(0, (f"Нужен {req}-й уровень.", T.HP_CRIT,
+                                     T.FONT_SMALL))
             else:
                 lines.insert(0, ("Доступно для смены класса.", (240, 210, 96),
                                  T.FONT_SMALL))
@@ -1044,8 +1066,9 @@ class ScreensRenderer(BaseRenderer):
         left = cx - total / 2
         return [(left + i * spacing, cy) for i in range(len(options))]
 
-    def _draw_promotion_nodes(self, game, ctrl, cx, cy, cw, r, mouse):
-        """Узлы повышения класса вокруг центрального узла древа."""
+    def _draw_promotion_nodes(self, game, ctrl, cx, cy, cw, r, mouse,
+                              hub=None):
+        """Узлы эволюции класса — нижний ярус единого древа."""
         from core.data import class_data
         options = ctrl.promotion_options()
         if not options:
@@ -1055,6 +1078,27 @@ class ScreensRenderer(BaseRenderer):
         positions = self._promotion_positions(ctrl, cx, cw, cy)
         pr = max(16, r - 6)
         hovered = None
+        line_color = (198, 162, 74) if ready else (92, 79, 56)
+
+        # Ствол от центрального узла вниз и общая ветвь-шина, от которой
+        # отходят узлы эволюции. Так дерево читается как одно целое.
+        bus_y = cy - pr - 24
+        if hub is not None:
+            if ready:
+                pygame.draw.line(self.screen, line_color, hub,
+                                 (cx, bus_y), 3)
+            else:
+                self._dotted_line(hub, (cx, bus_y), line_color, 2, 6, 6)
+        if len(positions) > 1:
+            left_x = positions[0][0]
+            right_x = positions[-1][0]
+            if ready:
+                pygame.draw.line(self.screen, line_color,
+                                 (left_x, bus_y), (right_x, bus_y), 2)
+            else:
+                self._dotted_line((left_x, bus_y), (right_x, bus_y),
+                                  line_color, 2, 6, 6)
+
         for i, (key, (nx, ny)) in enumerate(zip(options, positions)):
             cls = class_data(key)
             rect = (nx - (positions[1][0] - positions[0][0]) // 2 + 3
@@ -1066,13 +1110,13 @@ class ScreensRenderer(BaseRenderer):
             hover = self._in_rect(rect, mouse)
             if hover:
                 hovered = key
-            # Связь с центром древа: золотая, если смена доступна.
+            # Ветвь от шины к узлу эволюции.
             if ready:
-                pygame.draw.line(self.screen, (198, 162, 74),
-                                 (cx, ny - pr - 8), (nx, ny - pr - 2), 2)
+                pygame.draw.line(self.screen, line_color,
+                                 (nx, bus_y), (nx, ny - pr - 2), 2)
             else:
-                self._dotted_line((cx, ny - pr - 8), (nx, ny - pr - 2),
-                                  (92, 79, 56), 1, 5, 5)
+                self._dotted_line((nx, bus_y), (nx, ny - pr - 2),
+                                  line_color, 1, 5, 5)
             border = T.GOLD if ready else (92, 82, 64)
             if hover:
                 border = (252, 232, 172)
@@ -1190,8 +1234,20 @@ class ScreensRenderer(BaseRenderer):
         nodes = ctrl.rows()
         panel_h = 84
         panel_y = bottom - panel_h - 30
-        self._draw_class_tree(game, nodes, cls, ctrl, x, y + 2, cw,
-                              panel_y - 6)
+
+        # Древо — в собственном внутреннем фрейме, отдельно от подсказки.
+        box = (x, y + 2, cw, max(140, panel_y - 12 - (y + 2)))
+        T.rounded_rect(self.screen, (21, 19, 15), box, radius=10,
+                       border_color=(74, 62, 45))
+        T.rounded_rect(self.screen, (17, 15, 12),
+                       (box[0] + 4, box[1] + 4, box[2] - 8, box[3] - 8),
+                       radius=8, border_color=(48, 42, 33))
+        self.text("ДРЕВО КЛАССА", box[0] + 16, box[1] + 8, T.TEXT_DIM,
+                  font=T.FONT_TINY)
+
+        self._draw_class_tree(game, nodes, cls, ctrl,
+                              box[0] + 16, box[1] + 28,
+                              box[2] - 32, box[1] + box[3] - 8)
         self._draw_selected_node_panel(sk, nodes, ctrl, x, panel_y, cw,
                                        panel_h, p)
 
@@ -1216,8 +1272,18 @@ class ScreensRenderer(BaseRenderer):
         bottom = game._modal_content_rect[1] + ch
         panel_h = 104
         panel_y = bottom - panel_h - 30
+
+        # Отдельный внутренний фрейм вокруг ремесленного древа.
+        box = (x, y + 2, cw, max(140, panel_y - 12 - (y + 2)))
+        T.rounded_rect(self.screen, (21, 19, 15), box, radius=10,
+                       border_color=(74, 62, 45))
+        T.rounded_rect(self.screen, (17, 15, 12),
+                       (box[0] + 4, box[1] + 4, box[2] - 8, box[3] - 8),
+                       radius=8, border_color=(48, 42, 33))
+
         hovered = self._draw_craft_tree(game, nodes, ctrl, tab, level,
-                                        x, y + 2, cw, panel_y - 6)
+                                        box[0] + 16, box[1] + 14,
+                                        box[2] - 32, box[1] + box[3] - 8)
         self._draw_craft_node_panel(sk, tab, nodes, ctrl, level,
                                     hovered, x, panel_y, cw, panel_h)
 
@@ -1394,27 +1460,11 @@ class ScreensRenderer(BaseRenderer):
         cx0, cy0, cw, ch = game._modal_content_rect
         from core import skills as sk
         from core.config import HAMMER_SIZE
-        game._ui_hits['craft'] = {'hammer': [], 'tabs': []}
+        game._ui_hits['craft'] = {'hammer': [], 'tabs': [], 'qty': []}
 
         self.text("КРАФТ", cx0, cy0, (214, 178, 98), font=T.FONT_H1)
         self.text(f"Уровень {game.player.level}",
                   self._modal_right(game), cy0 + 8, T.TEXT, align_right=True)
-
-        # ── Партия: сколько предметов создать за раз ──
-        qty = getattr(game.craft, 'quantity', 1)
-        qy = cy0 + 34
-        qr = self._modal_right(game)
-        self.text(f"Партия ×{qty}", qr - 62, qy + 3, T.TEXT_DIM,
-                  font=T.FONT_SMALL, align_right=True)
-        minus_rect = (qr - 54, qy, 24, 22)
-        plus_rect = (qr - 26, qy, 24, 22)
-        for rect, label in ((minus_rect, '-'), (plus_rect, '+')):
-            T.rounded_rect(self.screen, (30, 27, 22), rect, radius=5,
-                           border_color=(78, 66, 48))
-            self.text(label, rect[0] + rect[2] // 2, rect[1] + 1,
-                      T.GOLD, font=T.FONT_BODY, center=True)
-        game._ui_hits['craft']['qty_minus'] = minus_rect
-        game._ui_hits['craft']['qty_plus'] = plus_rect
 
         # ── Вкладки: все крафты и три навыка ──
         tab_y = cy0 + 44
@@ -1503,6 +1553,29 @@ class ScreensRenderer(BaseRenderer):
             hx = self._modal_right(game) - HAMMER_SIZE + 4
             hy = row_y
             mx, my = game.mouse_pos
+
+            # ── Партия конкретного предмета: [-] ×N [+] слева от молота ──
+            if it.get('type') not in rules.EQUIP_TYPES:
+                qty = game.craft.quantity_for(key, it)
+                ctrl_w, btn_w = 96, 24
+                qx = hx - 10 - ctrl_w
+                qy = row_y + (HAMMER_SIZE - 26) // 2
+                minus_rect = (qx, qy, btn_w, 26)
+                plus_rect = (qx + ctrl_w - btn_w, qy, btn_w, 26)
+                for rect, label in ((minus_rect, '-'), (plus_rect, '+')):
+                    qhover = (rect[0] <= mx <= rect[0] + rect[2]
+                              and rect[1] <= my <= rect[1] + rect[3])
+                    bg_q = (52, 45, 33) if qhover else (30, 27, 22)
+                    T.rounded_rect(self.screen, bg_q, rect, radius=5,
+                                   border_color=(78, 66, 48))
+                    self.text(label, rect[0] + rect[2] // 2,
+                              rect[1] + rect[3] // 2 - 1,
+                              T.GOLD, font=T.FONT_BODY, center=True)
+                self.text(f"×{qty}", qx + ctrl_w // 2, qy + 5, T.TEXT,
+                          font=T.FONT_SMALL, center=True)
+                game._ui_hits['craft']['qty'].append(
+                    (key, minus_rect, plus_rect, it))
+
             hover = (hx <= mx <= hx + HAMMER_SIZE
                      and hy <= my <= hy + HAMMER_SIZE)
             bg_h = (60, 90, 60) if (can_full and hover) else \

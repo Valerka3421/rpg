@@ -255,6 +255,8 @@ class InputMixin:
                     self.screen_mode = 'stats'
                 elif name == 'quests':
                     self.quests.open()
+                elif name == 'bigmap':
+                    self.screen_mode = 'bigmap'
                 return True
 
         # Клик по NPC на карте
@@ -358,12 +360,13 @@ class InputMixin:
         if self._hit(hits.get('next', (0, 0, 0, 0)), pos):
             self.craft.next_page()
             return True
-        if self._hit(hits.get('qty_minus', (0, 0, 0, 0)), pos):
-            self.craft.change_quantity(-1)
-            return True
-        if self._hit(hits.get('qty_plus', (0, 0, 0, 0)), pos):
-            self.craft.change_quantity(1)
-            return True
+        for key, minus_rect, plus_rect, item in hits.get('qty', []):
+            if self._hit(minus_rect, pos):
+                self.craft.change_quantity_for(key, -1, item)
+                return True
+            if self._hit(plus_rect, pos):
+                self.craft.change_quantity_for(key, 1, item)
+                return True
         for idx, rect in hits.get('hammer', []):
             if self._hit(rect, pos):
                 self.craft.craft(idx)
@@ -418,7 +421,7 @@ class InputMixin:
         from core.config import TOOLBAR_BTN, TOOLBAR_GAP, TOOLBAR_MARGIN
         result = []
         for i, name in enumerate(('inventory', 'craft', 'skills',
-                                  'stats', 'quests')):
+                                  'stats', 'quests', 'bigmap')):
             x = TOOLBAR_MARGIN + i * (TOOLBAR_BTN + TOOLBAR_GAP)
             y = TOOLBAR_MARGIN
             result.append((name, (x, y, TOOLBAR_BTN, TOOLBAR_BTN)))

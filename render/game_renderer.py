@@ -796,6 +796,7 @@ class GameRenderer(BaseRenderer):
             'stats': 'Статы',
             'skills': 'Навыки',
             'quests': 'Квесты',
+            'bigmap': 'Карта',
         }
         mx, my = game.mouse_pos
         for name, rect in game._toolbar_rects():

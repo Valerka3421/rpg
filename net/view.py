@@ -66,7 +66,7 @@ class ClientView:
         self._ui_hits = {
             'inventory': {'items': [], 'equip': [], 'pages': []},
             'stats': {'plus': []},
-            'craft': {'hammer': [], 'tabs': []},
+            'craft': {'hammer': [], 'tabs': [], 'qty': []},
             'shop': {'rows': []},
         }
         self.mouse_pos = (-1, -1)
@@ -491,13 +491,25 @@ class ClientView:
         if self._hit(self._ui_hits['craft'].get('next', (0, 0, 0, 0)), pos):
             self.craft.next_page()
             return True
+        for key, minus_rect, plus_rect, item in \
+                self._ui_hits['craft'].get('qty', []):
+            if self._hit(minus_rect, pos):
+                self.craft.change_quantity_for(key, -1, item)
+                return True
+            if self._hit(plus_rect, pos):
+                self.craft.change_quantity_for(key, 1, item)
+                return True
         entries = self.craftable_list()
         for idx, rect in self._ui_hits['craft']['hammer']:
             if self._hit(rect, pos):
                 if 0 <= idx < len(entries):
-                    key, _item, _recipe, _can, _cat, recipe_index, _n = entries[idx]
-                    self.send_fn({'type': 'craft', 'key': key,
-                                  'recipe': recipe_index})
+                    key, item, _recipe, _can, _cat, recipe_index, _n = entries[idx]
+                    # Сервер крафтит по одному предмету — повторяем запрос
+                    # столько раз, сколько задано в партии.
+                    times = self.craft.quantity_for(key, item)
+                    for _ in range(times):
+                        self.send_fn({'type': 'craft', 'key': key,
+                                      'recipe': recipe_index})
                 else:
                     self.send_fn({'type': 'craft', 'idx': idx})
                 return True
@@ -857,6 +869,8 @@ class _CraftStub:
         # Атрибуты обязательны — общий ScreensRenderer.draw_craft их читает.
         self.minigame_active = False
         self.minigame = None
+        # Партия для каждого предмета (как в офлайн-крафте).
+        self.quantities = {}
         self.quantity = 1
 
     @staticmethod
@@ -895,6 +909,21 @@ class _CraftStub:
 
     def next_page(self):
         self.page = min(self.pages_count() - 1, self.page + 1)
+
+    def quantity_for(self, key, item=None):
+        from core import rules
+        if item and item.get('type') in rules.EQUIP_TYPES:
+            return 1
+        return max(1, min(9, int(self.quantities.get(key, 1))))
+
+    def change_quantity_for(self, key, delta, item=None):
+        from core import rules
+        if item and item.get('type') in rules.EQUIP_TYPES:
+            self.quantities[key] = 1
+            return 1
+        value = max(1, min(9, self.quantity_for(key, item) + int(delta)))
+        self.quantities[key] = value
+        return value
 
     def change_quantity(self, delta):
         self.quantity = max(1, min(9, self.quantity + int(delta)))

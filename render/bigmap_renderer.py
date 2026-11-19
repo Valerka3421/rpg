@@ -139,6 +139,6 @@ def draw_bigmap(screen, game):
 
     # Подсказка внизу
     hint_font = pygame.font.SysFont('consolas', 14)
-    hint = hint_font.render('M / Esc — закрыть карту',
+    hint = hint_font.render('B / Esc — закрыть карту',
                              True, (180, 170, 140))
     screen.blit(hint, (cx - hint.get_width() // 2, sh - 30))

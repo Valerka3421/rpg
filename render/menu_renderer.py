@@ -340,38 +340,56 @@ class MenuRenderer(BaseRenderer):
         sections = [
             ("Движение", [
                 ("W A S D / ↑↓←→", "Шаг"),
-                ("Пробел", "Атака (по ближайшему)"),
+                ("Пробел", "Атака (по ближайшему врагу)"),
+                ("E", "Собрать ресурс рядом"),
+                ("T", "Говорить с NPC / магазин / доска"),
                 ("Лестницы", "↓ вниз · ↑ наверх · выход на глубине 1"),
             ]),
             ("Окна", [
                 ("I", "Инвентарь (1–9 — использовать)"),
-                ("C", "Характеристики (1–5 — вложить очко)"),
-                ("K", "Крафт (1–8 — создать)"),
+                ("Shift+1–8", "Назначить предмет на быструю панель"),
+                ("U / V", "Снять оружие / броню"),
+                ("H / B / N", "Снять шлем / поножи / обувь"),
+                ("C", "Характеристики (1–6 — вложить очко)"),
+                ("K", "Крафт ([ / ] — размер партии)"),
+                ("N", "Древо навыков"),
                 ("L", "Квесты (Enter — взять/сдать)"),
-                ("T", "Диалог с NPC / магазин"),
                 ("Tab", "Статистика забега"),
-                ("Esc", "Меню / закрыть окно"),
             ]),
-            ("Игровое", [
-                ("H", "Быстрое зелье"),
+            ("Карта и бой", [
                 ("M", "Мини-карта вкл/выкл"),
+                ("B", "Большая карта мира"),
+                ("1–8", "Быстрая панель предметов"),
+                ("F1–F10", "Активные навыки класса"),
+                ("H", "Быстрое зелье лечения"),
+            ]),
+            ("Прочее", [
                 ("F5 / F9", "Сохранить / загрузить"),
+                ("PgUp/PgDn · [ ]", "Прокрутка журнала событий"),
+                ("Home / End", "Журнал в начало / в конец"),
+                ("Магазин", "1–9 — купить · S — продать"),
+                ("", "R — обновить ассортимент"),
                 ("F12 / `", "Консоль разработчика (по паролю)"),
-                ("Магазин", "1–9 — купить · S — продать · R — обновить"),
+                ("Esc", "Меню / закрыть окно"),
             ]),
         ]
 
-        col_x = 100
-        y = 150
-        for cat, rows in sections:
-            self.text(cat, col_x, y, (214, 178, 98), font=T.FONT_H2)
-            y += 32
-            for key_str, desc in rows:
-                self.text(key_str, col_x + 20, y, (196, 176, 138),
-                          font=T.FONT_BODY)
-                self.text(desc, col_x + 200, y, T.TEXT, font=T.FONT_BODY)
-                y += 26
-            y += 10
+        # Две колонки: слева движение и окна, справа карта/бой и прочее.
+        columns = (sections[:2], sections[2:])
+        col_starts = (100, 700)
+        for column, col_x in zip(columns, col_starts):
+            y = 132
+            for cat, rows in column:
+                self.text(cat, col_x, y, (214, 178, 98), font=T.FONT_H2)
+                y += 32
+                for key_str, desc in rows:
+                    if key_str.strip():
+                        self.text(key_str, col_x + 20, y, (196, 176, 138),
+                                  font=T.FONT_BODY)
+                    self.text(desc, col_x + 200, y, T.TEXT,
+                              font=T.FONT_BODY)
+                    y += 26
+                y += 10
 
         self.text("Esc — назад", cx, config.SCREEN_H - 40, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
@@ -486,11 +504,19 @@ class MenuRenderer(BaseRenderer):
         self.text(f"{role} · {cls.get('tier', 1)}-я ступень",
                   px + 28, py + 58, T.TEXT_DIM, font=T.FONT_SMALL)
 
+        # ── Краткое описание класса ──
+        desc_lines = self._wrap_text(cls.get('desc', ''),
+                                     pw - 56, T.FONT_SMALL)[:2]
+        desc_y = py + 78
+        for line in desc_lines:
+            self.text(line, px + 28, desc_y, T.TEXT, font=T.FONT_SMALL)
+            desc_y += 18
+
         # ── Портрет персонажа ──
         start = game.menu.class_start_rect()
         limit_y = start[1] - 14
         portrait = min(180, max(140, int(ph * 0.26)))
-        bx, by = px + 28, py + 80
+        bx, by = px + 28, desc_y + 8
         pygame.draw.rect(self.screen, (16, 14, 11),
                          (bx, by, portrait, portrait), border_radius=10)
         pygame.draw.rect(self.screen, (*color, 120),
@@ -584,7 +610,9 @@ class MenuRenderer(BaseRenderer):
         T.rounded_rect(self.screen, bg, start, radius=9,
                        border_color=T.shade(color, 1.4))
         label_color = (20, 16, 12) if sum(color) > 420 else (250, 246, 238)
-        self.text(f"НАЧАТЬ ЗА {cls['name'].upper()}", start[0] + start[2] // 2,
+        label = self.fit_text(f"ИГРАТЬ ЗА {cls['name'].upper()}",
+                              start[2] - 20, T.FONT_H2)
+        self.text(label, start[0] + start[2] // 2,
                   start[1] + 13, label_color, font=T.FONT_H2, center=True)
 
     def _start_gear(self, cls):

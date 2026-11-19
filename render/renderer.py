@@ -75,9 +75,9 @@ class Renderer:
         elif game.screen_mode == 'dev_console':
             self.screens.draw_dev_console(game)
         elif game.screen_mode == 'bigmap':
-            # Полноэкранная карта мира (открывается по «M»).
-            # Сначала рисуем игровое поле (для контекста), потом overlay карты.
-            self.game.draw(game)
+            # Полноэкранная карта мира (открывается по «B»). Игровое поле
+            # уже нарисовано выше — остаётся только затемнить его и
+            # наложить саму карту.
             from render.bigmap_renderer import draw_bigmap
             draw_bigmap(self.screen, game)
 

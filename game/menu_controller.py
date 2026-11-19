@@ -268,9 +268,10 @@ class MenuController:
         return (px, py, pw, ph)
 
     def class_start_rect(self):
-        """Кнопка «Начать» под предпросмотром."""
+        """Кнопка «Играть за …» под предпросмотром, по центру панели."""
         x, y, w, h = self.class_preview_rect()
-        bw, bh = 320, 52
+        bw = min(340, max(220, int(w * 0.36)))
+        bh = 52
         return (x + (w - bw) // 2, y + h - bh - 22, bw, bh)
 
     def button_rects(self):

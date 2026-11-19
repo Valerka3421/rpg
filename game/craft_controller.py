@@ -14,7 +14,10 @@ class CraftController:
         self.selection = 0
         self.minigame = None          # {'key','tab','recipe_index','pos',...}
         self.last_quality = None
-        self.quantity = 1             # сколько предметов создать за раз
+        # Партия задаётся отдельно для каждого предмета: {'bone_sword': 3}.
+        self.quantities = {}
+        # Старое поле оставлено для совместимости с внешним кодом.
+        self.quantity = 1
 
     # ── Состояние ──
     @property
@@ -102,7 +105,7 @@ class CraftController:
             g.log("Не хватает материалов!", (255, 100, 100))
             return False
 
-        quantity = self.effective_quantity(item)
+        quantity = self.effective_quantity(item, key)
         if skills.has_craft_minigame(g.player, category):
             skill_req = int(item.get('skill_req', 1))
             # Мини-игра сложнее для дорогих рецептов и больших партий.
@@ -115,23 +118,39 @@ class CraftController:
             return True
         return self._finish_craft(key, None, recipe_index, quantity)
 
-    def effective_quantity(self, item=None):
+    def quantity_for(self, key, item=None):
+        """Партия конкретного предмета. Снаряжение всегда крафтится по 1."""
+        if item and item.get('type') in rules.EQUIP_TYPES:
+            return 1
+        return max(1, int(self.quantities.get(key, 1)))
+
+    def effective_quantity(self, item=None, key=None):
         """Сколько предметов реально создастся: снаряжение — по 1."""
         if item and item.get('type') in rules.EQUIP_TYPES:
             return 1
+        if key is not None:
+            return self.quantity_for(key, item)
         return max(1, int(self.quantity))
 
-    def change_quantity(self, delta):
-        item = None
-        craftable = self.list()
-        if 0 <= self.selection < len(craftable):
-            item = craftable[self.selection][1]
+    def change_quantity_for(self, key, delta, item=None):
+        """Изменить партию одного предмета."""
         if item and item.get('type') in rules.EQUIP_TYPES:
-            self.quantity = 1
+            self.quantities[key] = 1
+            return 1
+        value = self.quantity_for(key, item)
+        value = max(1, min(99, value + (1 if delta > 0 else -1)))
+        self.quantities[key] = value
+        return value
+
+    def change_quantity(self, delta):
+        """Клавиши `[`/`]`: меняют партию выбранного рецепта."""
+        craftable = self.list()
+        if not (0 <= self.selection < len(craftable)):
             return self.quantity
-        self.quantity = max(1, min(99, self.quantity + (1 if delta > 0
-                                                        else -1)))
-        return self.quantity
+        key, item = craftable[self.selection][0], craftable[self.selection][1]
+        value = self.change_quantity_for(key, delta, item)
+        self.quantity = value
+        return value
 
     def _finish_craft(self, key, quality, recipe_index=None, quantity=1):
         g = self.game

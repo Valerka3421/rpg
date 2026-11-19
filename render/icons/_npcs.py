@@ -294,4 +294,25 @@ class NPCMixin:
                 (px0, py0), (px0 + int(8 * k), py0 + int(16 * k)),
                 (px0 + int(2 * k), py0 + int(14 * k)),
             ])
+        elif name == 'bigmap':
+            # Сложенная карта с дорожкой и отметкой
+            mw, mh = int(28 * k), int(20 * k)
+            mx, my = cx - mw // 2, cy - mh // 2
+            pygame.draw.rect(s, (70, 62, 44), (mx, my, mw, mh),
+                             border_radius=int(2 * k))
+            pygame.draw.rect(s, col, (mx, my, mw, mh),
+                             int(2 * k), border_radius=int(2 * k))
+            pygame.draw.line(s, dim, (mx + mw // 3, my + int(2 * k)),
+                             (mx + mw // 3, my + mh - int(2 * k)),
+                             int(1 * k))
+            pygame.draw.line(s, dim, (mx + 2 * mw // 3, my + int(2 * k)),
+                             (mx + 2 * mw // 3, my + mh - int(2 * k)),
+                             int(1 * k))
+            pygame.draw.line(s, (240, 210, 100),
+                             (mx + int(4 * k), my + int(13 * k)),
+                             (mx + mw - int(4 * k), my + int(7 * k)),
+                             int(2 * k))
+            pygame.draw.circle(s, (250, 120, 90),
+                               (mx + mw - int(5 * k), my + int(7 * k)),
+                               int(3 * k))
         self.screen.blit(s, (x, y))

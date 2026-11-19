@@ -8,6 +8,10 @@ import random
 
 import pytest
 
+# Без установленного pytest-benchmark фикстура `benchmark` недоступна:
+# модуль целиком пропускается, а не падает ошибками setup.
+pytest.importorskip('pytest_benchmark')
+
 os.environ.setdefault('SDL_VIDEODRIVER', 'dummy')
 os.environ.setdefault('SDL_AUDIODRIVER', 'dummy')
 

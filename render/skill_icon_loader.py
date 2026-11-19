@@ -4,14 +4,15 @@
 из render.icons (или простую заглушку с первой буквой названия).
 
 Структура файлов:
-    assets/skills/class/<class_key>:<node_index>.png   — узлы классовых веток
-    assets/skills/craft/<craft_tab>:<node_index>.png    — узлы веток крафта
+    assets/skills/class/<class_key>_<node_index>.png — узлы классовых веток
+    assets/skills/craft/<craft_tab>_<node_index>.png  — узлы веток крафта
 
-Имена файлов = ``node['key']`` из core.skills.class_tree() / craft_tree().
+Имена файлов = ``node['key']`` из core.skills.class_tree() / craft_tree(),
+где двоеточие заменено на подчёркивание.
 Примеры:
-    assets/skills/class/warrior:0.png  — Стойка воина
-    assets/skills/class/mage:0.png     — Медитация
-    assets/skills/craft/blacksmith:0.png — Основы ковки
+    assets/skills/class/warrior_0.png     — Стойка воина
+    assets/skills/class/mage_0.png        — Медитация
+    assets/skills/craft/blacksmith_0.png  — Основы ковки
 """
 import os
 
@@ -32,12 +33,16 @@ def load_skill_icon(node_key, size=48):
     if node_key in _CACHE and _CACHE[node_key][0] == size:
         return _CACHE[node_key][1]
 
-    # Сначала ищем в class/, потом в craft/, потом в корне skills/.
-    candidates = [
-        os.path.join(_SKILLS_DIR, 'class', f'{node_key}.png'),
-        os.path.join(_SKILLS_DIR, 'craft', f'{node_key}.png'),
-        os.path.join(_SKILLS_DIR, f'{node_key}.png'),
-    ]
+    # Файлы в assets/skills лежат с подчёркиванием вместо двоеточия:
+    # 'warrior:0' → class/warrior_0.png. Поддерживаем оба варианта имён.
+    flat = str(node_key).replace(':', '_')
+    candidates = []
+    for folder in ('class', 'craft', ''):
+        for name in (flat, str(node_key)):
+            path = os.path.join(_SKILLS_DIR, folder, f'{name}.png') \
+                if folder else os.path.join(_SKILLS_DIR, f'{name}.png')
+            if path not in candidates:
+                candidates.append(path)
     for path in candidates:
         if os.path.exists(path):
             try:
