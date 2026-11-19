@@ -410,3 +410,66 @@ def test_skills_window_has_no_bottom_description_panel():
     src_craft = inspect.getsource(ScreensRenderer._draw_craft_tab)
     assert '_draw_craft_node_panel' not in src_craft, \
         "_draw_craft_tab не должен вызывать _draw_craft_node_panel"
+
+
+# ── screens_renderer.py split regression (#10) ──
+def test_screens_renderer_split_into_package():
+    """render/screens_renderer.py разбит на render/screens_renderer/ пакет.
+
+    10 mixin-модулей + _common (shared imports) + __init__ (class ScreensRenderer).
+    Все методы доступны через множественное наследование.
+    """
+    from render.screens_renderer import ScreensRenderer
+    import render.screens_renderer._base
+    import render.screens_renderer._stats
+    import render.screens_renderer._inventory
+    import render.screens_renderer._shop
+    import render.screens_renderer._skills
+    import render.screens_renderer._craft
+    import render.screens_renderer._dev_console
+    import render.screens_renderer._dialogue
+    import render.screens_renderer._quests
+    import render.screens_renderer._trade
+
+    # Все mixin-классы определены
+    from render.screens_renderer._base import ScreensBase
+    from render.screens_renderer._stats import StatsMixin
+    from render.screens_renderer._inventory import InventoryMixin
+    from render.screens_renderer._shop import ShopMixin
+    from render.screens_renderer._skills import SkillsMixin
+    from render.screens_renderer._craft import CraftMixin
+    from render.screens_renderer._dev_console import DevConsoleMixin
+    from render.screens_renderer._dialogue import DialogueMixin
+    from render.screens_renderer._quests import QuestsMixin
+    from render.screens_renderer._trade import TradeMixin
+
+    # ScreensRenderer наследует все mixin'ы + BaseRenderer
+    from render.base_renderer import BaseRenderer
+    assert issubclass(ScreensRenderer, ScreensBase)
+    assert issubclass(ScreensRenderer, StatsMixin)
+    assert issubclass(ScreensRenderer, InventoryMixin)
+    assert issubclass(ScreensRenderer, ShopMixin)
+    assert issubclass(ScreensRenderer, SkillsMixin)
+    assert issubclass(ScreensRenderer, CraftMixin)
+    assert issubclass(ScreensRenderer, DevConsoleMixin)
+    assert issubclass(ScreensRenderer, DialogueMixin)
+    assert issubclass(ScreensRenderer, QuestsMixin)
+    assert issubclass(ScreensRenderer, TradeMixin)
+    assert issubclass(ScreensRenderer, BaseRenderer)
+
+    # Ключевые методы доступны через mixin'ы
+    assert hasattr(ScreensRenderer, 'draw_stats')       # StatsMixin
+    assert hasattr(ScreensRenderer, 'draw_inventory')   # InventoryMixin
+    assert hasattr(ScreensRenderer, 'draw_shop')        # ShopMixin
+    assert hasattr(ScreensRenderer, 'draw_skills')      # SkillsMixin
+    assert hasattr(ScreensRenderer, 'draw_craft')       # CraftMixin
+    assert hasattr(ScreensRenderer, 'draw_dev_console') # DevConsoleMixin
+    assert hasattr(ScreensRenderer, 'draw_dialogue')    # DialogueMixin
+    assert hasattr(ScreensRenderer, 'draw_quests')      # QuestsMixin
+    assert hasattr(ScreensRenderer, 'draw_trade')       # TradeMixin
+
+    # Оригинальный файл удалён
+    import render.screens_renderer as pkg
+    assert not os.path.exists(
+        os.path.join(os.path.dirname(pkg.__file__), '..', 'screens_renderer.py')
+    ), "render/screens_renderer.py должен быть удалён (заменён пакетом)"

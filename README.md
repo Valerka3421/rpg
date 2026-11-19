@@ -203,7 +203,7 @@ render/            отрисовка
   textures.py      общие примитивы: шум, обводка, тени, свет
   tiles/           пакет процедурных тайлов (10 подмодулей по категориям)
   icons/           пакет рендера иконок (mixin: _items, _monsters, _players, _npcs)
-  screens_renderer.py  рендер модальных экранов (инвентарь, статы, крафт)
+  screens_renderer/  пакет рендера модальных экранов (mixin: stats, inventory, shop, skills, craft, ...)
   game_renderer.py     рендер игрового поля
   menu_renderer.py     главное меню
   projectile_renderer.py  анимация снарядов

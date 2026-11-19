@@ -56,11 +56,24 @@ Circular imports решены через lazy imports в `items.py:item_category
 Вынесены `net/player_registry.py` (146 LOC) и `net/snapshot_builder.py` (81 LOC).
 Ядро `net/core.py` (1292 LOC) осталось — требует дальнейшего разбиения.
 
-## ⚠️ Отложено: `render/screens_renderer.py` (2084 строк)
+## ✅ Сделано: `render/screens_renderer.py` → `render/screens_renderer/` пакет
 
-Крупнейший оставшийся файл. Рендер инвентаря, статов, крафта, навыков,
-квестов, магазина — всё в одном. По аналогии с `tiles/` и `icons/` стоит
-разбить на `render/screens/` пакет.
+**2076 строк → 12 файлов** (mixin-архитектура):
+
+| Файл | LOC | Mixin | Методов |
+|---|---|---|---|
+| `__init__.py` | 32 | `ScreensRenderer` | 0 (наследует все mixins + BaseRenderer) |
+| `_common.py` | 27 | — | shared imports |
+| `_base.py` | 100 | `ScreensBase` | 6 (__init__, _modal_bg, утилиты) |
+| `_stats.py` | 150 | `StatsMixin` | 7 (draw_stats, _d_*) |
+| `_inventory.py` | 340 | `InventoryMixin` | 7 (draw_inventory, equipment, slots) |
+| `_shop.py` | 139 | `ShopMixin` | 3 (draw_shop, buy/sell) |
+| `_skills.py` | 799 | `SkillsMixin` | 26 (draw_skills, trees, tooltips, tabs) |
+| `_craft.py` | 206 | `CraftMixin` | 2 (draw_craft, minigame) |
+| `_dev_console.py` | 89 | `DevConsoleMixin` | 1 |
+| `_dialogue.py` | 118 | `DialogueMixin` | 1 |
+| `_quests.py` | 117 | `QuestsMixin` | 2 (quests, run_stats) |
+| `_trade.py` | 129 | `TradeMixin` | 2 (trade, button) |
 
 ### `net/core.py` (1376 строк)
 

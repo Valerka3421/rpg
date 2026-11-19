@@ -1,6 +1,6 @@
 # Правки — v2 (2026-11-19)
 
-Все **582 теста** проходят (+5 новых регрессионных). Базовый коммит: `0c88592`.
+Все **583 теста** проходят (+6 новых регрессионных). Базовый коммит: `0c88592`.
 
 ## Применённые правки
 
@@ -51,10 +51,11 @@ timing-атаке). Заменён на `hmac.compare_digest(provided, self.serv
 `roll_craft_quality`, `_consume_recipe`, `craft_item`.
 Добавлен `from __future__ import annotations` для отложенной оценки типов.
 
-### 10. `render/screens_renderer.py` (2084 LOC) — отложено
-Крупнейший оставшийся файл. Разбиение на mixin-пакет (`render/screens/`)
-по аналогии с `tiles/` и `icons/` требует перемещения 57 методов —
-рискованно для 582 тестов. Отложено на следующую итерацию.
+### 10. `render/screens_renderer.py` (2076 LOC) → `render/screens_renderer/` пакет
+Разбит на 12 файлов с mixin-архитектурой (как `tiles/`, `icons/`, `game/game/`):
+`ScreensRenderer(StatsMixin, InventoryMixin, ShopMixin, SkillsMixin, CraftMixin,
+DevConsoleMixin, DialogueMixin, QuestsMixin, TradeMixin, ScreensBase, BaseRenderer)`.
+Самый большой подмодуль — `_skills.py` (799 LOC, было 2076).
 
 ### 11. Невидимые объекты на дороге — исправлено
 **Проблема:** `core/world.py:_carve_road()` прорубает дороги ДО того, как
