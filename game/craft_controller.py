@@ -133,12 +133,24 @@ class CraftController:
         return max(1, int(self.quantity))
 
     def change_quantity_for(self, key, delta, item=None):
-        """Изменить партию одного предмета."""
+        """Изменить партию одного предмета.
+
+        Верхняя граница — не только 99, но и запас материалов: нельзя
+        заказать больше, чем реально можно создать.
+        """
         if item and item.get('type') in rules.EQUIP_TYPES:
             self.quantities[key] = 1
             return 1
+        g = self.game
+        recipe, _count, _idx = rules.select_recipe(key, g.player.inventory)
+        limit = 99
+        if recipe:
+            affordable = [g.player.inventory.get(mat, 0) // cnt
+                          for mat, cnt in recipe.items() if cnt > 0]
+            if affordable:
+                limit = max(1, min(99, min(affordable)))
         value = self.quantity_for(key, item)
-        value = max(1, min(99, value + (1 if delta > 0 else -1)))
+        value = max(1, min(limit, value + (1 if delta > 0 else -1)))
         self.quantities[key] = value
         return value
 
@@ -183,6 +195,9 @@ class CraftController:
                     g.log(f"{tab_name}: уровень {level}!", (240, 210, 90))
         g.add_float(g.player.x, g.player.y, "КРАФТ", (240, 210, 90))
         self.last_quality = result.quality
+        # Партия сбрасывается на 1 после успешного создания.
+        self.quantities.pop(key, None)
+        self.quantity = 1
         self.page = min(self.page, self.pages_count() - 1)
         return True
 

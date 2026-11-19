@@ -29,7 +29,8 @@ class CraftMixin:
             border = (206, 166, 82) if active else (78, 66, 48)
             T.rounded_rect(self.screen, bg, rect, radius=6,
                            border_color=border)
-            self.text(label, tx + 11, tab_y + 5,
+            self.text(label, tx + 11,
+                      tab_y + (28 - T.FONT_SMALL.get_height()) // 2,
                       T.GOLD if active else T.TEXT_DIM, font=T.FONT_SMALL)
             game._ui_hits['craft']['tabs'].append((tab_key, rect))
             tx += tw + 6
@@ -68,6 +69,9 @@ class CraftMixin:
         if not recipes:
             self.text("  (нет рецептов)", cx0, y, T.TEXT_MUTED,
                       font=T.FONT_SMALL)
+        hovered_recipe = None
+        mx, my = game.mouse_pos
+        hx = self._modal_right(game) - HAMMER_SIZE + 4
         for i, entry in enumerate(recipes):
             key, it, recipe, can, category, _ri, out_count = entry
             lvl_req = it.get('level_req', 1)
@@ -77,6 +81,8 @@ class CraftMixin:
             can_full = can and lvl_ok and skill_ok
             color = T.HEAL if can_full else T.TEXT_MUTED
             row_y = y
+            if (cx0 <= mx < hx - 8 and row_y <= my <= row_y + 46):
+                hovered_recipe = key
 
             self.icons.draw_item(key, cx0, row_y, size=28)
             name = item_display_name(key)
@@ -101,9 +107,7 @@ class CraftMixin:
                 ix += w + 14
 
             # Молоточек — правый край, не под крестиком
-            hx = self._modal_right(game) - HAMMER_SIZE + 4
             hy = row_y
-            mx, my = game.mouse_pos
 
             # ── Партия конкретного предмета: [-] ×N [+] слева от молота ──
             if it.get('type') not in rules.EQUIP_TYPES:
@@ -120,9 +124,10 @@ class CraftMixin:
                     T.rounded_rect(self.screen, bg_q, rect, radius=5,
                                    border_color=(78, 66, 48))
                     self.text(label, rect[0] + rect[2] // 2,
-                              rect[1] + rect[3] // 2 - 1,
+                              rect[1] + rect[3] // 2,
                               T.GOLD, font=T.FONT_BODY, center=True)
-                self.text(f"×{qty}", qx + ctrl_w // 2, qy + 5, T.TEXT,
+                # Счётчик — на одной линии с кнопками «−» и «+».
+                self.text(f"×{qty}", qx + ctrl_w // 2, qy + 26 // 2, T.TEXT,
                           font=T.FONT_SMALL, center=True)
                 game._ui_hits['craft']['qty'].append(
                     (key, minus_rect, plus_rect, it))
@@ -140,6 +145,9 @@ class CraftMixin:
             game._ui_hits['craft']['hammer'].append(
                 (offset + i, (hx, hy, HAMMER_SIZE, HAMMER_SIZE)))
             y += 26
+
+        if hovered_recipe:
+            self._draw_craft_tooltip(game, hovered_recipe, (mx, my))
 
         # ── Страницы ──
         total = game.craft_pages_count()
@@ -174,6 +182,57 @@ class CraftMixin:
         self.text(hints, cx0 + cw // 2, cy0 + ch - 20, T.TEXT_MUTED,
                   font=T.FONT_SMALL, center=True)
 
+
+    def _draw_craft_tooltip(self, game, key, pos):
+        """Подсказка рецепта: описание, бонусы и список материалов."""
+        from core import skills as sk
+        it = ITEMS.get(key, {})
+        lines = [(item_display_name(key), T.TITLE_LIGHT, T.FONT_BODY)]
+        desc = it.get('desc', '')
+        if desc:
+            lines.append((desc, T.TEXT_MUTED, T.FONT_TINY))
+        if it.get('type') in ('weapon', 'armor', 'head', 'helmet', 'legs',
+                              'leggings', 'boots'):
+            bonus = it.get('value', 0)
+            stat = 'ATK' if it.get('type') == 'weapon' else 'DEF'
+            if bonus:
+                lines.append((f"+{bonus} {stat}", T.HEAL, T.FONT_SMALL))
+        recipe, _count, _idx = rules.select_recipe(key, game.player.inventory)
+        for mat, cnt in (recipe or {}).items():
+            have = game.player.inventory.get(mat, 0)
+            mat_name = ITEMS.get(mat, {}).get('name', mat)
+            lines.append((f"• {mat_name}: {have}/{cnt}",
+                          T.HEAL if have >= cnt else T.HP_CRIT,
+                          T.FONT_SMALL))
+        lvl_req = it.get('level_req', 1)
+        if lvl_req > 1:
+            ok = game.player.level >= lvl_req
+            lines.append((f"Требуется уровень {lvl_req}",
+                          T.TEXT_DIM if ok else T.HP_CRIT, T.FONT_SMALL))
+        tab, req = sk.recipe_requirement(it)
+        if req > 1:
+            have_lvl = sk.craft_level(game.player, tab)
+            lines.append((f"{sk.TAB_NAMES.get(tab, tab)}: {have_lvl}/{req}",
+                          T.TEXT_DIM if have_lvl >= req else T.HP_CRIT,
+                          T.FONT_SMALL))
+        rendered = []
+        max_w = 0
+        total_h = 0
+        for text, color, font in lines:
+            text = self.fit_text(text, 380, font)
+            surf = T.render(text, color, font)
+            rendered.append((surf, total_h))
+            max_w = max(max_w, surf.get_width())
+            total_h += surf.get_height() + 4
+        pad = 10
+        w = max_w + pad * 2
+        h = total_h + pad * 2 - 4
+        x = min(max(8, pos[0] + 18), config.SCREEN_W - w - 8)
+        y = min(max(8, pos[1] + 18), config.SCREEN_H - h - 8)
+        T.rounded_rect(self.screen, (18, 16, 13), (x, y, w, h), radius=8,
+                       border_color=T.ROW_BORDER)
+        for surf, dy in rendered:
+            self.screen.blit(surf, (x + pad, y + pad + dy))
 
     def _draw_minigame(self, game, x, y, cw):
         mg = game.craft.minigame

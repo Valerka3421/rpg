@@ -124,6 +124,6 @@ class TradeMixin:
         hover = x <= mx <= x + w and y <= my <= y + h
         bg = (66, 54, 38) if hover else (40, 34, 26)
         T.rounded_rect(self.screen, bg, rect, radius=6, border_color=color)
-        self.text(label, x + w // 2, y + h // 2 - 2, color,
+        self.text(label, x + w // 2, y + h // 2, color,
                   font=T.FONT_BODY, center=True)
 

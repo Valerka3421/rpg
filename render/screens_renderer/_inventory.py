@@ -211,9 +211,8 @@ class InventoryMixin:
                   font=T.FONT_TINY if h < 70 else T.FONT_SMALL,
                   center=True)
 
-        # Бейдж количества — в правом верхнем углу ячейки
-        if count > 1:
-            self._draw_count_badge(x, y, w, h, count)
+        # Счётчик предметов в ячейке намеренно не рисуем: количество
+        # видно в подсказке при наведении, а захламлять сетку не нужно.
 
 
     def _draw_count_badge(self, x, y, w, h, count):
