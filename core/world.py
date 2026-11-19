@@ -1,7 +1,7 @@
 """Генерация миров, LOS, FOV, BFS."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import random
 from collections import deque
@@ -310,6 +310,28 @@ def generate_overworld() -> Dungeon:
 
     # 10. Кардинальные переходы (Tile.GATE) на краях карты — 4 выхода.
     _place_cardinal_gates(d)
+
+    # 11. Гарантировать, что дороги свободны от WALL-тайлов и ресурсов.
+    #     Лес может быть посажен до прорубания дорог, а некоторые декорации
+    #     (руины, колонны) ставятся после — случайно оставляя WALL на дороге.
+    #     Игрок не должен упираться в невидимые объекты на дороге.
+    for x0, y0, x1, y1 in ov.ROAD_SEGMENTS:
+        if y0 == y1:
+            for x in range(min(x0, x1), max(x0, x1) + 1):
+                for y in range(y0 - ov.ROAD_HALF_WIDTH, y0 + ov.ROAD_HALF_WIDTH + 1):
+                    if 0 <= x < MAP_W and 0 <= y < MAP_H:
+                        if d.tiles[y][x] == Tile.WALL:
+                            d.tiles[y][x] = Tile.FLOOR
+                        d.harvestables.pop((x, y), None)
+                        d.items.pop((x, y), None)
+        elif x0 == x1:
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                for x in range(x0 - ov.ROAD_HALF_WIDTH, x0 + ov.ROAD_HALF_WIDTH + 1):
+                    if 0 <= x < MAP_W and 0 <= y < MAP_H:
+                        if d.tiles[y][x] == Tile.WALL:
+                            d.tiles[y][x] = Tile.FLOOR
+                        d.harvestables.pop((x, y), None)
+                        d.items.pop((x, y), None)
 
     return d
 

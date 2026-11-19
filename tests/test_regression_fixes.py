@@ -317,3 +317,96 @@ def test_core_functions_have_type_annotations():
                     untyped.append(f"{modname}:{node.lineno} def {node.name}")
     assert not untyped, \
         "Функции без return annotation: " + ", ".join(untyped[:5])
+
+
+# ── Road invisible blockers regression (#11) ──
+def test_road_cells_are_clear_of_walls_and_harvestables():
+    """Дороги должны быть свободны от WALL-тайлов, harvestables и items.
+
+    Раньше лес мог быть посажен до прорубания дорог, оставляя невидимые
+    WALL-тайлы на дороге. Теперь generate_overworld() финализирует
+    очисткой всех road cells.
+    """
+    import pygame
+    pygame.init()
+    pygame.display.set_mode((100, 100))
+    from game import Game
+    from core import overworld as ov
+    from core.config import Tile
+
+    g = Game.__new__(Game)
+    g.new_game()
+    d = g.overworld
+
+    blockers = []
+    for x0, y0, x1, y1 in ov.ROAD_SEGMENTS:
+        if y0 == y1:
+            for x in range(min(x0, x1), max(x0, x1) + 1):
+                for y in range(y0 - 1, y0 + 2):
+                    if 0 <= x < d.w and 0 <= y < d.h:
+                        t = d.tiles[y][x]
+                        if t == Tile.WALL:
+                            blockers.append((x, y, 'WALL'))
+                        if (x, y) in d.harvestables:
+                            blockers.append((x, y, 'harvestable'))
+        elif x0 == x1:
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                for x in range(x0 - 1, x0 + 2):
+                    if 0 <= x < d.w and 0 <= y < d.h:
+                        t = d.tiles[y][x]
+                        if t == Tile.WALL:
+                            blockers.append((x, y, 'WALL'))
+                        if (x, y) in d.harvestables:
+                            blockers.append((x, y, 'harvestable'))
+    assert not blockers, \
+        f"На дороге найдены блокирующие объекты: {blockers[:5]}"
+
+
+# ── Server password constant-time comparison regression (#1) ──
+def test_server_password_uses_hmac_compare_digest():
+    """net/server.py должен использовать hmac.compare_digest для пароля."""
+    import inspect
+    from net import server as srv
+    src = inspect.getsource(srv)
+    # hmac.compare_digest должен быть в исходнике
+    assert 'hmac.compare_digest' in src, \
+        "Server password check должен использовать hmac.compare_digest"
+    # Не должно быть plain != для пароля
+    assert 'provided != self.server_password' not in src, \
+        "Server password check не должен использовать plain !="
+
+
+# ── Client send() logging regression (#2) ──
+def test_client_send_logs_errors():
+    """net/client.py Client.send() должен логировать ошибки, а не глотать их."""
+    import inspect
+    from net.client import Client
+    src = inspect.getsource(Client.send)
+    assert 'log.warning' in src or 'log.error' in src, \
+        "Client.send() должен логировать ошибки через log.warning/error"
+
+
+# ── Dead code removed regression (#6) ──
+def test_dead_code_removed():
+    """game/input_router.py и game/save_manager.py удалены (мёртвый код)."""
+    import os
+    game_dir = os.path.dirname(__import__('game').__file__)
+    assert not os.path.exists(os.path.join(game_dir, 'input_router.py')), \
+        "game/input_router.py должен быть удалён (мёртвый код)"
+    assert not os.path.exists(os.path.join(game_dir, 'save_manager.py')), \
+        "game/save_manager.py должен быть удалён (мёртвый код)"
+
+
+# ── Skills window no bottom panel regression (#12) ──
+def test_skills_window_has_no_bottom_description_panel():
+    """Окно навыков не должно иметь нижней панели описания — только hover."""
+    import inspect
+    from render.screens_renderer import ScreensRenderer
+    # _draw_class_tab не должен вызывать _draw_selected_node_panel
+    src_class = inspect.getsource(ScreensRenderer._draw_class_tab)
+    assert '_draw_selected_node_panel' not in src_class, \
+        "_draw_class_tab не должен вызывать _draw_selected_node_panel"
+    # _draw_craft_tab не должен вызывать _draw_craft_node_panel
+    src_craft = inspect.getsource(ScreensRenderer._draw_craft_tab)
+    assert '_draw_craft_node_panel' not in src_craft, \
+        "_draw_craft_tab не должен вызывать _draw_craft_node_panel"

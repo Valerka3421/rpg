@@ -22,29 +22,45 @@ Circular imports решены через lazy imports в `items.py:item_category
 и `items.py:parse_item_key` (они используют `SKILLS` и `ItemInstance`,
 которые в `recipes.py` и `quests.py` соответственно).
 
-## ⚠️ Отложено: слишком рискованно без breaking changes
+## ✅ Сделано: `game/game.py` → `game/game/` пакет (mixin-архитектура)
 
-### `game/game.py` (2000 строк)
+**2320 строк → 8 файлов:**
 
-**План был:** разбить на
-- `game/state.py` — `GameState` (данные мира, игрока, экрана)
-- `game/input_router.py` — `InputRouter` (маршрутизация клавиш)
-- `game/session.py` — `GameSession` (цикл хода, движение, бой)
-- `game/save_manager.py` — `SaveManager` (save/load/слоты)
-- `game/game.py` — тонкая координация < 300 строк
+| Файл | LOC | Mixin | Методов |
+|---|---|---|---|
+| `__init__.py` | 43 | `Game` | 0 (наследует все mixins) |
+| `_common.py` | 83 | — | shared imports + STAT_ORDER |
+| `_base.py` | 558 | `GameBase` | 23 |
+| `_world.py` | 343 | `WorldMixin` | 10 |
+| `_combat.py` | 429 | `CombatMixin` | 17 |
+| `_inventory.py` | 423 | `InventoryMixin` | 26 |
+| `_monsters.py` | 93 | `MonsterMixin` | 4 |
+| `_input.py` | 442 | `InputMixin` | 11 |
+| `_menu.py` | 120 | `MenuMixin` | 20 |
 
-**Почему отложено:** класс `Game` имеет ~100 методов, глубоко связанных
-между собой (`handle_key` вызывает `attack` вызывает `_kill_monster`
-вызывает `log` вызывает `add_float` вызывает `renderer.draw`). Разбиение
-потребует передать `Game` объект во все helper-функции, что:
-1. Меняет API: `g.save()` → `SaveManager.save(g)` (или `g.save_manager.save()`)
-2. Ломает 200+ тестов, которые вызывают методы напрямую на `Game`
-3. Требует недели работы и плейтестов
+`class Game(CombatMixin, WorldMixin, InventoryMixin, MonsterMixin, InputMixin, MenuMixin, GameBase)`
+— все методы на одном `self`, перекрёстные вызовы работают без изменений.
 
-**Альтернатива,** которую можно сделать безопасно: extract helper-функции
-в новые модули, вызывать их из методов `Game`. API `Game` остаётся
-прежним, реализация переезжает. Но это не уменьшает размер `game.py`
-сильно — только выносит чистую логику.
+## ✅ Сделано: `render/tiles.py` → `render/tiles/` пакет
+
+**2132 строки → 10 файлов** по категориям: `_common`, `_dungeon`, `_nature`,
+`_settlement`, `_dungeon_ruins`, `_terrain`, `_objects`, `_mine`, `_tombstone`, `_registry`.
+
+## ✅ Сделано: `render/icon_renderer.py` → `render/icons/` пакет
+
+**2190 строк → 7 файлов** (mixin): `_base`, `_items`, `_players`, `_class_icons`,
+`_monsters`, `_npcs`, `__init__`.
+
+## ✅ Сделано: `net/core.py` частично разбит
+
+Вынесены `net/player_registry.py` (146 LOC) и `net/snapshot_builder.py` (81 LOC).
+Ядро `net/core.py` (1292 LOC) осталось — требует дальнейшего разбиения.
+
+## ⚠️ Отложено: `render/screens_renderer.py` (2084 строк)
+
+Крупнейший оставшийся файл. Рендер инвентаря, статов, крафта, навыков,
+квестов, магазина — всё в одном. По аналогии с `tiles/` и `icons/` стоит
+разбить на `render/screens/` пакет.
 
 ### `net/core.py` (1376 строк)
 

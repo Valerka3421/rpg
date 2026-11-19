@@ -1,6 +1,7 @@
 """TCP-сервер: держит GameCore, рассылает snapshot 20 раз/сек."""
 import argparse
 import json
+import logging
 import os
 import socket
 import threading
@@ -9,6 +10,8 @@ import time
 from core import config
 from core.config import DATA_DIR
 from net.core import GameCore
+
+log = logging.getLogger("ethelgard.server")
 
 # Защита от DoS: если клиент прислал больше этого без newline — разрыв.
 MAX_MSG_SIZE = 65536
@@ -57,9 +60,9 @@ class Server:
         try:
             with open(self.players_save_path, encoding='utf-8') as f:
                 self.saved_players = json.load(f)
-            print(f"[SERVER] loaded {len(self.saved_players)} saved players")
+            log.info("loaded %d saved players", len(self.saved_players))
         except Exception as e:
-            print(f"[SERVER] load players: {e}")
+            log.warning("load players: %s", e)
 
     def _flush_saved_players(self):
         try:
@@ -68,7 +71,7 @@ class Server:
                 json.dump(self.saved_players, f, ensure_ascii=False)
             os.replace(tmp, self.players_save_path)
         except Exception as e:
-            print(f"[SERVER] save players: {e}")
+            log.warning("save players: %s", e)
 
     # ── Сохранение игроков по токену и по IP ──
     @staticmethod
@@ -111,14 +114,14 @@ class Server:
             except OSError as e:
                 last_error = e
                 continue
-        print(f"[SERVER] Не удалось занять порт "
+        log.warning("Не удалось занять порт "
               f"{self.requested_port}-{self.requested_port + 19}: {last_error}")
         return False
 
     def start(self):
         if os.path.exists(self.world_save_path):
             if self.core.load_world(self.world_save_path):
-                print(f"[SERVER] world loaded from {self.world_save_path}")
+                log.info("world loaded from %s", self.world_save_path)
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -129,7 +132,7 @@ class Server:
                 self.ready.set()
                 return
         except Exception as e:
-            print(f"[SERVER] bind exception: {e}")
+            log.error("bind exception: %s", e)
             self.running = False
             self.ready.set()
             return
@@ -137,9 +140,9 @@ class Server:
         self.ready.set()
         self._sock = sock
         if self.bound_port != self.requested_port:
-            print(f"[SERVER] порт {self.requested_port} занят — "
-                  f"использую {self.bound_port}")
-        print(f"[SERVER] {self.host}:{self.port}  (max {self.max_players})")
+            log.warning("порт %s занят — использую %s",
+                        self.requested_port, self.bound_port)
+        log.info("%s:%s  (max %s)", self.host, self.port, self.max_players)
 
         threading.Thread(target=self._tick_loop, daemon=True).start()
 
@@ -179,7 +182,7 @@ class Server:
             try:
                 conn.sendall((json.dumps(welcome) + '\n').encode())
             except Exception as e:
-                print(f"[SERVER] welcome error for {pid}: {e}")
+                log.warning("welcome error for %s: %s", pid, e)
                 try: conn.close()
                 except Exception: pass
                 continue
@@ -187,7 +190,7 @@ class Server:
             with self.lock:
                 self.clients[pid] = conn
                 self.client_ips[pid] = addr[0] if addr else ''
-            print(f"[SERVER] player {pid} connected ({addr[0]})")
+            log.info("player %s connected (%s)", pid, addr[0])
             threading.Thread(target=self._client_loop,
                              args=(pid, conn, addr), daemon=True).start()
 
@@ -195,7 +198,7 @@ class Server:
             sock.close()
         except Exception:
             pass
-        print("[SERVER] stopped")
+        log.info("stopped")
 
     def stop(self):
         """Остановить сервер: закрыть сокет, поток завершится."""
@@ -213,7 +216,7 @@ class Server:
                 self._save_player_record(qid, qp)
             self._flush_saved_players()
         except Exception as e:
-            print(f"[SERVER] final save failed: {e}")
+            log.error("final save failed: %s", e)
 
     def _drop_client(self, pid, reason=''):
         with self.lock:
@@ -238,9 +241,9 @@ class Server:
                 try:
                     self.core.save_world(self.world_save_path)
                 except Exception as e:
-                    print(f"[SERVER] world save on last disconnect: {e}")
+                    log.warning("world save on last disconnect: %s", e)
         if reason:
-            print(f"[SERVER] player {pid} dropped ({reason})")
+            log.info("player %s dropped (%s)", pid, reason)
 
     def _client_loop(self, pid, conn, addr=None):
         buf = b''
@@ -252,7 +255,7 @@ class Server:
                 buf += data
                 # Защита от DoS: буфер не должен расти бесконечно без \n.
                 if len(buf) > MAX_MSG_SIZE:
-                    print(f"[SERVER] drop {pid}: message too big "
+                    log.warning("drop %s: message too big "
                           f"({len(buf)} bytes, no newline)")
                     break
                 while b'\n' in buf:
@@ -265,10 +268,12 @@ class Server:
                             token = str(msg.get('token') or f'anon_{pid}')
                             class_key = msg.get('class', 'warrior')
                             # P3: проверка пароля сервера (если задан).
+                            # hmac.compare_digest — защита от timing-атаки.
                             if self.server_password:
-                                provided = msg.get('server_password')
-                                if provided != self.server_password:
-                                    print(f"[SERVER] drop {pid}: wrong server password")
+                                provided = msg.get('server_password') or ''
+                                if not hmac.compare_digest(
+                                        provided, self.server_password):
+                                    log.warning("drop %s: wrong server password", pid)
                                     try:
                                         conn.sendall(b'{"type":"error",'
                                                      b'"msg":"wrong password"}\n')
@@ -306,12 +311,12 @@ class Server:
                                     # даже при смене token-файла.
                                     self._save_player_record(pid, p)
                                     self._flush_saved_players()
-                                    print(f"[SERVER] {pid} RESTORED "
-                                          f"({token[:8]}... ip={ip_key})")
+                                    log.info("%s RESTORED (%s... ip=%s)",
+                                             pid, token[:8], ip_key)
                                 else:
                                     self.core.add_player(pid, class_key)
-                                    print(f"[SERVER] {pid} NEW ({token[:8]}...) "
-                                          f"class={class_key} ip={ip_key}")
+                                    log.info("%s NEW (%s...) class=%s ip=%s",
+                                             pid, token[:8], class_key, ip_key)
                             continue
                         if msg.get('type') == 'save_world':
                             with self.lock:
@@ -320,9 +325,9 @@ class Server:
                                     for qid, qp in self.core.players.items():
                                         self._save_player_record(qid, qp)
                                     self._flush_saved_players()
-                                    print("[SERVER] world + players saved")
+                                    log.info("world + players saved")
                                 except Exception as e:
-                                    print(f"[SERVER] save error: {e}")
+                                    log.error("save error: %s", e)
                             continue
                         # P3: HMAC verification — если у клиента есть
                         # сессионный ключ, проверяем подпись сообщения.
@@ -331,17 +336,17 @@ class Server:
                             sig = msg.pop('sig', None)
                             if sig and not config.verify_message_hmac(
                                     session_key, msg, sig):
-                                print(f"[SERVER] drop {pid}: bad HMAC")
+                                log.warning("drop %s: bad HMAC", pid)
                                 break
                         with self.lock:
                             self.core.apply_input(pid, msg)
                     except Exception as e:
-                        print(f"[SERVER] bad input from {pid}: {e}")
+                        log.warning("bad input from %s: %s", pid, e)
             except Exception as e:
-                print(f"[SERVER] client {pid} error: {e}")
+                log.warning("client %s error: %s", pid, e)
                 break
         self._drop_client(pid)
-        print(f"[SERVER] player {pid} disconnected")
+        log.info("player %s disconnected", pid)
 
     def _tick_loop(self):
         last = time.time()

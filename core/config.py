@@ -163,9 +163,8 @@ def dev_console_password_hash():
     1. ``ETHELGARD_DEV_PASSWORD_HASH`` env var — прямой hex-хеш (для CI).
     2. ``ETHELGARD_DEV_PASSWORD`` env var — plaintext, хешируется через
        scrypt с солью из settings.json (или дефолтной).
-    3. ``DEV_CONSOLE_PASSWORD_HASH`` — встроенный дефолт (sha256-хеш
-       пароля «по умолчанию», оставлен для совместимости со старыми
-       сейвами; не публикуется в README).
+    3. ``DEV_CONSOLE_PASSWORD_HASH`` — ``None`` по умолчанию (консоль
+       отключена, пока не задан ``ETHELGARD_DEV_PASSWORD``).
 
     Возвращает hex-строку хеша. Хеши scrypt помечаются префиксом ``scrypt:``,
     чтобы ``verify_dev_console_password`` мог отличить их от sha256.

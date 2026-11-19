@@ -1232,11 +1232,9 @@ class ScreensRenderer(BaseRenderer):
             y += 24
 
         nodes = ctrl.rows()
-        panel_h = 84
-        panel_y = bottom - panel_h - 30
-
-        # Древо — в собственном внутреннем фрейме, отдельно от подсказки.
-        box = (x, y + 2, cw, max(140, panel_y - 12 - (y + 2)))
+        # Нижняя панель описания убрана — только hover-tooltip.
+        # Древо занимает всё доступное место.
+        box = (x, y + 2, cw, max(140, bottom - 30 - (y + 2)))
         T.rounded_rect(self.screen, (21, 19, 15), box, radius=10,
                        border_color=(74, 62, 45))
         T.rounded_rect(self.screen, (17, 15, 12),
@@ -1248,8 +1246,6 @@ class ScreensRenderer(BaseRenderer):
         self._draw_class_tree(game, nodes, cls, ctrl,
                               box[0] + 16, box[1] + 28,
                               box[2] - 32, box[1] + box[3] - 8)
-        self._draw_selected_node_panel(sk, nodes, ctrl, x, panel_y, cw,
-                                       panel_h, p)
 
     def _draw_craft_tab(self, game, x, y, cw, ch, ctrl, sk):
         p = game.player
@@ -1270,11 +1266,8 @@ class ScreensRenderer(BaseRenderer):
 
         nodes = sk.craft_tree(tab)
         bottom = game._modal_content_rect[1] + ch
-        panel_h = 104
-        panel_y = bottom - panel_h - 30
-
-        # Отдельный внутренний фрейм вокруг ремесленного древа.
-        box = (x, y + 2, cw, max(140, panel_y - 12 - (y + 2)))
+        # Нижняя панель описания убрана — только hover-tooltip.
+        box = (x, y + 2, cw, max(140, bottom - 30 - (y + 2)))
         T.rounded_rect(self.screen, (21, 19, 15), box, radius=10,
                        border_color=(74, 62, 45))
         T.rounded_rect(self.screen, (17, 15, 12),
@@ -1284,8 +1277,6 @@ class ScreensRenderer(BaseRenderer):
         hovered = self._draw_craft_tree(game, nodes, ctrl, tab, level,
                                         box[0] + 16, box[1] + 14,
                                         box[2] - 32, box[1] + box[3] - 8)
-        self._draw_craft_node_panel(sk, tab, nodes, ctrl, level,
-                                    hovered, x, panel_y, cw, panel_h)
 
     # Цвет и значок по умолчанию для ремесленных веток.
     _CRAFT_GLYPH = {

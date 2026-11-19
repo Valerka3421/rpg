@@ -27,7 +27,7 @@ def generate_dungeon_lazy(depth, seed, cache):
 ## numpy для тайлов
 
 **Проблема.** При картах больше 256×256 или реалтайм-освещении чистый
-Python в `render/tiles.py` становится узким местом.
+Python в `render/tiles/` становится узким местом.
 
 **Решение.** Использовать `pygame.surfarray` + numpy для векторизованных
 операций с пикселями:

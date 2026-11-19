@@ -150,13 +150,13 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
         # Ждём bind: при занятом порте сервер выберет следующий свободный.
         # Даём 10 секунд (увеличено с 5 — на случай медленной машины/CI).
         if not server.ready.wait(10.0) or not server.running:
-            print(f"[MP] не удалось запустить сервер на порту {port}")
+            log.warning("не удалось запустить сервер на порту %s", port)
             import time as _t
             _t.sleep(2)
             return
         port = server.bound_port or port
         host_addr = 'localhost'
-        print(f"[MP] Host started on port {port}, connecting as localhost")
+        log.info("Host started on port %s, connecting as localhost", port)
         # Хост ВСЕГДА выбирает класс — раньше skip_class_select мог
         # передаваться с True, и игрок вылетал в главное меню.
         skip_class_select = False
@@ -169,7 +169,7 @@ def _run_multiplayer(as_host, host_addr='localhost', port=9000,
         client.start()
     except Exception as e:
         import traceback
-        print(f"[MP] error: {e}")
+        log.error("MP error: %s", e)
         traceback.print_exc()
         time.sleep(2)
     finally:
@@ -250,8 +250,8 @@ def _enter_state(state, screen, clock, mp_result=None):
                 except FileNotFoundError:
                     pass
                 except Exception as e:
-                    print(f"[MP] fresh_start remove {fname}: {e}")
-            print("[MP] fresh start — старый сейв удалён")
+                    log.warning("fresh_start remove %s: %s", fname, e)
+            log.info("fresh start — старый сейв удалён")
         _run_multiplayer(as_host=True,
                          port=result.get('port', 9000),
                          skip_class_select=result.get('skip_class', False))

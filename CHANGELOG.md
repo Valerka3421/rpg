@@ -10,10 +10,6 @@
 ### Добавлено
 - **Лицензия MIT** — проект теперь официально open-source (`LICENSE`).
 - **`pyproject.toml`** — единая конфигурация сборки, lint, type-check, тестов.
-- **CI на GitHub Actions** (`.github/workflows/ci.yml`) — ruff + black + mypy + pytest
-  на Windows/Linux/macOS × Python 3.10/3.11/3.12.
-- **Release workflow** (`.github/workflows/release.yml`) — сборка `Aethelgard.exe`
-  через PyInstaller в CI по тегу `v*`.
 - **`CONTRIBUTING.md`** — правила для контрибьюторов: тесты обязательны,
   docstrings «почему», разделение по слоям, Conventional Commits.
 - **`CODE_OF_CONDUCT.md`** — стандарт поведения в сообществе.

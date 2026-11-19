@@ -12,7 +12,7 @@ Stoneshard: тёплый почти-чёрный камень, приглушё�
 
 ## Как рисуется мир
 
-Тайлы ([render/tiles.py](render/tiles.py)) — не «прямоугольники в кадре», а
+Тайлы ([render/tiles/](render/tiles/)) — не «прямоугольники в кадре», а
 готовые поверхности 64×64 с деталями: каменная кладка с раствором,
 выщербленными углами и трещинами; плиты пола со швами, мхом и лужами;
 факелы с тёплым ореолом; лестницы вниз/вверх; арка выхода с дневным светом;
@@ -65,7 +65,7 @@ Stoneshard: тёплый почти-чёрный камень, приглушё�
 кэшируется: карта перерисовывается только при шаге или смене этажа, поэтому
 кадр стоит ~1.2 мс.
 
-Спрайты ([render/icon_renderer.py](render/icon_renderer.py)) проходят общий
+Спрайты ([render/icons/](render/icons/)) проходят общий
 финиш ([render/textures.py](render/textures.py)): обесцвечивание, тёплый верх
 и холодный низ, обводка, мягкая тень. PNG при загрузке приводятся к той же
 палитре, а не остаются яркими пятнами. Тайлы, спрайты и свет используют общие
@@ -171,30 +171,55 @@ scrypt) или `ETHELGARD_DEV_PASSWORD_HASH` (прямой hex-хеш для CI/
 
 ```
 main.py            точка входа, игровой цикл, смена разрешения
-core/              правила мира без pygame
-  config.py        константы, Tile, баланс
-  data.py          монстры, предметы, классы, дроп, кривая опыта
+core/              правила мира без pygame (инвариант: core/ не импортирует pygame)
+  config.py        константы, Tile, баланс, scrypt/HMAC для безопасности
+  data/            пакет данных: monsters, items, classes, recipes, quests, city, statuses
   rules.py         ОБЩИЕ правила: бой, лут, статусы, опыт, крафт, спавн
   skills.py        древо навыков, ветки классов и ремёсел, смена класса
-  entities.py      Player / Entity / Dungeon
+  entities.py      Player / Entity / Dungeon / Projectile
   world.py         генерация мира, FOV, BFS
   overworld.py     раскладка города, стен, биомов, дорог и руин
+  locations.py     отдельные карты локаций и переходы между ними
+  harvest.py       добываемые ресурсы (деревья, руда, кусты)
   save.py          (де)сериализация, слоты, кэш этажей
   quests.py        журнал квестов
+  modes.py         ScreenMode StrEnum — типизированные экраны
+  settings.py      загрузка/сохранение settings.json
+  py.typed         маркер PEP 561 (пакет типизирован)
 game/              одиночная игра
-  game.py          состояние, движение, бой, сохранения, ввод
-  *_controller.py  меню, диалоги, квесты, магазин, крафт, статистика
+  game/            пакет Game (mixin-архитектура):
+    __init__.py    class Game(CombatMixin, WorldMixin, ..., GameBase)
+    _common.py     shared imports + STAT_ORDER
+    _base.py       GameBase: конструктор, new_game, NPC, update, draw
+    _world.py      WorldMixin: travel, dungeon, save, spawn
+    _combat.py     CombatMixin: attack, projectiles, statuses
+    _inventory.py  InventoryMixin: use_item, harvest, unequip
+    _monsters.py   MonsterMixin: monsters_turn, try_move
+    _input.py      InputMixin: handle_key, handle_mouse
+    _menu.py       MenuMixin: shop, craft, menu navigation
+  *_controller.py  контроллеры: меню, диалоги, квесты, крафт, статистика
 render/            отрисовка
+  display.py       безопасная смена режима окна (без падения драйвера)
   textures.py      общие примитивы: шум, обводка, тени, свет
-  tiles.py         процедурные тайлы и их кэш
-  theme/sprites/…  тема, рендереры, процедурные иконки
+  tiles/           пакет процедурных тайлов (10 подмодулей по категориям)
+  icons/           пакет рендера иконок (mixin: _items, _monsters, _players, _npcs)
+  screens_renderer.py  рендер модальных экранов (инвентарь, статы, крафт)
+  game_renderer.py     рендер игрового поля
+  menu_renderer.py     главное меню
+  projectile_renderer.py  анимация снарядов
+  bigmap_renderer.py    полноэкранная карта (M)
+  theme.py        палитра, шрифты, виджеты
+  sprites.py      кэш спрайтов
+  skill_icon_loader.py  загрузка PNG иконок навыков
 net/               кооператив
   core.py          авторитетное состояние сервера (использует core.rules)
   server.py        TCP-сервер, рассылка снапшотов 20 раз/сек
   client.py        pygame-клиент
   view.py          адаптер снапшотов под Renderer
+  player_registry.py  реестр игроков по IP+токену
+  snapshot_builder.py  сборка снапшотов для рассылки
 audio/             процедурные звуки
-tests/             pytest
+tests/             pytest (577 тестов)
 ```
 
 ### Ключевое правило архитектуры

@@ -10,6 +10,7 @@
 описание того, что произошло; логи, звук, всплывающий текст и анимации
 остаются в UI-слое.
 """
+from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
@@ -64,8 +65,8 @@ PROJECTILE_KINDS = {
 }
 
 
-def ranged_attack(attacker, target, kind='arrow', damage=None,
-                  source_pid=-1):
+def ranged_attack(attacker: Entity, target: Entity | None, kind: str = 'arrow',
+                  damage: int | None = None, source_pid: int = -1) -> Projectile:
     """Создаёт Projectile, летящий от attacker к target.
 
     Урон и статусы применяются при попадании (в game.update_projectiles).
@@ -94,7 +95,7 @@ def ranged_attack(attacker, target, kind='arrow', damage=None,
     )
 
 
-def projectile_hit(projectile, target):
+def projectile_hit(projectile: Projectile, target: Entity | None) -> tuple[int, str]:
     """Применяет урон и статус от попадания снаряда в цель.
 
     Возвращает (damage_dealt, status_applied). Если target уже мёртв или
@@ -246,7 +247,7 @@ class KillReward:
     drops: list = field(default_factory=list)
 
 
-def roll_kill_reward(monster, depth, greedy=False):
+def roll_kill_reward(monster: Entity, depth: int, greedy: bool = False) -> KillReward:
     """Золото/опыт/дроп за убитого моба (не применяет к игроку)."""
     profile = MONSTERS_BY_CH.get(getattr(monster, 'ch', ''), {})
     # Животные не носят монет — с них падают только трофеи/материалы.
@@ -286,20 +287,20 @@ def award_kill(player: Player, monster: Entity, depth: int) -> tuple[KillReward,
 
 
 # ════════════════════ ТАЙМИНГИ И АТАКИ БОССОВ ════════════════════
-def action_interval(monster):
+def action_interval(monster: Entity) -> float:
     """Индивидуальный интервал хода моба с небольшим разбросом."""
     jitter = random.uniform(-MONSTER_ACTION_JITTER, MONSTER_ACTION_JITTER)
     base = BOSS_ACTION_INTERVAL if monster.boss else MONSTER_ACTION_INTERVAL
     return max(0.12, base * (1 + jitter))
 
 
-def init_action_timers(monsters):
+def init_action_timers(monsters: list) -> None:
     for m in monsters:
         if m.act_timer <= 0:
             m.act_timer = action_interval(m)
 
 
-def boss_breath_tick(boss, target, distance, dt):
+def boss_breath_tick(boss: Entity, target: Entity, distance: int, dt: float) -> int:
     """Дальняя атака босса (анти-кайтинг). Возвращает нанесённый урон."""
     if not boss.boss or dt <= 0:
         return 0
@@ -328,7 +329,7 @@ class StatusEvent:
     expired: bool = False
 
 
-def tick_statuses(entity, heal=True):
+def tick_statuses(entity: Entity, heal: bool = True) -> list:
     """Тик всех статусов сущности. Возвращает список событий."""
     events = []
     if not entity.statuses:
@@ -371,7 +372,7 @@ class PickupResult:
     color: tuple = (225, 225, 235)
 
 
-def roll_pickup_rarity(key):
+def roll_pickup_rarity(key: str) -> str:
     """При подборе снаряжение может оказаться редким."""
     base, rarity = parse_item_key(key)
     data = ITEMS.get(base, {})
@@ -440,7 +441,7 @@ def add_item(inventory: dict, key: str, count: int = 1) -> None:
             break  # защита от зацикливания
 
 
-def place_loot(dungeon, inventory, x, y, key, avoid=()):
+def place_loot(dungeon: Dungeon, inventory: dict, x: int, y: int, key: str, avoid: set = ()) -> bool:
     """Кладёт дроп на тайл или в инвентарь. Возвращает 'tile'|'inventory'."""
     blocked = set(avoid)
     if dungeon.tiles[y][x] in (Tile.STAIRS, Tile.EXIT, Tile.UPSTAIRS):
@@ -485,7 +486,7 @@ class CraftResult:
     count: int = 1
 
 
-def recipe_info(item_key, inventory, level, player=None, recipe_index=None):
+def recipe_info(item_key: str, inventory: dict, level: int, player=None, recipe_index=None) -> dict:
     """(материалы, есть_материалы, всё_ли_выполнено).
 
     ``player`` проверяется на требования навыка. Для совместимости со
@@ -505,13 +506,13 @@ def recipe_info(item_key, inventory, level, player=None, recipe_index=None):
     return recipe, has_materials, level_ok and skill_ok
 
 
-def can_craft(item_key, inventory, level, player=None, recipe_index=None):
+def can_craft(item_key: str, inventory: dict, level: int, player=None, recipe_index=None) -> bool:
     recipe, has_materials, allowed = recipe_info(
         item_key, inventory, level, player, recipe_index)
     return bool(recipe) and has_materials and allowed
 
 
-def quality_from_accuracy(accuracy, bonus=0):
+def quality_from_accuracy(accuracy: float, bonus: int = 0) -> int:
     """Точность мини-игры (0..1) → качество 0..3 с бонусом навыков."""
     if accuracy >= 0.93:
         quality = 3
@@ -524,7 +525,7 @@ def quality_from_accuracy(accuracy, bonus=0):
     return max(0, min(3, quality + int(bonus)))
 
 
-def roll_craft_quality(player):
+def roll_craft_quality(player: Player) -> int:
     """Качество без мини-игры: редкий шанс бонуса от узлов ветки."""
     bonus = skills.craft_quality_bonus(player)
     roll = random.random()
@@ -538,14 +539,14 @@ def roll_craft_quality(player):
     return max(0, min(3, quality + bonus))
 
 
-def _consume_recipe(inventory, recipe):
+def _consume_recipe(inventory: dict, recipe: dict) -> None:
     for mat, cnt in recipe.items():
         inventory[mat] -= cnt
         if inventory[mat] <= 0:
             del inventory[mat]
 
 
-def craft_item(player, item_key, quality=None, recipe_index=None):
+def craft_item(player: Player, item_key: str, quality=None, recipe_index=None) -> UseResult:
     """Создаёт предмет с опытом навыка и качеством. Возвращает CraftResult."""
     inventory = player.inventory
     item = ITEMS.get(item_key, {})

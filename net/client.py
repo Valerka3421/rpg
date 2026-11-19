@@ -3,11 +3,14 @@ import argparse
 import ipaddress
 import json
 import os as _os
+import logging
 import socket
 import threading
 import uuid
 
 import pygame
+
+log = logging.getLogger("ethelgard.client")
 
 
 def _player_token_path():
@@ -234,7 +237,7 @@ class Client:
                     msg = json.loads(line.decode())
                 except ValueError as e:
                     # Повреждённая строка — просто ждём следующую
-                    print(f"[CLIENT] skip bad message: {e}")
+                    log.warning("skip bad message: %s", e)
                     continue
                 if msg.get('type') == 'welcome':
                     self.my_pid = msg['pid']
@@ -536,8 +539,8 @@ class Client:
     def send(self, msg):
         try:
             self.sock.sendall((json.dumps(msg) + '\n').encode())
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning('send failed: %s', e)
 
     def recv_loop(self):
         buf = b''
@@ -546,7 +549,7 @@ class Client:
                 data = self.sock.recv(65536)
                 if not data:
                     if self.running:
-                        print("[CLIENT] disconnected")
+                        log.info("disconnected")
                     self.running = False
                     break
                 buf += data
@@ -562,10 +565,10 @@ class Client:
                                     self.tiles = msg.pop('tiles')
                                 self.snap = msg
                     except Exception as e:
-                        print(f"[CLIENT] parse error: {e}")
+                        log.warning("parse error: %s", e)
             except Exception as e:
                 if self.running:
-                    print(f"[CLIENT] recv error: {e}")
+                    log.warning("recv error: %s", e)
                 self.running = False
                 break
 
@@ -624,7 +627,7 @@ class Client:
             pygame.time.wait(2000)
             return
 
-        print(f"[CLIENT] connected as pid={self.my_pid}")
+        log.info("connected as pid=%s", self.my_pid)
         pygame.display.set_caption(f"Этельгард MP — pid {self.my_pid}")
         clock = pygame.time.Clock()
 
@@ -681,7 +684,7 @@ class Client:
                             mode = 'settings'
                         elif c == 'Сохранить мир':
                             self.send({'type': 'save_world'})
-                            print("[MP] world save requested")
+                            log.info("world save requested")
                         elif c == 'Отключиться от игры':
                             self.running = False
                     else:
@@ -706,7 +709,7 @@ class Client:
                             mode = 'settings'
                         elif c == 'Сохранить мир':
                             self.send({'type': 'save_world'})
-                            print("[MP] world save requested")
+                            log.info("world save requested")
                         elif c == 'Отключиться от игры':
                             self.running = False
                     elif mode == 'settings':

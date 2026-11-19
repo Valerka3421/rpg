@@ -1,7 +1,7 @@
 """Классы персонажей и их эволюции."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
 from .items import ITEMS, parse_item_key

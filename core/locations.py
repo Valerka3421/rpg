@@ -10,7 +10,7 @@
 поэтому при возвращении локация выглядит ровно так, как её оставили.
 """
 from __future__ import annotations
-from typing import Any, Optional
+from typing import Any
 
 import random
 from collections import deque
@@ -499,6 +499,27 @@ def _generate_village() -> Any:
                     avoid=avoid, min_dist=ov.VILLAGE_CENTER,
                     safe_zone=lambda x, y: ov.in_city_safe(x, y, margin=6))
     d.rooms = [Room(ov.VILLAGE_CENTER[0] - 1, ov.VILLAGE_CENTER[1] - 1, 3, 3)]
+
+    # Гарантировать, что дороги свободны от WALL-тайлов и ресурсов.
+    # Лес посажен до прорубания дорог — случайные WALL могли остаться.
+    # Очищаем и внутри-деревенские дороги (VILLAGE_ROADS), и отрезки
+    # ov.ROAD_SEGMENTS, которые проходят через эту карту.
+    road_cells_to_clear = set(VILLAGE_ROADS)
+    for x0, y0, x1, y1 in ov.ROAD_SEGMENTS:
+        if y0 == y1:
+            for x in range(min(x0, x1), max(x0, x1) + 1):
+                for y in range(y0 - 1, y0 + 2):
+                    road_cells_to_clear.add((x, y))
+        elif x0 == x1:
+            for y in range(min(y0, y1), max(y0, y1) + 1):
+                for x in range(x0 - 1, x0 + 2):
+                    road_cells_to_clear.add((x, y))
+    for (x, y) in road_cells_to_clear:
+        if 0 <= x < d.w and 0 <= y < d.h:
+            if d.tiles[y][x] == Tile.WALL:
+                d.tiles[y][x] = Tile.FLOOR
+            d.harvestables.pop((x, y), None)
+            d.items.pop((x, y), None)
     return d
 
 

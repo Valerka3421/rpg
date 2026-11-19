@@ -1,7 +1,7 @@
 """Навыки крафта, рецепты и кривая опыта."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 import random
 
