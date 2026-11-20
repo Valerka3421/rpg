@@ -1,2 +1,0 @@
-# PEP 561 marker — declares that this package ships type annotations.
-# Allows mypy / pyright to use the annotations when checking downstream code.

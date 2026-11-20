@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <NoWarn>CS8618;CS8632;CS0169;CS0649;CS0219;CA1416</NoWarn>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Aethelgard</AssemblyName>
+    <RootNamespace>Aethelgard</RootNamespace>
+    <Version>0.1.0</Version>
+    <Company>Valerka3421</Company>
+    <Product>Aethelgard</Product>
+    <Description>Tactical RPG ported from Python+pygame to C# MonoGame</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
+  </ItemGroup>
+
+  <!-- System.Drawing for runtime font rendering (replaces MGCB content pipeline) -->
+  <ItemGroup Condition="'$(OS)' == 'Windows_NT'">
+    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+  </ItemGroup>
+</Project>
