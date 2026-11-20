@@ -791,6 +791,7 @@ def test_every_gate_spawns_next_to_its_return_gate(make_game):
     sx, sy = g.dungeon.stairs_pos
     g.player.x, g.player.y = sx, sy - 1
     g.move_player(0, 1)
+    g.use_stairs()
     assert g.world_mode == 'dungeon'
     g.exit_to_overworld()
     assert g.location == 'graveyard'

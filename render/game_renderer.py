@@ -201,7 +201,7 @@ class GameRenderer(BaseRenderer):
                     if self._is_overworld:
                         fn = getattr(game, 'wall_kind', None)
                         kind = fn(mx, my) if fn else ov.wall_kind(mx, my)
-                        if kind.startswith('tree'):
+                        if kind.startswith('tree') or kind == 'beach_tree':
                             # Кроны прозрачные — сперва настоящий пол.
                             self._draw_floor(px, py, mx, my, light)
                     if self._draw_wall(px, py, mx, my, light) and vis:
@@ -442,7 +442,7 @@ class GameRenderer(BaseRenderer):
     def _draw_monsters(self, game, cam_x, cam_y):
         from core.config import ANIM_ATTACK_AMP, ANIM_IDLE_AMP, ANIM_IDLE_SPEED
         for m in game.dungeon.monsters:
-            if m.hp <= 0 or (m.x, m.y) not in game.visible:
+            if m.hp <= 0 or (m.x, m.y) not in game.explored:
                 continue
             px = (self._rx(m) - cam_x) * TILE
             py = (self._ry(m) - cam_y) * TILE
@@ -484,7 +484,7 @@ class GameRenderer(BaseRenderer):
         if game.world_mode != 'overworld' \
                 or getattr(game, 'location', 'village') != 'village':
             return
-        if not (game.elder and (game.elder.x, game.elder.y) in game.visible):
+        if not (game.elder and (game.elder.x, game.elder.y) in game.explored):
             return
         px = (self._rx(game.elder) - cam_x) * TILE
         py = (self._ry(game.elder) - cam_y) * TILE
@@ -502,7 +502,7 @@ class GameRenderer(BaseRenderer):
                 or getattr(game, 'location', 'village') != 'village'):
             return
         for npc in getattr(game, 'city_npcs', ()) or ():
-            if (npc.x, npc.y) not in game.visible:
+            if (npc.x, npc.y) not in game.explored:
                 continue
             px = (self._rx(npc) - cam_x) * TILE
             py = (self._ry(npc) - cam_y) * TILE
@@ -518,7 +518,7 @@ class GameRenderer(BaseRenderer):
     def _draw_merchant(self, game, cam_x, cam_y):
         if game.world_mode != 'dungeon':
             return
-        if not (game.merchant and (game.merchant.x, game.merchant.y) in game.visible):
+        if not (game.merchant and (game.merchant.x, game.merchant.y) in game.explored):
             return
         px = (self._rx(game.merchant) - cam_x) * TILE
         py = (self._ry(game.merchant) - cam_y) * TILE
@@ -598,9 +598,14 @@ class GameRenderer(BaseRenderer):
             kind = pr.get('kind', 'orb')
             color = tuple(pr.get('color', (200, 160, 255)))
             if kind == 'arrow':
-                tx = pr['target'].x - cam_x
-                ty = pr['target'].y - cam_y
-                dx, dy = tx * TILE - sx, ty * TILE - sy
+                if pr.get('target') is not None:
+                    tx = pr['target'].x - cam_x
+                    ty = pr['target'].y - cam_y
+                    dx, dy = tx * TILE - sx, ty * TILE - sy
+                else:
+                    # Снаряд игрока без цели: направление задано точкой (tx, ty).
+                    dx = (pr.get('tx', pr['x']) - cam_x) * TILE - sx
+                    dy = (pr.get('ty', pr['y']) - cam_y) * TILE - sy
                 dist = max(1.0, (dx * dx + dy * dy) ** 0.5)
                 dx, dy = dx / dist * 16, dy / dist * 16
                 pygame.draw.line(self.screen, (230, 210, 150),
@@ -636,7 +641,7 @@ class GameRenderer(BaseRenderer):
         if (game.world_mode == 'overworld'
                 and getattr(game, 'location', 'village') != 'village'):
             return
-        if (board.x, board.y) not in game.visible:
+        if (board.x, board.y) not in game.explored:
             return
         px = (self._rx(board) - cam_x) * TILE
         py = (self._ry(board) - cam_y) * TILE
@@ -822,22 +827,35 @@ class GameRenderer(BaseRenderer):
                       font=T.FONT_TINY, center=True)
 
     def draw_hotbar(self, game):
-        """Быстрая панель предметов/свитков: слоты 1–8 + активные навыки."""
+        """Быстрая панель предметов + панель активных навыков класса.
+
+        Обе панели стоят над HUD (а не поверх лога) и не пересекаются
+        с подсказками сохранения/загрузки.
+        """
+        hud_top = config.SCREEN_H - config.hud_height()
+        self._hotbar_y = hud_top - 52
         slots = getattr(game, 'hotbar', None)
         if slots:
             self._draw_item_hotbar(game, slots)
-        # Активные навыки класса (маг: firebolt, frost_bolt, heal_self)
         self._draw_active_skills(game)
 
+    def _draw_panel_caption(self, text, x, y):
+        self.text(text, x, y, T.TEXT_DIM, font=T.FONT_TINY)
+
     def _draw_item_hotbar(self, game, slots):
-        """Панель предметов 1–8."""
+        """Панель быстрого доступа к предметам (слоты 1–8)."""
         n = len(slots)
         size, gap = 44, 6
         total = n * size + (n - 1) * gap
         x0 = (config.SCREEN_W - total) // 2
-        y = config.SCREEN_H - size - 14
+        y = getattr(self, '_hotbar_y', config.SCREEN_H - size - 14)
         mx, my = getattr(game, 'mouse_pos', (-1, -1))
         inventory = getattr(game.player, 'inventory', {})
+        # Подложка панели.
+        T.rounded_rect(self.screen, (22, 20, 17),
+                       (x0 - 8, y - 18, total + 16, size + 26),
+                       radius=9, border_color=(70, 60, 44))
+        self._draw_panel_caption("БЫСТРЫЙ ДОСТУП", x0, y - 16)
         for i, key in enumerate(slots):
             x = x0 + i * (size + gap)
             rect = (x, y, size, size)
@@ -860,26 +878,31 @@ class GameRenderer(BaseRenderer):
                       font=T.FONT_TINY)
 
     def _draw_active_skills(self, game):
-        """Панель активных навыков класса: слева от hotbar предметов.
+        """Панель активных навыков класса слева от быстрого доступа.
 
-        Маг имеет firebolt (F1), frost_bolt (F2), heal_self (F3).
-        Кулдаун показывается как затемнение.
+        Слоты подписаны реальными клавишами (F1–F4, F6–F8, F10) —
+        F5 и F9 оставлены сохранению/загрузке. Кулдаун показывается
+        затемнением и секундами, нехватка маны — красной ценой.
         """
         p = game.player
         skills_list = p.active_skills() if hasattr(p, 'active_skills') else []
         if not skills_list:
             return
+        skill_keys = ('F1', 'F2', 'F3', 'F4', 'F6', 'F7', 'F8', 'F10')
         size, gap = 44, 6
         n = len(skills_list)
         total = n * size + (n - 1) * gap
-        # Размещаем слева от центральной hotbar
-        # Центр hotbar = SCREEN_W // 2. Длина item hotbar = 8*44 + 7*6 = 394.
-        # Слева от неё — панель навыков с отступом 12.
-        x0 = (config.SCREEN_W - 394) // 2 - total - 12
+        item_total = max(1, len(getattr(game, 'hotbar', ()) or ())) * (size + gap) - gap
+        x0 = (config.SCREEN_W - item_total) // 2 - total - 26
         if x0 < 8:
             x0 = 8
-        y = config.SCREEN_H - size - 14
+        y = getattr(self, '_hotbar_y', config.SCREEN_H - size - 14)
+        T.rounded_rect(self.screen, (24, 21, 34),
+                       (x0 - 8, y - 18, total + 16, size + 26),
+                       radius=9, border_color=(78, 64, 104))
+        self._draw_panel_caption("АКТИВНЫЕ НАВЫКИ", x0, y - 16)
         cd_map = getattr(p, 'active_skill_cd', {})
+        mx, my = getattr(game, 'mouse_pos', (-1, -1))
         for i, skill in enumerate(skills_list):
             x = x0 + i * (size + gap)
             rect = (x, y, size, size)
@@ -887,27 +910,32 @@ class GameRenderer(BaseRenderer):
             ready = cd <= 0
             mana = getattr(p, 'mana', 0)
             mana_ok = mana >= skill.get('mana', 0)
-            bg = (35, 30, 50) if ready and mana_ok else (20, 18, 28)
-            border = (140, 100, 200) if ready and mana_ok else (60, 50, 80)
+            hover = x <= mx <= x + size and y <= my <= y + size
+            bg = (52, 42, 78) if ready and mana_ok else (26, 22, 36)
+            border = (190, 150, 255) if hover else (
+                (150, 108, 220) if ready and mana_ok else (66, 54, 88))
             T.rounded_rect(self.screen, bg, rect, radius=8,
                            border_color=border)
-            # Буква навыка (F1, F2, F3...)
-            label = f"F{i+1}"
-            self.text(label, x + 4, y + 2, T.TEXT_DIM, font=T.FONT_TINY)
-            # Имя навыка (первая буква)
+            # Клавиша навыка.
+            key_label = skill_keys[i] if i < len(skill_keys) else '—'
+            self.text(key_label, x + 4, y + 2, T.TEXT_DIM, font=T.FONT_TINY)
+            # Первая буква названия.
             ch = skill.get('name', '?')[0]
-            self.text(ch, x + size // 2, y + size // 2 - 6,
-                      (220, 200, 240) if ready and mana_ok else (100, 90, 120),
+            self.text(ch, x + size // 2, y + size // 2 - 8,
+                      (230, 214, 255) if ready and mana_ok else (110, 100, 130),
                       font=T.FONT_SMALL, center=True)
-            # Кулдаун
+            # Кулдаун.
             if cd > 0:
-                self.text(f"{cd:.1f}", x + size - 3, y + size - 15,
-                          (200, 180, 100), font=T.FONT_TINY, align_right=True)
-            # Мана cost
+                dark = pygame.Surface((size, size), pygame.SRCALPHA)
+                dark.fill((0, 0, 0, 150))
+                self.screen.blit(dark, (x, y))
+                self.text(f"{cd:.1f}", x + size // 2, y + size // 2 - 4,
+                          (240, 220, 140), font=T.FONT_TINY, center=True)
+            # Мана.
             mana_cost = skill.get('mana', 0)
             if mana_cost:
                 self.text(f"{mana_cost}m", x + 3, y + size - 15,
-                          (120, 160, 255) if mana_ok else (180, 80, 80),
+                          (140, 180, 255) if mana_ok else (220, 96, 96),
                           font=T.FONT_TINY)
 
     # ════════════════════════ МИНИ-КАРТА ════════════════════════

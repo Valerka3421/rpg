@@ -891,8 +891,10 @@ class GameCore:
         other = self.players.get(target)
         if p is None or other is None or target == pid:
             return
-        self._event(f"{p.class_name} вызывает {other.class_name} на дуэль!",
-                    COL_DMG)
+        self._event(
+            f"{getattr(p, 'class_name', 'Игрок')} вызывает "
+            f"{getattr(other, 'class_name', 'игрока')} на дуэль!",
+            COL_DMG)
 
     def player_attack(self, pid):
         p = self.players.get(pid)

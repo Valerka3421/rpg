@@ -9,15 +9,19 @@ from render.tiles._common import (
     _grime,
 )
 
-from render.tiles._settlement import _city_grass
+from render.tiles._settlement import _city_grass  # noqa: F401
 from render.tiles._dungeon import _wall
 from render.tiles._nature import _road
 
 
 # ════════════════════════ ОБЪЕКТЫ ════════════════════════
 def _quest_board(variant=0):
-    """Отдельная текстура доски поручений (не спрайт NPC)."""
-    s = _city_grass(0)
+    """Отдельная текстура доски поручений (не спрайт NPC).
+
+    Фон прозрачный: под доской должен быть виден настоящий пол локации
+    (трава в деревне, камень в подземелье), а не трава поверх камня.
+    """
+    s = pygame.Surface((SIZE, SIZE), pygame.SRCALPHA)
     rng = textures.rng_for(variant, 71, seed=197)
     # столбы
     pygame.draw.rect(s, (78, 54, 32), (12, 24, 5, 36))

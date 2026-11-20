@@ -110,10 +110,17 @@ class InputMixin:
             self.use_hotbar(key - pygame.K_1)
             return
 
-        # Активные навыки класса: F1..F10 кастуют.
-        if pygame.K_F1 <= key <= pygame.K_F10:
-            slot = key - pygame.K_F1
-            self.cast_active_skill(slot)
+        # Активные навыки класса: F1..F4, F6..F8, F10. F5/F9 заняты
+        # сохранением и загрузкой — навыки на них больше не висят.
+        skill_keys = (pygame.K_F1, pygame.K_F2, pygame.K_F3, pygame.K_F4,
+                      pygame.K_F6, pygame.K_F7, pygame.K_F8, pygame.K_F10)
+        if key in skill_keys and self.screen_mode == 'game':
+            self.cast_active_skill(skill_keys.index(key))
+            return
+
+        # F — переход по лестнице/выходу (вверх/вниз), только по нажатию.
+        if key == pygame.K_f and self.screen_mode == 'game':
+            self.use_stairs()
             return
 
         # Открытие экранов

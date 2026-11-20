@@ -121,6 +121,7 @@ class GameBase:
         self.total_crafts = 0
         self.total_quests_turned_in = 0
         self.quest_board = None
+        self.board_rotation = 0
 
         self._modal_close_rect = None
         self.pending_resolution = None

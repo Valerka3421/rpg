@@ -57,7 +57,11 @@ class WorldMixin:
 
 
     def _spawn_quest_board(self):
-        """Доска на текущей карте или None."""
+        """Доска на текущей карте или None.
+
+        В подземелье доска ставится в стартовую комнату — только на
+        гарантированно проходимый пол, не в стену и не на лестницу.
+        """
         if self.world_mode == 'overworld':
             if self.location != 'village':
                 return None
@@ -73,22 +77,39 @@ class WorldMixin:
             return None
         if self.depth not in (5, 10, 15, 20) or not self.dungeon.rooms:
             return None
-        room = self.dungeon.rooms[0]
+        d = self.dungeon
+        room = d.rooms[0]
         bx, by = room.center()
-        for dx, dy in ((0, 1), (1, 0), (-1, 0), (0, -1)):
-            tx, ty = bx + dx, by + dy
-            if (room.x <= tx < room.x + room.w
-                    and room.y <= ty < room.y + room.h
-                    and self.dungeon.tiles[ty][tx] == Tile.FLOOR
-                    and not any(m.x == tx and m.y == ty for m in self.dungeon.monsters)):
-                e = Entity(tx, ty, 1, 1, 0, 0, "Доска поручений", "B",
-                           (206, 170, 96), 0)
-                e.is_npc = True
-                e.npc_type = 'quest_board'
-                e.board_depth_min = self.depth
-                e.board_depth_max = min(self.depth + 4, 20)
-                return e
-        return None
+        stairs = d.stairs_pos
+        blocked = {(m.x, m.y) for m in d.monsters if m.hp > 0}
+        blocked.add((self.player.x, self.player.y))
+        if getattr(self, 'merchant', None) is not None:
+            blocked.add((self.merchant.x, self.merchant.y))
+        candidates = []
+        for ty in range(room.y, room.y + room.h):
+            for tx in range(room.x, room.x + room.w):
+                if (tx, ty) == tuple(stairs or (-1, -1)):
+                    continue
+                if (tx, ty) in blocked or (tx, ty) in d.items:
+                    continue
+                if d.tiles[ty][tx] != Tile.FLOOR:
+                    continue
+                dist = abs(tx - bx) + abs(ty - by)
+                # Доска должна быть рядом с точкой входа, но не на ней.
+                if dist == 0:
+                    continue
+                candidates.append((dist, tx, ty))
+        if not candidates:
+            return None
+        candidates.sort()
+        _, tx, ty = candidates[0]
+        e = Entity(tx, ty, 1, 1, 0, 0, "Доска поручений", "B",
+                   (206, 170, 96), 0)
+        e.is_npc = True
+        e.npc_type = 'quest_board'
+        e.board_depth_min = self.depth
+        e.board_depth_max = min(self.depth + 4, 20)
+        return e
 
 
     def _spawn_city_npcs(self):
@@ -191,7 +212,44 @@ class WorldMixin:
             self.log(f"Подъём на глубину {depth}.", COL_GOLD)
 
 
+    def use_stairs(self):
+        """Переход по лестнице/выходу — только по клавише F.
+
+        Возвращает True, если переход состоялся.
+        """
+        if self.world_mode == 'overworld':
+            # Вход в подземелье стоит на тайле STAIRS.
+            if self.overworld.tiles[self.player.y][self.player.x] != Tile.STAIRS:
+                self.log("Здесь нет лестницы.", COL_DIM)
+                return False
+            self.enter_dungeon()
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
+            return True
+
+        tile = self.dungeon.tiles[self.player.y][self.player.x]
+        if tile == Tile.STAIRS:
+            if self.depth >= MAX_DEPTH:
+                self.log("Глубже уже некуда.", COL_DIM)
+                return False
+            from audio import Audio
+            Audio.play('stairs')
+            self.new_dungeon(self.depth + 1)
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
+            return True
+        if tile == Tile.UPSTAIRS:
+            self.ascend()
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
+            return True
+        if tile == Tile.EXIT:
+            self.exit_to_overworld()
+            self.player_move_timer = PLAYER_MOVE_COOLDOWN
+            return True
+        self.log("Здесь нет лестницы.", COL_DIM)
+        return False
+
     def new_dungeon(self, depth, autosave=True, arrive='entry'):
+        # Жёсткий предел глубины: обойти босса и уехать на 21+ этаж нельзя.
+        depth = max(1, min(int(depth), MAX_DEPTH))
         if self.world_mode == 'dungeon' and self.depth > 0:
             if self.depth in self.dungeon_cache:
                 self.dungeon_cache[self.depth]['explored'] = set(self.explored)
@@ -264,6 +322,9 @@ class WorldMixin:
         self.explored = set(self.dungeon_cache[depth].get('explored', set()))
         self.update_fov()
         self._last_fov_pos = (self.player.x, self.player.y)
+        # Доска поручений — реальный объект на проходимом полу стартовой
+        # комнаты (а не «трава» и не стена). Спавним после размещения игрока.
+        self.quest_board = self._spawn_quest_board()
         # Синхронизируем кэш
         self.dungeon_cache[depth]['explored'] = set(self.explored)
         self.render_revision = getattr(self, 'render_revision', 0) + 1

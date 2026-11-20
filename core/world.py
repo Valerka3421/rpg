@@ -526,17 +526,19 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
     d = Dungeon(MAP_W, MAP_H)
     rooms = []
 
-    margin_x = max(1, (ov.LEGACY_MAP_W - 60) // 2)
-    margin_y = max(1, (ov.LEGACY_MAP_H - 40) // 2)
-    cx_min, cx_max = margin_x, ov.LEGACY_MAP_W - margin_x
-    cy_min, cy_max = margin_y, ov.LEGACY_MAP_H - margin_y
+    # Используем всю карту 140×70 (раньше генерация жила только в её левой
+    # половине 100×70 — правая часть этажа пустовала).
+    margin_x = 4
+    margin_y = 4
+    cx_min, cx_max = margin_x, MAP_W - margin_x
+    cy_min, cy_max = margin_y, MAP_H - margin_y
 
-    # 1. Комнаты: 8–16 штук, без пересечений (pad=1).
-    target = random.randint(8, 14)
-    for _ in range(500):
+    # 1. Комнаты: 14–24 штуки, без пересечений (pad=1).
+    target = random.randint(14, 24)
+    for _ in range(900):
         if len(rooms) >= target:
             break
-        w, h = random.randint(5, 10), random.randint(4, 8)
+        w, h = random.randint(5, 12), random.randint(4, 9)
         x = random.randint(cx_min, cx_max - w)
         y = random.randint(cy_min, cy_max - h)
         new_room = Room(x, y, w, h)
@@ -546,7 +548,7 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
         for yy in range(y, y + h):
             for xx in range(x, x + w):
                 d.tiles[yy][xx] = Tile.FLOOR
-        # Соединить с ближайшей комнатой узким L-коридором (1 клетка)
+        # Соединить с ближайшей комнатой широким L-коридором (2 клетки)
         if rooms:
             _connect_l_corridor(d, new_room, rooms[-1])
         rooms.append(new_room)
@@ -554,7 +556,7 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
     # 2. Fallback после 4 неудач: разные комнаты
     if len(rooms) < 2:
         if _attempt >= 4:
-            cx, cy = ov.LEGACY_MAP_W // 2, ov.LEGACY_MAP_H // 2
+            cx, cy = MAP_W // 2, MAP_H // 2
             # Первая комната
             for yy in range(cy - 3, cy + 4):
                 for xx in range(cx - 4, cx + 5):
@@ -659,9 +661,11 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
             continue
         if random.random() < 0.6:
             tier = min(3, max(1, (depth + 1) // 3))
+            # Ключи (в т.ч. ключ босса) не должны валяться на полу:
+            # их выдаёт только сюжетный прогресс/казна.
             pool = [k for k, v in ITEMS.items()
-                    if v['tier'] <= tier and v['type'] != 'book'
-                    and v['type'] != 'resource']
+                    if v['tier'] <= tier and v['type'] not in
+                    ('book', 'resource', 'key')]
             if not pool:
                 continue
             ix = random.randint(room.x, room.x + room.w - 1)
@@ -687,29 +691,36 @@ def generate_dungeon(depth: int, _attempt: int = 0) -> Dungeon:
 
 
 def _connect_l_corridor(d: Any, room_a: Any, room_b: Any) -> Any: 
-    """Узкий (1-клеточный) L-коридор между двумя комнатами.
+    """Широкий (2-клеточный) L-коридор между двумя комнатами.
 
     Сначала горизонталь, потом вертикаль — или наоборот (случайно).
-    Не прорубает сквозь стены других комнат: если клетка уже пол — OK.
+    Толщина 2 клетки делает коридоры удобными для боя и не выглядит
+    «щелью» в большой карте. Не прорубает лишнего: если клетка уже
+    пол — это нормально.
     """
     ax, ay = room_a.center()
     bx, by = room_b.center()
+
+    def carve(x, y) -> None:
+        if 0 <= x < d.w and 0 <= y < d.h:
+            d.tiles[y][x] = Tile.FLOOR
+
     if random.random() < 0.5:
         # Горизонталь → вертикаль
         for xx in range(min(ax, bx), max(ax, bx) + 1):
-            if 0 <= ay < d.h and 0 <= xx < d.w:
-                d.tiles[ay][xx] = Tile.FLOOR
+            carve(xx, ay)
+            carve(xx, ay + 1)
         for yy in range(min(ay, by), max(ay, by) + 1):
-            if 0 <= yy < d.h and 0 <= bx < d.w:
-                d.tiles[yy][bx] = Tile.FLOOR
+            carve(bx, yy)
+            carve(bx + 1, yy)
     else:
         # Вертикаль → горизонталь
         for yy in range(min(ay, by), max(ay, by) + 1):
-            if 0 <= yy < d.h and 0 <= bx < d.w:
-                d.tiles[yy][bx] = Tile.FLOOR
+            carve(bx, yy)
+            carve(bx + 1, yy)
         for xx in range(min(ax, bx), max(ax, bx) + 1):
-            if 0 <= ay < d.h and 0 <= xx < d.w:
-                d.tiles[ay][xx] = Tile.FLOOR
+            carve(xx, ay)
+            carve(xx, ay + 1)
 
 
 def _all_rooms_connected(d: Any, rooms: Any) -> Any: 

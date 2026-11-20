@@ -188,10 +188,44 @@ class IconRenderer(ItemMixin, PlayerMixin, ClassIconMixin,
         elif key == 'plate_greaves':
             self._greaves(s, (220, 220, 240))
         else:
-            return None
-
+            # Универсальная заглушка: у любого предмета должна быть
+            # нарисованная иконка, а не сырой символ/буква.
+            self._generic_item(s, key, color)
         if size != CANVAS:
             s = pygame.transform.smoothscale(s, (size, size))
         return textures.finish(s, shadow=False)
+
+    def _generic_item(self, s, key, color):
+        """Иконка для предмета без специального билдера.
+
+        Форма подбирается по типу предмета, поэтому даже новый ресурс
+        или ключ выглядит как вещь, а не как буква из ``ch``.
+        """
+        it = ITEMS.get(key, {})
+        typ = it.get('type')
+        if typ == 'weapon':
+            self._blade(s, 30, color, guard=10, gem=False)
+        elif typ == 'armor':
+            self._armor(s, color, style='leather')
+        elif typ in ('head', 'helmet'):
+            self._cap(s, color, 'leather')
+        elif typ in ('legs', 'leggings'):
+            self._pants(s, color)
+        elif typ == 'boots':
+            self._boots(s, color)
+        elif typ in ('heal', 'mana', 'buff', 'poison'):
+            self._potion(s, color, big=False, sparkle=False)
+        elif typ == 'book':
+            self._book(s, key or 'book', color)
+        else:
+            # Ключи, ресурсы и прочее — гранёный кристалл/медальон.
+            points = [(CX, 13), (CX + 17, 26), (CX + 11, 48),
+                      (CX - 11, 48), (CX - 17, 26)]
+            pygame.draw.polygon(s, color, points)
+            pygame.draw.polygon(s, textures.shade(color, 0.65), points, 2)
+            pygame.draw.line(s, textures.shade(color, 1.25),
+                             (CX, 15), (CX - 7, 30), 2)
+            pygame.draw.circle(s, textures.shade(color, 1.3),
+                               (CX, 36), 4)
 
     # ════════════════════════ ЗЕЛЬЯ ════════════════════════

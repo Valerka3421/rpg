@@ -337,14 +337,14 @@ class ClientView:
                 if self._hit(rect, pos):
                     if action == 'close':
                         self.player_popup = None
-                    elif action == 'trade':
-                        pid = self.player_popup.get('pid')
+                    elif action in ('trade', 'duel'):
+                        popup = self.player_popup or {}
+                        pid = popup.get('pid')
                         self.player_popup = None
-                        self.send_fn({'type': 'trade_request', 'target': pid})
-                    elif action == 'duel':
-                        pid = self.player_popup.get('pid')
-                        self.player_popup = None
-                        self.send_fn({'type': 'duel_request', 'target': pid})
+                        if pid is not None:
+                            msg_type = ('trade_request' if action == 'trade'
+                                        else 'duel_request')
+                            self.send_fn({'type': msg_type, 'target': pid})
                     return True
             for name, rect in self._toolbar_rects():
                 if self._hit(rect, pos):

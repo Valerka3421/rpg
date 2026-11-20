@@ -349,6 +349,9 @@ class Room:
         self.x, self.y, self.w, self.h = x, y, w, h
     def center(self):
         return self.x + self.w // 2, self.y + self.h // 2
+    def contains(self, x, y):
+        return (self.x <= x < self.x + self.w
+                and self.y <= y < self.y + self.h)
     def intersects(self, other, pad=1):
         return not (self.x + self.w + pad < other.x or
                     other.x + other.w + pad < self.x or

@@ -128,6 +128,9 @@ class DialogueController:
                 q = self.board_quests[idx]
                 if self.game.quest_log.accept_generated(q):
                     self.game.log(f"Взято: {q['name']}", (240, 220, 120))
+                    # После взятия доска обновляет набор поручений.
+                    self.game.board_rotation = getattr(
+                        self.game, 'board_rotation', 0) + 1
                     self._refresh_board()
                     self._rebuild_options()
                 else:
@@ -142,11 +145,13 @@ class DialogueController:
         qlog = self.game.quest_log
         dmin = getattr(board, 'board_depth_min', 0)
         dmax = getattr(board, 'board_depth_max', 4)
-        seed = (hash((dmin, dmax, board.x, board.y)) & 0xFFFF)
-        all_q = generate_board_quests(dmin, dmax, count=3, base_seed=seed)
+        rotation = getattr(self.game, 'board_rotation', 0)
+        seed = (hash((dmin, dmax, board.x, board.y, rotation)) & 0xFFFF)
+        # Берём с запасом: часть поручений может быть уже активна/выполнена.
+        all_q = generate_board_quests(dmin, dmax, count=12, base_seed=seed)
         self.board_quests = [q for q in all_q
                              if q['id'] not in qlog.active
-                             and q['id'] not in qlog.turned_in]
+                             and q['id'] not in qlog.turned_in][:3]
 
     def _rebuild_options(self):
         self.options = []

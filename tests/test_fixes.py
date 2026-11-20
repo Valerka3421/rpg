@@ -168,6 +168,8 @@ def _step_onto(g, tile_type):
                     g.player.x, g.player.y = px, py
                     g.update_fov()
                     g.move_player(-dx, -dy)
+                    # Переход по лестнице теперь только по F.
+                    g.use_stairs()
                     return True
     return False
 

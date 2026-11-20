@@ -6,11 +6,34 @@ from game.game._common import *  # noqa: F401,F403 — все импорты
 class CombatMixin:
     """Бой и движение: move_player, attack, _single_attack, _kill_monster, projectiles, статусы."""
 
+    def _boss_arena(self):
+        """Комната босса, пока он жив (иначе None).
+
+        Арена — последняя комната генерации (`rooms[-1]`), см.
+        core.world.generate_dungeon. Пока босс жив, игрок заперт внутри,
+        а сам босс не может выйти наружу.
+        """
+        if self.world_mode != 'dungeon':
+            return None
+        if not any(getattr(m, 'boss', False) and m.hp > 0
+                   for m in self.dungeon.monsters):
+            return None
+        rooms = getattr(self.dungeon, 'rooms', None) or []
+        return rooms[-1] if rooms else None
+
     def move_player(self, dx, dy):
         nx, ny = self.player.x + dx, self.player.y + dy
+        self.player.facing = (dx, dy)     # дальний бой стреляет по взгляду
         if not (0 <= nx < self.dungeon.w and 0 <= ny < self.dungeon.h):
             return False
         if self.npc_blocking_at(nx, ny):
+            return False
+        # Арена босса: пока босс жив, игрок не может её покинуть.
+        arena = self._boss_arena()
+        if (arena is not None and arena.contains(self.player.x, self.player.y)
+                and not arena.contains(nx, ny)):
+            self.log("Босс не даст уйти из арены!", COL_DMG)
+            self.add_float(self.player.x, self.player.y, "АРЕНА", COL_DMG)
             return False
         target = next((m for m in self.dungeon.monsters
                        if m.x == nx and m.y == ny and m.hp > 0), None)
@@ -34,25 +57,8 @@ class CombatMixin:
         if trans:
             self.travel_to(trans['to'], trans.get('entry'))
             return False
-        if tile == Tile.STAIRS:
-            if self.world_mode == 'overworld':
-                self.enter_dungeon()
-            else:
-                from audio import Audio
-                Audio.play('stairs')
-                self.new_dungeon(self.depth + 1)
-            # Игрок появится на входной лестнице: без кулдауна удержание
-            # направления сразу же отправляет его обратно.
-            self.player_move_timer = PLAYER_MOVE_COOLDOWN
-            return False
-        elif tile == Tile.EXIT:
-            self.exit_to_overworld()
-            self.player_move_timer = PLAYER_MOVE_COOLDOWN
-            return False
-        elif tile == Tile.UPSTAIRS:
-            self.ascend()
-            self.player_move_timer = PLAYER_MOVE_COOLDOWN
-            return False
+        # Лестницы НЕ срабатывают сами: на них нужно нажать F.
+        # Игрок спокойно встаёт на клетку и решает, когда переходить.
         return True
 
 
@@ -98,31 +104,23 @@ class CombatMixin:
         """
         from core import rules
         from core.config import PLAYER_RANGED_COOLDOWN
-        # Найти ближайшего видимого моба в радиусе 5
-        target = None
-        best_dist = 999
-        for m in self.dungeon.monsters:
-            if m.hp <= 0:
-                continue
-            dist = max(abs(m.x - self.player.x), abs(m.y - self.player.y))
-            if dist <= 5 and dist < best_dist:
-                target = m
-                best_dist = dist
-        if not target:
-            self.log("Нет цели для дальнобойной атаки.", COL_DIM)
-            return
         kind_map = {'bow': 'arrow', 'staff': 'fireball', 'book': 'frost'}
         kind = kind_map.get(wtype, 'arrow')
-        # Создать Projectile через rules.ranged_attack
-        proj = rules.ranged_attack(self.player, target, kind=kind)
-        # self.projectiles — list of dict (upstream format). Конвертируем.
-        # upstream projectile dict: {'x','y','tx','ty','kind','color','speed',...}
+        # Никакого самонаведения: снаряд летит строго по направлению взгляда.
+        fx, fy = getattr(self.player, 'facing', (1, 0)) or (1, 0)
+        if fx == 0 and fy == 0:
+            fx, fy = 1, 0
+        tx = self.player.x + fx * 8
+        ty = self.player.y + fy * 8
+        proj = rules.ranged_attack(self.player, None, kind=kind)
+        proj.tx, proj.ty = float(tx), float(ty)
         self.projectiles.append({
             'x': proj.x, 'y': proj.y,
             'tx': proj.tx, 'ty': proj.ty,
             'kind': proj.kind, 'color': proj.color,
             'speed': proj.speed, 'damage': proj.damage,
-            'target_ch': proj.target_ch, 'target': target,
+            'target_ch': proj.target_ch, 'target': None,
+            'source': self.player,
             'life': proj.life,
         })
         self.player.attack_anim = 1.0
@@ -281,7 +279,9 @@ class CombatMixin:
             nxt = bfs_toward_player(self.dungeon, (m.x, m.y),
                                     (self.player.x, self.player.y), blocked)
             if nxt:
-                m.x, m.y = nxt
+                arena = self._boss_arena()
+                if arena is None or arena.contains(nxt[0], nxt[1]):
+                    m.x, m.y = nxt
 
     # ── Снаряды дальних атак ──
     PROJECTILE_STYLES = {
@@ -312,19 +312,57 @@ class CombatMixin:
         remaining = []
         for pr in self.projectiles:
             target = pr.get('target')
-            if target is None or getattr(target, 'hp', 0) <= 0:
+            source = pr.get('source')
+            # Самонаводящийся снаряд (монстр → игрок/цель).
+            if target is not None:
+                if getattr(target, 'hp', 0) <= 0:
+                    continue
+                dx = target.x - pr['x']
+                dy = target.y - pr['y']
+                dist = (dx * dx + dy * dy) ** 0.5
+                step = max(0.01, pr['speed'] * dt)
+                if dist <= step:
+                    if source is not None and getattr(source, 'hp', 0) > 0:
+                        self.attack(source, target)
+                    continue
+                pr['x'] += dx / dist * step
+                pr['y'] += dy / dist * step
+                remaining.append(pr)
                 continue
-            dx = target.x - pr['x']
-            dy = target.y - pr['y']
+
+            # Снаряд игрока летит по прямой в точку (tx, ty) без наведения.
+            tx, ty = pr.get('tx'), pr.get('ty')
+            if tx is None or ty is None:
+                continue
+            dx = tx - pr['x']
+            dy = ty - pr['y']
             dist = (dx * dx + dy * dy) ** 0.5
             step = max(0.01, pr['speed'] * dt)
-            if dist <= step:
-                source = pr.get('source')
+            if dist > 0.001:
+                move = min(step, dist)
+                pr['x'] += dx / dist * move
+                pr['y'] += dy / dist * move
+            # Попадание в первого моба на пути.
+            hit = None
+            best = 0.7
+            for m in self.dungeon.monsters:
+                if m.hp <= 0:
+                    continue
+                md = ((m.x - pr['x']) ** 2 + (m.y - pr['y']) ** 2) ** 0.5
+                if md <= best:
+                    hit, best = m, md
+            if hit is not None:
                 if source is not None and getattr(source, 'hp', 0) > 0:
-                    self.attack(source, target)
+                    self.attack(source, hit)
                 continue
-            pr['x'] += dx / dist * step
-            pr['y'] += dy / dist * step
+            # Стена гасит снаряд.
+            cx, cy = int(round(pr['x'])), int(round(pr['y']))
+            if (0 <= cx < self.dungeon.w and 0 <= cy < self.dungeon.h
+                    and self.dungeon.tiles[cy][cx] == Tile.WALL):
+                continue
+            pr['life'] = float(pr.get('life', 2.0)) - dt
+            if dist <= step or pr['life'] <= 0:
+                continue
             remaining.append(pr)
         self.projectiles = remaining
 

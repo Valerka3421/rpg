@@ -15,6 +15,8 @@ from typing import Any
 import random
 from collections import deque
 
+import math
+
 from core import overworld as ov
 from core.config import Tile
 from core.data import MONSTERS
@@ -140,7 +142,7 @@ BIOME_POOLS = {
     'rock':   ('wolf', 'bear'),
     'autumn': ('deer', 'boar', 'wolf'),
     'swamp':  ('slime', 'rat', 'boar'),
-    'beach':  ('rat', 'slime', 'deer'),
+    'beach':  ('crab', 'murloc', 'turtle'),
     'meadow': ('deer', 'boar', 'rat'),
     'dead':   ('wolf', 'bear', 'rat'),
     'graveyard': ('skeleton', 'wolf', 'rat'),
@@ -155,7 +157,7 @@ BIOME_DENSITY = {
 
 # Кусты по биомам: на кладбище и в скалах их нет/мало.
 BIOME_BUSHES = {
-    'rock': 10, 'graveyard': 0,
+    'rock': 0, 'graveyard': 0, 'beach': 0, 'ruins': 8,
 }
 
 LOCATIONS = {
@@ -191,6 +193,18 @@ LOCATIONS['ruins'] = {
     'title': 'Руины города', 'kind': 'ruins', 'biome': 'ruins',
     'w': LOCATION_W, 'h': LOCATION_H,
 }
+
+
+# ── Береговая линия пляжа ──
+# Детерминированная волнистая граница: одна и та же клетка всегда
+# считается морем (WALL/water) или песком. Благодаря этому генерация,
+# wall_kind и рендер согласованы между собой.
+def _beach_sea(x: Any, y: Any) -> Any:
+    coast_y = (LOCATION_H * 0.66 + 5.0 * math.sin(x / 11.0)
+               + 2.0 * math.sin(x / 4.3))
+    coast_x = (LOCATION_W * 0.14 + 4.0 * math.sin(y / 9.0)
+               + 2.0 * math.sin(y / 3.3))
+    return y > coast_y or x < coast_x
 
 
 def _l_path(a: Any, b: Any) -> Any: 
@@ -276,12 +290,15 @@ def ground_kind(key: Any, x: Any, y: Any) -> Any:
     if kind == 'mine':
         return 'mine_ground'
     if kind == 'ruins':
-        return ('road' if (x, y) in road_cells(key)
-                else 'dungeon_ruins' if (x + y) % 5 == 0
-                else 'dungeon_ground')
+        # Мостовая древнего города: дорога читается, остальное — руины.
+        if (x, y) in road_cells(key):
+            return 'road'
+        if (x * 5 + y * 3) % 11 in (0, 1):
+            return 'dungeon_ruins'
+        return 'city_ruins_floor'
     biome = spec.get('biome', 'pine')
     if biome == 'beach':
-        return 'road' if (x, y) in road_cells(key) else 'sand'
+        return 'road' if (x, y) in road_cells(key) else 'beach_sand'
     if biome == 'graveyard':
         # Кладбище покрыто выцветшей травой мёртвого леса.
         base = 'grass_dead'
@@ -305,10 +322,13 @@ def wall_kind(key: Any, x: Any, y: Any) -> Any:
     if kind == 'mine':
         return 'mine_wall'
     if kind == 'ruins':
-        return 'ruins_pillar' if (x * 7 + y * 3) % 4 == 0 else 'wall'
+        # Статуи — редкие акценты среди рухнувшей кладки.
+        return ('city_ruins_statue' if (x * 11 + y * 7) % 19 == 0
+                else 'city_ruins_wall')
     biome = spec.get('biome', 'pine')
     if biome == 'beach':
-        return 'water'
+        # Море — WALL-клетки за линией прибоя, пальмы — WALL на песке.
+        return 'water' if _beach_sea(x, y) else 'beach_tree'
     if biome == 'graveyard':
         return 'tombstone'
     return 'rock' if biome == 'rock' else f'tree_{biome}'
@@ -320,7 +340,8 @@ def title(key: Any) -> Any:
 
 def is_tree_wall(key: Any, x: Any, y: Any) -> Any: 
     """Все деревья на поверхности можно рубить."""
-    return wall_kind(key, x, y).startswith('tree')
+    kind = wall_kind(key, x, y)
+    return kind.startswith('tree') or kind == 'beach_tree'
 
 
 # ── Генерация ──
@@ -415,7 +436,10 @@ def _scatter_bushes(d: Any, key: Any, count: Any, avoid: Any = ()) -> Any:
                 continue
             if (x, y) in blocked or (x, y) in d.items:
                 continue
-            if not ground_kind(key, x, y).startswith('grass'):
+            ground = ground_kind(key, x, y)
+            # Кусты растут только на настоящей траве: не на камне,
+            # песке, дороге и не в руинах.
+            if not ground.startswith('grass') or ground == 'grass_rock':
                 continue
             spots.append((x, y))
     random.shuffle(spots)
@@ -523,40 +547,104 @@ def _generate_village() -> Any:
     return d
 
 
-def _scatter_ruins(d: Any, center: Any, density: Any) -> Any: 
-    """Развалины: обломки стен, колонны и пустые кварталы."""
-    for _ in range(260):
-        cx = random.randint(2, d.w - 3)
-        cy = random.randint(2, d.h - 3)
-        if (cx - center[0]) ** 2 + (cy - center[1]) ** 2 < 130:
+def _scatter_ruins(d: Any, center: Any, density: Any,
+                    avoid: Any = ()) -> Any: 
+    """Структурные руины: фундаменты зданий, обломки стен и статуи.
+
+    Вместо одиночных случайных кусков кладки строим прямоугольные
+    «коробки» кварталов с проломами в стенах и редкими статуями. Это
+    читается как разрушенный город, а не как случайный шум.
+    """
+    blocked = set(avoid)
+    target = max(6, min(14, int(6 + density * 24)))
+    buildings = []
+    for _ in range(600):
+        if len(buildings) >= target:
+            break
+        w = random.randint(6, 11)
+        h = random.randint(5, 8)
+        x = random.randint(3, max(3, d.w - w - 3))
+        y = random.randint(3, max(3, d.h - h - 3))
+        rect = Room(x, y, w, h)
+        # Не застраиваем центр (площадь), дороги и уже занятые кварталы.
+        if (x - center[0]) ** 2 + (y - center[1]) ** 2 < 130:
             continue
-        if random.random() > density:
+        if any(rect.intersects(b, pad=2) for b in buildings):
             continue
-        length = random.randint(1, 4)
-        horizontal = random.random() < 0.5
-        for i in range(length):
-            x = cx + (i if horizontal else 0)
-            y = cy + (0 if horizontal else i)
-            if 0 <= x < d.w and 0 <= y < d.h:
-                d.tiles[y][x] = Tile.WALL
+        if any(rx in range(x, x + w) and ry in range(y, y + h)
+               for rx, ry in blocked):
+            continue
+        buildings.append(rect)
+        # Периметр с проломами: примерно четверть кладки обрушена.
+        for yy in range(y, y + h):
+            for xx in range(x, x + w):
+                edge = xx in (x, x + w - 1) or yy in (y, y + h - 1)
+                if not edge:
+                    continue
+                if (xx, yy) in blocked:
+                    continue
+                if random.random() < 0.26:
+                    continue
+                d.tiles[yy][xx] = Tile.WALL
+        # Внутренний двор и обломки в нём.
+        for _r in range(w * h // 9):
+            rx = random.randint(x + 1, x + w - 2)
+            ry = random.randint(y + 1, y + h - 2)
+            if (rx, ry) not in blocked and random.random() < 0.5:
+                d.tiles[ry][rx] = Tile.WALL
+        # Иногда — статуя в центре квартала.
+        if w >= 8 and h >= 6 and random.random() < 0.45:
+            sx, sy = rect.center()
+            if (sx, sy) not in blocked:
+                d.tiles[sy][sx] = Tile.WALL
+
+
+def _finalize_roads(d: Any, key: Any) -> Any: 
+    """Финальная очистка дорог от блокирующих объектов.
+
+    Генерация леса/руин/пальм идёт до прорубания дорог, поэтому
+    случайный WALL или куст мог остаться на проходе. Возвращает True,
+    если что-то изменилось.
+    """
+    changed = False
+    roads = road_cells(key)
+    for (x, y) in list(roads):
+        if not (0 <= x < d.w and 0 <= y < d.h):
+            continue
+        if d.tiles[y][x] == Tile.WALL:
+            d.tiles[y][x] = Tile.FLOOR
+            changed = True
+        if (x, y) in d.harvestables:
+            d.harvestables.pop((x, y), None)
+            changed = True
+        if (x, y) in d.items:
+            d.items.pop((x, y), None)
+            changed = True
+    before = len(d.monsters)
+    d.monsters = [m for m in d.monsters if (m.x, m.y) not in roads]
+    if len(d.monsters) != before:
+        changed = True
+    return changed
 
 
 def _generate_ruins(key: Any) -> Any: 
-    """Руины города: по дороге от кладбища, иногда — сундук с ресурсами."""
+    """Руины города: кварталы разрушенных зданий и дорога от кладбища."""
     d = Dungeon(LOCATION_W, LOCATION_H)
     _fill_floor(d)
     center = (LOCATION_W // 2, LOCATION_H // 2)
     _clear(d, center, 12)
-    _scatter_ruins(d, center, BIOME_DENSITY.get('ruins', 0.28))
 
+    roads = road_cells(key)
     gates = BIOME_GATES.get(key, ())
-    avoid = set()
+    avoid = set(roads) | {center}
     for pos, side, to, entry in gates:
         _carve(d, center, pos, half=1)
         _clear(d, pos, 2)
         d.tiles[pos[1]][pos[0]] = Tile.GATE
         d.transitions[pos] = {'to': to, 'entry': entry, 'side': side}
         avoid.add(pos)
+
+    _scatter_ruins(d, center, BIOME_DENSITY.get('ruins', 0.28), avoid=avoid)
 
     # 25% шанс: сундук с рандомными базовыми ресурсами.
     if random.random() < 0.25:
@@ -579,13 +667,40 @@ def _generate_ruins(key: Any) -> Any:
             avoid.add((cx, cy))
             break
 
-    roads = road_cells(key)
     _scatter_items(d, 14, avoid=avoid | roads,
                    pool=('stone', 'ore', 'bone'))
     _spawn_monsters(d, BIOME_POOLS.get('ruins', ('skeleton', 'rat')), 12,
                     avoid=avoid | roads, min_dist=center)
+    _scatter_bushes(d, key, BIOME_BUSHES.get('ruins', 8), avoid=avoid | roads)
+    _finalize_roads(d, key)
     d.rooms = [Room(center[0] - 2, center[1] - 2, 5, 5)]
     return d
+
+
+def _generate_beach(d: Any, key: Any, center: Any) -> Any: 
+    """Пляж: волнистая береговая линия, песок и пальмы."""
+    # Море — WALL, суша — песчаный пол.
+    for y in range(d.h):
+        for x in range(d.w):
+            d.tiles[y][x] = Tile.WALL if _beach_sea(x, y) else Tile.FLOOR
+    _clear(d, center, 9)
+
+    roads = road_cells(key)
+    blocked = set(roads) | {center} | set(d.transitions)
+    # Пальмы: одиночные WALL-клетки на песке вдали от дорог.
+    spots = []
+    for y in range(2, d.h - 2):
+        for x in range(2, d.w - 2):
+            if d.tiles[y][x] != Tile.FLOOR or (x, y) in blocked:
+                continue
+            if (x - center[0]) ** 2 + (y - center[1]) ** 2 < 64:
+                continue
+            # Пальмы ближе к линии прибоя, но не в воде.
+            if _beach_sea(x, y + 1) or _beach_sea(x - 1, y):
+                spots.append((x, y))
+    random.shuffle(spots)
+    for (x, y) in spots[:34]:
+        d.tiles[y][x] = Tile.WALL
 
 
 def _generate_biome(key: Any) -> Any: 
@@ -598,13 +713,7 @@ def _generate_biome(key: Any) -> Any:
 
     density = BIOME_DENSITY.get(biome, 0.4)
     if biome == 'beach':
-        # Море — на юге и западе; песчаный берег остаётся на севере/востоке.
-        for y in range(d.h):
-            for x in range(d.w):
-                if y > d.h * 0.58 or x < d.w * 0.20:
-                    d.tiles[y][x] = Tile.WALL
-        d.tiles[center[1]][center[0]] = Tile.FLOOR
-        _clear(d, center, 10)
+        _generate_beach(d, key, center)
     elif biome == 'ruins':
         _scatter_ruins(d, center, density)
     else:
@@ -653,14 +762,19 @@ def _generate_biome(key: Any) -> Any:
         avoid |= {dungeon_pos}
 
     roads = road_cells(key)
-    _scatter_items(d, 22, avoid=avoid | roads,
-                   pool=('stone', 'ore', 'mushroom') if biome == 'rock'
-                   else ('mushroom', 'wood', 'stone'))
+    if biome == 'beach':
+        item_pool = ('stone', 'bone', 'hide')
+    elif biome == 'rock':
+        item_pool = ('stone', 'ore', 'mushroom')
+    else:
+        item_pool = ('mushroom', 'wood', 'stone')
+    _scatter_items(d, 22, avoid=avoid | roads, pool=item_pool)
     bushes = BIOME_BUSHES.get(biome, 26)
     if bushes:
         _scatter_bushes(d, key, bushes, avoid=avoid | roads)
     _spawn_monsters(d, BIOME_POOLS.get(biome, ('deer', 'wolf')), 14,
                     avoid=avoid | roads, min_dist=center)
+    _finalize_roads(d, key)
     d.rooms = [Room(center[0] - 2, center[1] - 2, 5, 5)]
     return d
 
@@ -739,6 +853,7 @@ def _generate_goblin_village() -> Any:
             pos[0], pos[1], m['hp'], m['hp'], m['atk'], m['df'],
             m['name'], m['ch'], m['color'], m['xp'],
             ability=m.get('ability')))
+    _finalize_roads(d, 'goblin_village')
     d.rooms = [Room(cx - 2, cy - 2, 5, 5)]
     return d
 
@@ -788,6 +903,7 @@ def _generate_mine() -> Any:
     _scatter_items(d, 14, avoid={gate_pos} | roads,
                    pool=('stone', 'ore', 'mushroom'))
     _spawn_monsters(d, ('rat', 'goblin'), 12, avoid={gate_pos} | roads)
+    _finalize_roads(d, 'mine')
     d.rooms = rooms
     return d
 

@@ -155,6 +155,11 @@ class MonsterMixin:
             return False
         if self.npc_blocking_at(x, y):
             return False
+        # Босс не покидает свою арену, пока жив.
+        if getattr(m, 'boss', False):
+            arena = self._boss_arena()
+            if arena is not None and not arena.contains(x, y):
+                return False
         # Другие мобы
         for o in self.dungeon.monsters:
             if o is not m and o.hp > 0 and o.x == x and o.y == y:

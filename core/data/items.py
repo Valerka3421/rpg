@@ -706,13 +706,22 @@ def make_loot_key(base_key: Any, rarity: Any) -> Any:
 
 
 def parse_item_key(full_key: Any) -> Any: 
-    """'sword+2' или ItemInstance('sword', 2) → (base, rarity)."""
+    """'sword+2', 'ore#2' или ItemInstance('sword', 2) → (base, rarity).
+
+    Суффикс ``#N`` — это номер виртуального стака (см. ``rules.add_item``),
+    а не часть имени предмета. Его нужно отбрасывать до разбора редкости,
+    иначе в UI появлялись «Ore#2» и ломались иконки/цены.
+    """
     if not full_key:
         return None, 0
     # Lazy import to avoid circular dependency (ItemInstance lives in quests.py)
     from .quests import ItemInstance
     if isinstance(full_key, ItemInstance):
         return full_key.base, full_key.rarity
+    if not isinstance(full_key, str):
+        return full_key, 0
+    if '#' in full_key:
+        full_key = full_key.split('#', 1)[0]
     if '+' in full_key:
         base, lvl = full_key.rsplit('+', 1)
         try:

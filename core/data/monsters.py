@@ -25,6 +25,10 @@ MONSTERS = {
     'bear':     {'ch': 'b', 'name': 'Медведь', 'hp': 30, 'atk': 7, 'df': 2, 'xp': 25, 'color': (105, 72, 45),   'min_depth': 1, 'overworld_only': True, 'gold': False},
     'slime':    {'ch': 'j', 'name': 'Слайм',   'hp': 10, 'atk': 2, 'df': 1, 'xp': 6,  'color': (100, 190, 90),  'min_depth': 1, 'overworld_only': True, 'ability': 'poison', 'gold': False},
     'boar':     {'ch': 'p', 'name': 'Кабан',   'hp': 18, 'atk': 5, 'df': 1, 'xp': 15, 'color': (120, 100, 80),  'min_depth': 1, 'overworld_only': True, 'gold': False},
+    # ── Пляж моря: только крабы, мурлоки и черепахи ──
+    'crab':     {'ch': 'c', 'name': 'Краб',    'hp': 6,  'atk': 2, 'df': 2, 'xp': 7,  'color': (220, 120, 90),  'min_depth': 1, 'overworld_only': True, 'gold': False},
+    'murloc':   {'ch': 'm', 'name': 'Мурлок',  'hp': 11, 'atk': 3, 'df': 1, 'xp': 10, 'color': (90, 180, 170),  'min_depth': 1, 'overworld_only': True, 'ability': 'poison', 'gold': False},
+    'turtle':   {'ch': 'u', 'name': 'Черепаха','hp': 16, 'atk': 3, 'df': 3, 'xp': 12, 'color': (120, 160, 110), 'min_depth': 1, 'overworld_only': True, 'gold': False},
 }
 
 # Быстрый доступ к данным моба по символу: ИИ проверяет пассивность,
@@ -69,6 +73,10 @@ MONSTER_DROPS = {
     'j': [('slime_gel', 0.80), ('mushroom', 0.15)],
     'p': [('boar_tusk', 0.55), ('venison', 0.55), ('bone', 0.10),
           ('hide', 0.20)],
+    # ── Пляж моря ──
+    'c': [('venison', 0.45), ('hide', 0.30), ('bone', 0.15)],
+    'm': [('slime_gel', 0.50), ('hide', 0.30), ('mushroom', 0.10)],
+    'u': [('bone', 0.55), ('hide', 0.40), ('stone', 0.10)],
 }
 
 
