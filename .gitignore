@@ -1,46 +1,13 @@
-<<<<<<< HEAD
-# Python
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-*.egg-info/
-*.egg
-
-# Тесты и инструменты
-.pytest_cache/
-.test_tmp/
-.coverage
-.coverage.*
-htmlcov/
-coverage.xml
-.benchmarks/
-mutants-results/
-
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 
-# Сборка
-build/
-dist/
-*.spec
-Aethelgard.exe
-Aethelgard
-Aethelgard-linux
-Aethelgard-macos
-
 # Локальные сейвы (данные игрока, не исходники)
 savegame*.json
 savegame*.json.tmp
 settings.json
-
-# Одноразовые скриншоты и эксперименты
-_shots/
-_exp.py
-_shot.py
 
 # OS
 .DS_Store
@@ -53,4 +20,3 @@ obj/
 .vs/
 *.xnb
 /Binaries/
->>>>>>> 6a76185 (Начальный переход на C#)
