@@ -15,7 +15,7 @@ namespace Aethelgard;
 ///
 /// Modes: class_select → game (single-player) OR mp_menu → mp_game (multiplayer)
 /// </summary>
-public class Game1 : Microsoft.Xna.Framework.Game
+public class Game : Microsoft.Xna.Framework.Game
 {
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
@@ -39,7 +39,7 @@ public class Game1 : Microsoft.Xna.Framework.Game
     public const int ScreenW = 1280;
     public const int ScreenH = 720;
 
-    public Game1()
+    public Game()
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -200,7 +200,7 @@ public class Game1 : Microsoft.Xna.Framework.Game
             {
                 _spriteBatch.Begin();
                 _spriteBatch.DrawString(_fontHint, "Press M for Multiplayer",
-                    new Vector2(Game1.ScreenW / 2 - 80, Game1.ScreenH - 60),
+                    new Vector2(Game.ScreenW / 2 - 80, Game.ScreenH - 60),
                     new Color(150, 140, 100));
                 _spriteBatch.End();
             }
