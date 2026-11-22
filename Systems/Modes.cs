@@ -26,6 +26,8 @@ public static class ScreenMode
     public const string Dialogue = "dialogue";
     public const string Bigmap = "bigmap";
     public const string DevConsole = "dev_console";
+    public const string Pause = "pause";
+    public const string MpGame = "mp_game";
     public const string Exit = "exit";
 
     public static readonly HashSet<string> All = new()
@@ -33,7 +35,7 @@ public static class ScreenMode
         Menu, MenuSaves, MenuSettings, MenuControls, MenuCredits,
         MenuMultiplayer, MenuMpJoin, ClassSelect, Game, Inventory, Stats,
         StatsRun, Craft, Skills, Quests, Shop, Trade, Dialogue, Bigmap,
-        DevConsole, Exit,
+        DevConsole, Pause, MpGame, Exit,
     };
 
     public static bool IsValid(string value) => All.Contains(value);

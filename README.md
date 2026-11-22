@@ -42,7 +42,7 @@
 | Entities | `Entities/`, `Entities/Monsters/` | `Player`, `Npc`, 24 вида монстров + фабрика |
 | Structs | `Structs/` | `Tile`, `Room`, `HarvestRecord`, `ItemInstance`, `Message` |
 | World | `World/` | игровой цикл, карты, генераторы |
-| Systems | `Systems/` | контроллер, правила боя, квесты, навыки, сохранения |
+| Systems | `Systems/` | общий слой SP/MP (`CharacterFactory`, `CombatSystem`, `MonsterAI`, `PlayerActions`), контроллер, квесты, сохранения |
 | Data | `Data/` | таблицы в коде (предметы, классы, монстры, квесты…) |
 | Presentation | `Render/`, `Net/`, `Audio/` | экраны, кооператив, звук |
 
@@ -62,8 +62,9 @@ dotnet run --project Aethelgard.csproj
 dotnet test Aethelgard.sln -c Release
 ```
 
-17 xUnit-тестов проверяют сохранения и `FloorData`, сетевой протокол и HMAC,
-PBKDF2-пароли, эффекты классов/узлов и детерминизм генерации мира.
+22 xUnit-теста проверяют сохранения и `FloorData`, сетевой протокол и HMAC,
+PBKDF2-пароли, эффекты классов/узлов, детерминизм генерации мира и общую
+симуляцию SP/MP (создание персонажа, бой, магазин, статы, навыки).
 GitHub Actions (`.github/workflows/ci.yml`) собирает решение с
 `-warnaserror` и запускает тесты на `windows-latest`.
 

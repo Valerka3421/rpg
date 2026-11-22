@@ -30,6 +30,9 @@ public class GameCore
     public List<string> Events = new();
     public List<(int Pid, string Text)> ChatLog = new();
 
+    /// <summary>Визуальные снаряды текущей карты (стрелы/файрболы монстров и навыков).</summary>
+    public List<Projectile> Projectiles = new();
+
     /// <summary>Общий журнал квестов отряда (parity: quest_log в снапшоте).</summary>
     public QuestLog Quests = new();
 
@@ -82,34 +85,9 @@ public class GameCore
     /// </summary>
     public Player AddPlayer(int pid, string classKey)
     {
-        var player = new Player(classKey);
+        var player = CharacterFactory.Create(classKey);
         player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
         player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
-
-        // Give starting items
-        var classDef = ClassData.Get(classKey);
-        if (classDef != null)
-        {
-            player.ClassName = classDef.Name;
-            player.Str += classDef.StrBonus;
-            player.Agi += classDef.AgiBonus;
-            player.Vit += classDef.VitBonus;
-            player.Luk += classDef.LukBonus;
-            player.IntStat += classDef.IntBonus;
-            player.DfStat += classDef.DfStatBonus;
-            player.Recalc();
-            player.Hp = player.MaxHp;
-            player.Mana = player.MaxMana;
-            foreach (var (itemKey, itemCount) in classDef.StartItems)
-            {
-                player.AddItem(itemKey, itemCount);
-                var itemDef = ItemData.Get(itemKey);
-                if (itemDef != null &&
-                    (itemDef.Kind == ItemData.ItemType.Weapon
-                     || itemDef.Kind == ItemData.ItemType.Armor))
-                    player.EquipItem(itemKey);
-            }
-        }
 
         Players[pid] = player;
 
@@ -208,15 +186,9 @@ public class GameCore
         if (msg.UsePotion == true)
         {
             // Цепочка зелий как на H в сингле: только существующие зелья
-            string[] potions = { "potion_s", "potion_m", "potion_l" };
-            foreach (var p in potions)
-            {
-                if (player.ItemCount(p) > 0 && player.UseItem(p, CurrentMap))
-                {
-                    AddEvent($"Игрок {pid} выпил: {p}");
-                    break;
-                }
-            }
+            string? potion = ItemSystem.UseBestPotion(player, CurrentMap);
+            if (potion != null)
+                AddEvent($"Игрок {pid} выпил: {potion}");
         }
         if (msg.UseItemKey != null)
         {
@@ -232,24 +204,14 @@ public class GameCore
         if (msg.LearnNodeIdx.HasValue)
         {
             // Изучение узла дерева навыков (клавиши 1–7 на панели N — как в SP)
-            var nodes = SkillTree.GetNodes(player);
-            int nIdx = msg.LearnNodeIdx.Value;
-            if (nIdx >= 0 && nIdx < nodes.Length)
-            {
-                var node = nodes[nIdx];
-                if (SkillTree.LearnNode(player, node.Key))
-                    AddEvent($"Изучено: {node.Name}");
-            }
+            if (ProgressionSystem.LearnNode(player, msg.LearnNodeIdx.Value, out string msgText))
+                AddEvent(msgText);
         }
         if (msg.Promote == true)
         {
             // Повышение класса (P): первое доступное, как в SP TryPromoteClass
-            var promos = ClassData.AvailablePromotions(player);
-            if (promos.Length > 0 && ClassData.Promote(player, promos[0]))
-            {
-                var promoDef = ClassData.Get(promos[0]);
-                AddEvent($"Новый класс: {promoDef?.Name}!");
-            }
+            if (ProgressionSystem.Promote(player, out string promoteText))
+                AddEvent(promoteText);
         }
         if (msg.QuickbarSlot.HasValue)
         {
@@ -257,21 +219,7 @@ public class GameCore
             player.AssignQuickbar(msg.QuickbarSlot.Value, msg.QuickbarKey);
         }
         if (!string.IsNullOrEmpty(msg.AllocateStat))
-        {
-            if (player.FreePoints > 0)
-            {
-                switch (msg.AllocateStat)
-                {
-                    case "str": player.Str++; player.FreePoints--; break;
-                    case "agi": player.Agi++; player.FreePoints--; break;
-                    case "vit": player.Vit++; player.FreePoints--; break;
-                    case "luk": player.Luk++; player.FreePoints--; break;
-                    case "df_stat": player.DfStat++; player.FreePoints--; break;
-                    case "int": player.IntStat++; player.FreePoints--; break;
-                }
-                player.Recalc();
-            }
-        }
+            StatSystem.Allocate(player, msg.AllocateStat);
         if (!string.IsNullOrEmpty(msg.CraftKey) && msg.CraftAccuracy.HasValue)
         {
             var res = Rules.CraftItem(player, msg.CraftKey, msg.CraftQty ?? 1,
@@ -345,39 +293,30 @@ public class GameCore
         if (msg.SkillIdx.HasValue)
         {
             // Активный навык класса: урон по ближайшему / лечение
-            var skills = player.ActiveSkills();
-            int idx = Math.Clamp(msg.SkillIdx.Value, 0, Math.Max(0, skills.Count - 1));
-            if (skills.Count > 0)
+            var skill = SkillSystem.Get(player, msg.SkillIdx.Value);
+            if (skill != null && SkillSystem.Validate(player, skill) == null)
             {
-                var skill = skills[idx];
-                if (player.Mana >= skill.Mana && !player.ActiveSkillCd.ContainsKey(skill.Key))
+                if (SkillSystem.IsHeal(skill))
                 {
-                    if (skill.Kind.Contains("heal"))
+                    if (player.Hp < player.MaxHp)
                     {
-                        player.Hp = Math.Min(player.MaxHp, player.Hp + skill.Damage);
-                        player.Mana -= skill.Mana;
-                        player.ActiveSkillCd[skill.Key] = (float)skill.Cooldown;
+                        int healed = SkillSystem.Heal(player, skill);
+                        SkillSystem.Pay(player, skill);
+                        AddEvent($"Игрок {pid}: {skill.Name} (+{healed} HP)");
                     }
-                    else
+                }
+                else
+                {
+                    var target = CombatSystem.FindNearestMonster(player, CurrentMap, 8);
+                    if (target != null)
                     {
-                        Entity? target = null;
-                        int best = int.MaxValue;
-                        foreach (var m in CurrentMap.Monsters)
-                        {
-                            if (!m.Alive || m.IsNpc) continue;
-                            int d = Math.Max(Math.Abs(m.X - player.X), Math.Abs(m.Y - player.Y));
-                            if (d <= 8 && d < best) { best = d; target = m; }
-                        }
-                        if (target != null)
-                        {
-                            target.Hp -= skill.Damage + player.TotalInt;
-                            player.Mana -= skill.Mana;
-                            player.ActiveSkillCd[skill.Key] = (float)skill.Cooldown;
-                            if (!target.Alive)
-                            {
-                                KillMonster(player, target);
-                            }
-                        }
+                        Projectiles.Add(ProjectileSystem.Create(player, target,
+                            CombatSystem.ProjectileKindFor(skill), 0, visual: true));
+                        int damage = SkillSystem.Damage(player, skill, target);
+                        SkillSystem.Pay(player, skill);
+                        AddEvent($"Игрок {pid}: {skill.Name} — {damage} урона ({target.Name})");
+                        if (!target.Alive)
+                            KillMonster(player, target);
                     }
                 }
             }
@@ -530,16 +469,12 @@ public class GameCore
             // Городская лавка: нужно стоять рядом с NPC-лавочником
             Entity? npc = NearShopNpc(player);
             if (npc == null || npc.NpcType == null
-                || !CityData.Npcs.TryGetValue(npc.NpcType, out var def))
+                || !CityData.Npcs.ContainsKey(npc.NpcType))
                 return;
-            stock = def.ShopStock.Select(e =>
-                new RecipeData.ShopEntry { Key = e.Key, Price = e.Price, Infinite = true }).ToList();
+            stock = ShopSystem.CityStock(npc.NpcType);
         }
-        if (idx < 0 || idx >= stock.Count) return;
-        var entry = stock[idx];
-        if (player.Gold < entry.Price) return;
-        player.Gold -= entry.Price;
-        player.AddItem(entry.Key, 1);
+        if (ShopSystem.Buy(player, stock, idx, out string message) && message.Length > 0)
+            AddEvent(message);
     }
 
     private void MpSell(Player player, int idx)
@@ -551,13 +486,8 @@ public class GameCore
             return;
         }
         if (_worldMode != "dungeon" && NearShopNpc(player) == null) return;
-        var items = player.Inventory.ToList();
-        if (idx < 0 || idx >= items.Count) return;
-        var (key, _) = items[idx];
-        int price = ItemData.SellPrice(key);
-        if (price <= 0) return;
-        player.Gold += price;
-        player.RemoveItem(key, 1);
+        if (ShopSystem.Sell(player, idx, out string message) && message.Length > 0)
+            AddEvent(message);
     }
 
     private bool NearElder(Player player)
@@ -600,8 +530,8 @@ public class GameCore
         var monster = CurrentMap.MonsterAt(nx, ny);
         if (monster != null && !monster.IsNpc)
         {
-            Rules.ResolveAttack(player, monster);
-            if (!monster.Alive) KillMonster(player, monster);
+            var outcome = CombatSystem.Attack(player, monster);
+            if (outcome.Killed) KillMonster(player, monster);
             return;
         }
 
@@ -631,38 +561,23 @@ public class GameCore
 
     private void KillMonster(Player killer, Entity monster)
     {
-        Rules.AwardKill(killer, monster, Math.Max(1, Depth), Players.Values.ToList());
+        CombatSystem.AwardKill(killer, CurrentMap, monster, Depth, Players.Values.ToList());
         Quests.UpdateKill(monster.Ch);
-        CurrentMap.Monsters.Remove(monster);
         AddEvent($"{killer.ClassName} убил {monster.Name}");
     }
 
     private void PlayerAttack(Player player)
     {
-        Entity? target = null;
-        int bestDist = int.MaxValue;
-        foreach (var m in CurrentMap.Monsters)
-        {
-            if (!m.Alive || m.IsNpc) continue;
-            int dist = Math.Max(Math.Abs(m.X - player.X), Math.Abs(m.Y - player.Y));
-            if (dist <= 1 && dist < bestDist)
-            {
-                bestDist = dist;
-                target = m;
-            }
-        }
-
-        if (target != null)
-        {
-            Rules.ResolveAttack(player, target);
-            var second = Rules.TryDoubleStrike(player, target);
-            if (!target.Alive) KillMonster(player, target);
-        }
+        var outcome = CombatSystem.AttackNearest(player, CurrentMap);
+        if (outcome is { Killed: true, Target: not null })
+            KillMonster(player, outcome.Target);
     }
 
     private void UseStairs(Player player)
     {
         var tile = CurrentMap.Tiles[player.Y][player.X];
+        if (tile is Tile.Gate or Tile.Stairs or Tile.UpStairs or Tile.Exit)
+            Projectiles.Clear();
         if (tile == Tile.Gate)
         {
             TravelGate(player);
@@ -803,94 +718,18 @@ public class GameCore
     /// </summary>
     public void Update(float dt)
     {
-        // Monster AI (NPC не двигаются)
-        foreach (var m in CurrentMap.Monsters)
-        {
-            if (!m.Alive || m.IsNpc) continue;
-            m.ActionTimer -= dt;
-            if (m.ActionTimer > 0) continue;
-            float interval = m.Boss ? Config.BossActionInterval : Config.MonsterActionInterval;
-            m.ActionTimer = interval * (1f + (float)(Random.Shared.NextDouble() - 0.5) * 2f * Config.MonsterActionJitter);
-
-            if (m.Statuses.ContainsKey("slow")) continue;
-
-            // Nearest player
-            Player? nearest = null;
-            int bestDist = int.MaxValue;
-            foreach (var p in Players.Values)
+        // Общий ИИ монстров (тот же, что в синглплеере). Дальняя атака
+        // наносит урон сразу, а снаряд летит как визуальный эффект.
+        MonsterAI.Update(CurrentMap, Players.Values.ToList(), dt,
+            onRanged: (m, p) =>
             {
-                if (!p.Alive) continue;
-                int dist = Math.Max(Math.Abs(m.X - p.X), Math.Abs(m.Y - p.Y));
-                if (dist < bestDist) { bestDist = dist; nearest = p; }
-            }
-            if (nearest == null) continue;
+                Rules.ResolveAttack(m, p);
+                Projectiles.Add(ProjectileSystem.Create(
+                    m, p, CombatSystem.ProjectileKindFor(m), 0, visual: true));
+            },
+            onBreath: (m, _, _) => AddEvent($"{m.Name} выдыхает огонь!"));
 
-            if (m.Flees && bestDist <= 3)
-            {
-                int dx = -Math.Sign(nearest.X - m.X), dy = -Math.Sign(nearest.Y - m.Y);
-                int fx = m.X + dx, fy = m.Y + dy;
-                if (CurrentMap.IsWalkable(fx, fy) && CurrentMap.MonsterAt(fx, fy) == null
-                    && !Players.Values.Any(p => p.X == fx && p.Y == fy))
-                { m.X = fx; m.Y = fy; }
-                continue;
-            }
-
-            if (m.Healer)
-            {
-                Entity? wounded = null;
-                int woundHp = int.MaxValue;
-                foreach (var ally in CurrentMap.Monsters)
-                {
-                    if (ally == m || !ally.Alive || ally.Hp >= ally.MaxHp) continue;
-                    int d = Math.Max(Math.Abs(ally.X - m.X), Math.Abs(ally.Y - m.Y));
-                    if (d <= 5 && ally.Hp < woundHp) { woundHp = ally.Hp; wounded = ally; }
-                }
-                if (wounded != null)
-                {
-                    wounded.Hp = Math.Min(wounded.MaxHp, wounded.Hp + 8);
-                    continue;
-                }
-            }
-
-            if (m.Ranged && bestDist >= 2 && bestDist <= 4)
-            {
-                Rules.ResolveAttack(m, nearest);
-                continue;
-            }
-
-            if (m.Boss)
-            {
-                m.BreathTimer += interval;
-                if (m.BreathTimer >= Config.BossBreathInterval
-                    && bestDist >= Config.BossBreathRangeMin
-                    && bestDist <= Config.BossBreathRangeMax)
-                {
-                    m.BreathTimer = 0;
-                    int breathDmg = Math.Max(1,
-                        (int)(m.Atk * Config.BossBreathPower) - nearest.Df);
-                    if (!nearest.GodModeStat) nearest.Hp -= breathDmg;
-                    AddEvent($"{m.Name} выдыхает огонь!");
-                    continue;
-                }
-            }
-
-            if (bestDist <= 1)
-            {
-                Rules.ResolveAttack(m, nearest);
-            }
-            else if (bestDist <= (m.Boss ? 15 : 8))
-            {
-                int dx = Math.Sign(nearest.X - m.X);
-                int dy = Math.Sign(nearest.Y - m.Y);
-                int nx = m.X + dx, ny = m.Y + dy;
-                if (CurrentMap.IsWalkable(nx, ny)
-                    && CurrentMap.MonsterAt(nx, ny) == null
-                    && !Players.Values.Any(p => p.X == nx && p.Y == ny))
-                { m.X = nx; m.Y = ny; }
-            }
-        }
-
-        CurrentMap.Monsters.RemoveAll(m => !m.Alive);
+        UpdateProjectiles(dt);
 
         // Status tick
         _statusAccum += dt;
@@ -934,6 +773,21 @@ public class GameCore
         // Clear old events
         if (Events.Count > 10)
             Events.RemoveRange(0, Events.Count - 10);
+    }
+
+    /// <summary>Движение визуальных снарядов; урон наносится в момент каста.</summary>
+    private void UpdateProjectiles(float dt)
+    {
+        var players = Players.Values.ToList();
+        for (int i = Projectiles.Count - 1; i >= 0; i--)
+        {
+            var p = Projectiles[i];
+            IReadOnlyList<Entity> targets = p.SourcePid == -1
+                ? players
+                : CurrentMap.Monsters;
+            if (ProjectileSystem.Update(p, dt, CurrentMap, targets))
+                Projectiles.RemoveAt(i);
+        }
     }
 
     private float _statusAccum;
@@ -1017,6 +871,13 @@ public class GameCore
         // Items
         foreach (var ((x, y), key) in CurrentMap.Items)
             snap.Items.Add(new Snapshot.ItemState { X = x, Y = y, Key = key });
+
+        // Projectiles (визуальные снаряды — рисуются клиентом)
+        foreach (var p in Projectiles)
+            snap.Projectiles.Add(new Snapshot.ProjectileState
+            {
+                X = p.X, Y = p.Y, Kind = p.Kind, Color = p.Color,
+            });
 
         // NPCs (городские + торговец/доска подземелья)
         foreach (var m in CurrentMap.Monsters)

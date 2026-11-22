@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Input;
+using Screens = Aethelgard.Systems.ScreenMode;
 namespace Aethelgard.Systems;
 
 /// <summary>
@@ -20,9 +21,8 @@ public class GameController
         : _currentLocation != null ? _currentLocation
         : Overworld;
     public Player Player;
-    public string ScreenMode = "class_select";
-    // "class_select", "game", "inventory", "skills", "shop", "quests", "dialogue",
-    // "mp_menu", "mp_game"
+    public string ScreenMode = Screens.ClassSelect;
+    // Константы экранов — Systems/Modes.cs (ScreenMode).
     public string WorldMode => _worldMode;
     public int Depth = 0;
     public float Fps;
@@ -129,39 +129,7 @@ public class GameController
     public void NewGame(string classKey = "warrior")
     {
         Overworld = WorldGen.GenerateOverworld();
-        Player = new Player(classKey);
-
-        // Apply class starting stat bonuses
-        var classDef = ClassData.Get(classKey);
-        if (classDef != null)
-        {
-            Player.ClassName = classDef.Name;
-            Player.Str += classDef.StrBonus;
-            Player.Agi += classDef.AgiBonus;
-            Player.Vit += classDef.VitBonus;
-            Player.Luk += classDef.LukBonus;
-            Player.IntStat += classDef.IntBonus;
-            Player.DfStat += classDef.DfStatBonus;
-            Player.ClassTier = classDef.Tier;
-            Player.Recalc();
-            Player.Hp = Player.MaxHp;
-            Player.Mana = Player.MaxMana;
-
-            // Give starting items
-            foreach (var (itemKey, itemCount) in classDef.StartItems)
-            {
-                Player.AddItem(itemKey, itemCount);
-                // Авто-экипировка первого оружия/брони
-                var itemDef = ItemData.Get(itemKey);
-                if (itemDef != null &&
-                    (itemDef.Kind == ItemData.ItemType.Weapon
-                     || itemDef.Kind == ItemData.ItemType.Armor
-                     || itemDef.Kind == ItemData.ItemType.Helmet))
-                {
-                    Player.EquipItem(itemKey);
-                }
-            }
-        }
+        Player = CharacterFactory.Create(classKey);
 
         var (cx, cy) = Aethelgard.World.Overworld.VillageCenter;
         Player.X = cx;
@@ -173,7 +141,7 @@ public class GameController
         Dungeon = Overworld;
         _worldMode = "overworld";
         Depth = 0;
-        ScreenMode = "game";
+        ScreenMode = Screens.Game;
         _floorCache.Clear();
 
         // Initialize craft levels
@@ -213,10 +181,10 @@ public class GameController
     public void HandleInput(KeyboardState keys, KeyboardState prevKeys, float dt)
     {
         // Class select mode — handled by ClassSelectScreen via AethelgardGame
-        if (ScreenMode == "class_select") return;
+        if (ScreenMode == Screens.ClassSelect) return;
 
         // Multiplayer game mode — input goes to client
-        if (ScreenMode == "mp_game")
+        if (ScreenMode == Screens.MpGame)
         {
             HandleMpInput(keys, prevKeys);
             return;
@@ -266,21 +234,21 @@ public class GameController
         // Toggle inventory
         if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
         {
-            ScreenMode = ScreenMode == "inventory" ? "game" : "inventory";
+            ScreenMode = ScreenMode == Screens.Inventory ? Screens.Game : Screens.Inventory;
             return;
         }
 
         // Toggle skills screen
         if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
         {
-            ScreenMode = ScreenMode == "skills" ? "game" : "skills";
+            ScreenMode = ScreenMode == Screens.Skills ? Screens.Game : Screens.Skills;
             return;
         }
 
         // Craft screen (K)
         if (keys.IsKeyDown(Keys.K) && !prevKeys.IsKeyDown(Keys.K))
         {
-            ScreenMode = ScreenMode == "craft" ? "game" : "craft";
+            ScreenMode = ScreenMode == Screens.Craft ? Screens.Game : Screens.Craft;
             CraftPage = 0;
             return;
         }
@@ -288,21 +256,21 @@ public class GameController
         // Stats screen (C)
         if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
         {
-            ScreenMode = ScreenMode == "stats" ? "game" : "stats";
+            ScreenMode = ScreenMode == Screens.Stats ? Screens.Game : Screens.Stats;
             return;
         }
 
         // Quests screen (L)
         if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
         {
-            ScreenMode = ScreenMode == "quests" ? "game" : "quests";
+            ScreenMode = ScreenMode == Screens.Quests ? Screens.Game : Screens.Quests;
             return;
         }
 
         // Pause menu (Esc)
         if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
         {
-            ScreenMode = ScreenMode == "pause" ? "game" : "pause";
+            ScreenMode = ScreenMode == Screens.Pause ? Screens.Game : Screens.Pause;
             return;
         }
 
@@ -313,54 +281,54 @@ public class GameController
             return;
         }
 
-        if (ScreenMode == "inventory")
+        if (ScreenMode == Screens.Inventory)
         {
             HandleInventoryInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "skills")
+        if (ScreenMode == Screens.Skills)
         {
             HandleSkillsInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "shop")
+        if (ScreenMode == Screens.Shop)
         {
             HandleShopInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "quests")
+        if (ScreenMode == Screens.Quests)
         {
             HandleQuestInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "dialogue")
+        if (ScreenMode == Screens.Dialogue)
         {
             bool anyPressed = keys.IsKeyDown(Keys.Enter) || keys.IsKeyDown(Keys.T)
                 || keys.IsKeyDown(Keys.Escape);
             bool wasPressed = prevKeys.IsKeyDown(Keys.Enter) || prevKeys.IsKeyDown(Keys.T)
                 || prevKeys.IsKeyDown(Keys.Escape);
             if (anyPressed && !wasPressed)
-                ScreenMode = "game";
+                ScreenMode = Screens.Game;
             return;
         }
 
-        if (ScreenMode == "craft")
+        if (ScreenMode == Screens.Craft)
         {
             HandleCraftInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "stats")
+        if (ScreenMode == Screens.Stats)
         {
             HandleStatsInput(keys, prevKeys);
             return;
         }
 
-        if (ScreenMode == "pause")
+        if (ScreenMode == Screens.Pause)
         {
             HandlePauseInput(keys, prevKeys);
             return;
@@ -396,7 +364,7 @@ public class GameController
         // B — bigmap
         if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
         {
-            ScreenMode = ScreenMode == "bigmap" ? "game" : "bigmap";
+            ScreenMode = ScreenMode == Screens.Bigmap ? Screens.Game : Screens.Bigmap;
             return;
         }
 
@@ -422,7 +390,7 @@ public class GameController
         {
             var key = Keys.D1 + i;
             if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key)
-                && ScreenMode == "game")
+                && ScreenMode == Screens.Game)
             {
                 var itemKey = Player.Quickbar[i];
                 if (itemKey != null && Player.UseItem(itemKey, CurrentMap))
@@ -433,8 +401,7 @@ public class GameController
         // Use quick potion (H) — только существующие зелья: s → m → l
         if (keys.IsKeyDown(Keys.H) && !prevKeys.IsKeyDown(Keys.H))
         {
-            if (Player.UseItem("potion_s", CurrentMap) || Player.UseItem("potion_m", CurrentMap)
-                || Player.UseItem("potion_l", CurrentMap))
+            if (ItemSystem.UseBestPotion(Player, CurrentMap) != null)
                 ShowMessage("Выпито зелье лечения");
             else
                 ShowMessage("Нет зелий лечения!");
@@ -485,7 +452,7 @@ public class GameController
 
         if (keys.IsKeyDown(Keys.K) && !prevKeys.IsKeyDown(Keys.K)
             || keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = "game";
+            ScreenMode = Screens.Game;
     }
 
     private void HandleStatsInput(KeyboardState keys, KeyboardState prevKeys)
@@ -508,13 +475,13 @@ public class GameController
 
         if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C)
             || keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = "game";
+            ScreenMode = Screens.Game;
     }
 
     private void HandlePauseInput(KeyboardState keys, KeyboardState prevKeys)
     {
         if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = "game";
+            ScreenMode = Screens.Game;
     }
 
     /// <summary>Вложить свободное очко в характеристику (0–5).</summary>
@@ -525,25 +492,12 @@ public class GameController
             ShowMessage("Нет свободных очков!");
             return false;
         }
-        bool ok = index switch
+        if (StatSystem.Allocate(Player, index))
         {
-            0 => Alloc(ref Player.Str),
-            1 => Alloc(ref Player.Agi),
-            2 => Alloc(ref Player.Vit),
-            3 => Alloc(ref Player.Luk),
-            4 => Alloc(ref Player.DfStat),
-            5 => Alloc(ref Player.IntStat),
-            _ => false,
-        };
-        if (ok)
-        {
-            Player.FreePoints--;
-            Player.Recalc();
             ShowMessage("Характеристика повышена!");
+            return true;
         }
-        return ok;
-
-        bool Alloc(ref int stat) { stat++; return true; }
+        return false;
     }
 
     // ── Крафт: список, мини-игра точности, исполнение ──
@@ -678,18 +632,13 @@ public class GameController
     /// </summary>
     public bool CastActiveSkill(int index)
     {
-        var skills = Player.ActiveSkills();
-        if (index < 0 || index >= skills.Count) return false;
-        var skill = skills[index];
+        var skill = SkillSystem.Get(Player, index);
+        if (skill == null) return false;
 
-        if (Player.ActiveSkillCd.TryGetValue(skill.Key, out float cd) && cd > 0)
+        string? error = SkillSystem.Validate(Player, skill);
+        if (error != null)
         {
-            ShowMessage($"{skill.Name}: перезарядка {cd:F1} с.");
-            return false;
-        }
-        if (Player.Mana < skill.Mana)
-        {
-            ShowMessage("Недостаточно маны!");
+            ShowMessage(error);
             return false;
         }
 
@@ -701,7 +650,7 @@ public class GameController
             case "damage":
             {
                 // Урон ближайшему монстру по взгляду (в радиусе 8)
-                var target = FindMonsterInFacing(8);
+                var target = CombatSystem.FindInFacing(Player, CurrentMap, 8);
                 if (target == null)
                 {
                     ShowMessage("Нет цели.");
@@ -709,22 +658,15 @@ public class GameController
                 }
                 // Визуальный снаряд: урон уже нанесён ниже, снаряд только
                 // показывает направление каста (ProjectileSystem.Visual).
-                string kind = skill.Key switch
-                {
-                    "fireball" => "fireball",
-                    "frost_bolt" => "frost",
-                    _ => "arrow",
-                };
-                Projectiles.Add(ProjectileSystem.Create(Player, target, kind, 0, visual: true));
+                Projectiles.Add(ProjectileSystem.Create(Player, target,
+                    CombatSystem.ProjectileKindFor(skill), 0, visual: true));
 
-                target.Hp -= skill.Damage + Player.TotalInt;
-                if (skill.Key == "frost_bolt") target.AddStatus("slow");
-                ShowMessage($"{skill.Name}: {skill.Damage + Player.TotalInt} урона — {target.Name}");
+                int damage = SkillSystem.Damage(Player, skill, target);
+                ShowMessage($"{skill.Name}: {damage} урона — {target.Name}");
                 if (!target.Alive)
                 {
-                    Rules.AwardKill(Player, target, Math.Max(1, Depth));
+                    CombatSystem.AwardKill(Player, CurrentMap, target, Depth);
                     Quests.UpdateKill(target.Ch);
-                    CurrentMap.Monsters.Remove(target);
                     Audio?.Play(target.Boss ? "boss" : "hit");
                 }
                 cast = true;
@@ -738,8 +680,8 @@ public class GameController
                     ShowMessage("Здоровье уже полное.");
                     return false;
                 }
-                Player.Hp = Math.Min(Player.MaxHp, Player.Hp + skill.Damage);
-                ShowMessage($"{skill.Name}: +{skill.Damage} HP");
+                int healed = SkillSystem.Heal(Player, skill);
+                ShowMessage($"{skill.Name}: +{healed} HP");
                 cast = true;
                 break;
             }
@@ -747,8 +689,7 @@ public class GameController
 
         if (cast)
         {
-            Player.Mana -= skill.Mana;
-            Player.ActiveSkillCd[skill.Key] = (float)skill.Cooldown;
+            SkillSystem.Pay(Player, skill);
             Audio?.Play(skill.Key == "fireball" ? "fireball" : "hit");
         }
         return cast;
@@ -764,22 +705,6 @@ public class GameController
             if (v <= 0) Player.ActiveSkillCd.Remove(k);
             else Player.ActiveSkillCd[k] = v;
         }
-    }
-
-    /// <summary>Монстр в линии взгляда (до range клеток).</summary>
-    private Entity? FindMonsterInFacing(int range)
-    {
-        var (fdx, fdy) = Player.Facing;
-        if (fdx == 0 && fdy == 0) fdy = 1;
-        for (int step = 1; step <= range; step++)
-        {
-            int x = Player.X + fdx * step, y = Player.Y + fdy * step;
-            if (x < 0 || x >= CurrentMap.W || y < 0 || y >= CurrentMap.H) break;
-            if (CurrentMap.Tiles[y][x] == Tile.Wall) break;
-            var m = CurrentMap.MonsterAt(x, y);
-            if (m != null && m.Alive && !m.IsNpc) return m;
-        }
-        return null;
     }
 
     /// <summary>
@@ -943,12 +868,8 @@ public class GameController
             return map.MerchantStock;
         }
         var list = new List<RecipeData.ShopEntry>();
-        if (ActiveShopNpc != null &&
-            CityData.Npcs.TryGetValue(ActiveShopNpc, out var npcDef))
-        {
-            foreach (var e in npcDef.ShopStock)
-                list.Add(new RecipeData.ShopEntry { Key = e.Key, Price = e.Price, Infinite = true });
-        }
+        if (ActiveShopNpc != null)
+            list = ShopSystem.CityStock(ActiveShopNpc);
         return list;
     }
 
@@ -985,18 +906,10 @@ public class GameController
     /// </summary>
     private void TryLearnNode(int index)
     {
-        var nodes = SkillTree.GetNodes(Player);
-        if (index < 0 || index >= nodes.Length) return;
-
-        var node = nodes[index];
-        if (SkillTree.LearnNode(Player, node.Key))
-            ShowMessage($"Изучено: {node.Name}");
-        else if (Player.LearnedNodes.Contains(node.Key))
-            ShowMessage("Уже изучено.");
-        else if (Player.Level < node.Level)
-            ShowMessage($"Требуется уровень {node.Level}.");
-        else
-            ShowMessage("Нет очков навыков!");
+        if (ProgressionSystem.LearnNode(Player, index, out string message))
+            ShowMessage(message);
+        else if (message.Length > 0)
+            ShowMessage(message);
     }
 
     /// <summary>
@@ -1004,20 +917,10 @@ public class GameController
     /// </summary>
     private void TryPromoteClass()
     {
-        var promotions = ClassData.AvailablePromotions(Player);
-        if (promotions.Length == 0)
-        {
-            ShowMessage("Нет доступного повышения класса.");
-            return;
-        }
-
-        // Auto-promote to first available (in full port, show a selection UI)
-        string promoKey = promotions[0];
-        if (ClassData.Promote(Player, promoKey))
-        {
-            var def = ClassData.Get(promoKey);
-            ShowMessage($"Новый класс: {def?.Name}!");
-        }
+        if (ProgressionSystem.Promote(Player, out string message))
+            ShowMessage(message);
+        else if (message.Length > 0)
+            ShowMessage(message);
     }
 
     /// <summary>
@@ -1473,7 +1376,7 @@ public class GameController
     }
 
     /// <summary>
-    /// Attack nearest monster.
+    /// Attack nearest monster (или дальнобойным оружием — по взгляду).
     /// </summary>
     private void Attack()
     {
@@ -1482,7 +1385,7 @@ public class GameController
         var wdef = ItemData.Get(weapon);
         if (wdef?.WType is "bow" or "staff" or "book")
         {
-            var ranged = FindMonsterInFacing(8);
+            var ranged = CombatSystem.FindInFacing(Player, CurrentMap, 8);
             if (ranged != null)
             {
                 AttackTarget(ranged);
@@ -1490,27 +1393,16 @@ public class GameController
             }
         }
 
-        Entity? target = null;
-        int bestDist = int.MaxValue;
-
-        foreach (var m in CurrentMap.Monsters)
-        {
-            if (!m.Alive || m.IsNpc) continue;
-            int dist = Math.Max(Math.Abs(m.X - Player.X), Math.Abs(m.Y - Player.Y));
-            if (dist <= 1 && dist < bestDist)
-            {
-                bestDist = dist;
-                target = m;
-            }
-        }
-
+        var target = CombatSystem.FindNearestMonster(Player, CurrentMap);
         if (target != null)
             AttackTarget(target);
     }
 
     private void AttackTarget(Entity target)
     {
-        var result = Rules.ResolveAttack(Player, target);
+        var outcome = CombatSystem.Attack(Player, target);
+        var result = outcome.First;
+        if (result == null) return;
 
         if (result.Dodged)
         {
@@ -1522,23 +1414,17 @@ public class GameController
         if (result.Crit)
             Audio?.Play("crit");
 
-        // Двойной удар (перк, шанс 15%)
-        var second = Rules.TryDoubleStrike(Player, target);
-
-        if (!target.Alive)
+        if (outcome.Killed)
         {
             FinishKill(target);
+            return;
         }
-        else
-        {
-            Audio?.Play("attack");
-            if (result.Healed > 0)
-                ShowMessage($"Вампиризм: +{result.Healed} HP");
-            else if (second != null && !target.Alive)
-                FinishKill(target);
-            else if (second != null)
-                ShowMessage("Двойной удар!");
-        }
+
+        Audio?.Play("attack");
+        if (result.Healed > 0)
+            ShowMessage($"Вампиризм: +{result.Healed} HP");
+        else if (outcome.Second != null)
+            ShowMessage("Двойной удар!");
     }
 
     private void FinishKill(Entity target)
@@ -1546,7 +1432,7 @@ public class GameController
         string msg = $"{target.Name} slain!";
         if (target.Boss)
             msg = $"Boss {target.Name} defeated!";
-        Rules.AwardKill(Player, target, Math.Max(1, Depth));
+        CombatSystem.AwardKill(Player, CurrentMap, target, Depth);
         Audio?.Play(target.Boss ? "boss" : "death_monster");
         KillsTotal++;
 
@@ -1560,7 +1446,6 @@ public class GameController
             msg += " VICTORY! You have conquered the dungeon!";
         }
 
-        CurrentMap.Monsters.Remove(target);
         ShowMessage(msg);
     }
 
@@ -1571,7 +1456,7 @@ public class GameController
     /// </summary>
     public void Update(float dt)
     {
-        if (ScreenMode != "game") return;
+        if (ScreenMode != Screens.Game) return;
 
         // Guard AI (overworld only)
         UpdateGuard(dt);
@@ -1649,7 +1534,7 @@ public class GameController
                 // Дальняя атака летит снарядом; урон считается при попадании
                 // через Rules (dodge/crit/статусы), как в одиночной игре.
                 Projectiles.Add(ProjectileSystem.Create(
-                    m, p, ProjectileKindFor(m), Math.Max(1, m.Atk - p.Df)));
+                    m, p, CombatSystem.ProjectileKindFor(m), Math.Max(1, m.Atk - p.Df)));
             },
             onBreath: (m, _, damage) =>
             {
@@ -1659,14 +1544,6 @@ public class GameController
 
         HandlePlayerDeath();
     }
-
-    private static string ProjectileKindFor(Entity m) => m.Ability switch
-    {
-        "fireball" or "burning" => "fireball",
-        "frost" => "frost",
-        "lightning" => "lightning",
-        _ => "arrow",
-    };
 
     private void UpdateProjectiles(float dt)
     {
@@ -1787,7 +1664,7 @@ public class GameController
     {
         MpClient = client;
         IsMultiplayer = true;
-        ScreenMode = "mp_game";
+        ScreenMode = Screens.MpGame;
         Player = new Player(string.IsNullOrEmpty(classKey) ? "warrior" : classKey);
     }
 
@@ -1951,15 +1828,15 @@ public class GameController
 
         // Открытие панелей — те же клавиши, что в сингле
         if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
-        { MpPanel = "inventory"; MpPage = 0; return; }
+        { MpPanel = Screens.Inventory; MpPage = 0; return; }
         if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
-        { MpPanel = "stats"; return; }
+        { MpPanel = Screens.Stats; return; }
         if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
-        { MpPanel = "skills"; MpSkillCast = false; return; }
+        { MpPanel = Screens.Skills; MpSkillCast = false; return; }
         if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
-        { MpPanel = "quests"; return; }
+        { MpPanel = Screens.Quests; return; }
         if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
-        { MpPanel = "shop"; MpShopPage = 0; MpShopSell = false; return; }
+        { MpPanel = Screens.Shop; MpShopPage = 0; MpShopSell = false; return; }
 
         // Движение
         int dx = 0, dy = 0;
@@ -2064,7 +1941,7 @@ public class GameController
 
         switch (MpPanel)
         {
-            case "inventory":
+            case Screens.Inventory:
             {
                 if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
                 { MpPanel = ""; return; }
@@ -2117,7 +1994,7 @@ public class GameController
                 break;
             }
 
-            case "stats":
+            case Screens.Stats:
             {
                 if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
                 { MpPanel = ""; return; }
@@ -2132,7 +2009,7 @@ public class GameController
                 break;
             }
 
-            case "skills":
+            case Screens.Skills:
             {
                 if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
                 { MpPanel = ""; return; }
@@ -2172,7 +2049,7 @@ public class GameController
                 break;
             }
 
-            case "quests":
+            case Screens.Quests:
             {
                 if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
                 { MpPanel = ""; return; }
@@ -2195,7 +2072,7 @@ public class GameController
                 break;
             }
 
-            case "shop":
+            case Screens.Shop:
             {
                 if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
                 { MpPanel = ""; return; }
@@ -2360,7 +2237,7 @@ public class GameController
         ActiveShopNpc = npcType;
         ShopSubMode = "buy";
         ShopPage = 0;
-        ScreenMode = "shop";
+        ScreenMode = Screens.Shop;
     }
 
     /// <summary>
@@ -2373,19 +2250,10 @@ public class GameController
         int idx = pageStart + index;
         if (index < 0 || idx >= stock.Count) return;
 
-        var entry = stock[idx];
-        var itemDef = ItemData.Get(entry.Key);
-        if (itemDef == null) return;
-
-        if (Player.Gold < entry.Price)
-        {
-            ShowMessage("Недостаточно золота!");
-            return;
-        }
-
-        Player.Gold -= entry.Price;
-        Player.AddItem(entry.Key, 1);
-        ShowMessage($"Куплено: {itemDef.Name} за {entry.Price} золота");
+        if (ShopSystem.Buy(Player, stock, idx, out string message))
+            ShowMessage(message);
+        else if (message.Length > 0)
+            ShowMessage(message);
     }
 
     /// <summary>
@@ -2393,23 +2261,16 @@ public class GameController
     /// </summary>
     public void SellItem(int index)
     {
-        var items = Player.Inventory.ToList();
         int pageStart = ShopPage * Config.ShopPageSize;
         int idx = pageStart + index;
-        if (idx >= items.Count) return;
-
-        var (key, _) = items[idx];
-        int price = ItemData.SellPrice(key);
-        if (price <= 0)
+        int before = Player.Gold;
+        if (ShopSystem.Sell(Player, idx, out string message))
         {
-            ShowMessage("Этот предмет нельзя продать.");
-            return;
+            GoldEarned += Player.Gold - before;
+            ShowMessage(message);
         }
-
-        Player.Gold += price;
-        GoldEarned += price;
-        Player.RemoveItem(key, 1);
-        ShowMessage($"Продано: {ItemData.DisplayName(key)} за {price} золота");
+        else if (message.Length > 0)
+            ShowMessage(message);
     }
 
     // ── Quests ──
@@ -2497,7 +2358,7 @@ public class GameController
             Quests.GeneratedBoard = QuestData.GenerateBoardQuests(
                 Math.Max(0, Depth), Math.Min(Config.MaxDepth, Depth + 4), 3,
                 Environment.TickCount);
-            ScreenMode = "quests";
+            ScreenMode = Screens.Quests;
             return;
         }
 
@@ -2505,7 +2366,7 @@ public class GameController
         {
             DialogueNpc = "Старейшина";
             DialogueText = "Приветствую, искатель приключений. Подземелье на северо-востоке таит большие опасности... и большие сокровища. Загляни на доску заданий, если ищешь работу.";
-            ScreenMode = "dialogue";
+            ScreenMode = Screens.Dialogue;
             return;
         }
 
@@ -2516,7 +2377,7 @@ public class GameController
             DungeonShopMode = true;
             ShopSubMode = "buy";
             ShopPage = 0;
-            ScreenMode = "shop";
+            ScreenMode = Screens.Shop;
             return;
         }
 
@@ -2527,7 +2388,7 @@ public class GameController
             {
                 DialogueNpc = "Стражник";
                 DialogueText = "Я сторожу врата. Монстры редко подходят к городским стенам, но в диких землях будьте начеку.";
-                ScreenMode = "dialogue";
+                ScreenMode = Screens.Dialogue;
             }
             else
             {

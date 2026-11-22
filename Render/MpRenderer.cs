@@ -84,6 +84,7 @@ public class MpRenderer
         DrawHarvests(snap, myState);
         DrawItems(snap);
         DrawMonsters(snap);
+        DrawProjectiles(snap);
         DrawPlayers(snap, myState);
         _sb.End();
 
@@ -236,6 +237,17 @@ public class MpRenderer
                 int fillW = m.MaxHp > 0 ? barW * m.Hp / m.MaxHp : 0;
                 _sb.Draw(Blank, new Rectangle(bx, by, fillW, 3), Config.ColHp);
             }
+        }
+    }
+
+    /// <summary>Летящие снаряды из снапшота (визуальный эффект дальних атак).</summary>
+    private void DrawProjectiles(Snapshot snap)
+    {
+        foreach (var p in snap.Projectiles)
+        {
+            var pos = new Vector2(p.X * Config.TileSize - _camX + Config.TileSize / 2,
+                                   p.Y * Config.TileSize - _camY + Config.TileSize / 2);
+            DrawCircle(pos, 5, p.Color);
         }
     }
 

@@ -50,8 +50,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
 
     private static readonly string[] MenuModes =
     {
-        "menu", "menu_saves", "menu_settings", "menu_controls",
-        "menu_credits", "menu_multiplayer", "menu_mp_join",
+        ScreenMode.Menu, ScreenMode.MenuSaves, ScreenMode.MenuSettings, ScreenMode.MenuControls,
+        ScreenMode.MenuCredits, ScreenMode.MenuMultiplayer, ScreenMode.MenuMpJoin,
     };
 
     public AethelgardGame()
@@ -132,7 +132,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         _graphics.ApplyChanges();
 
         WireMenu();
-        _game.ScreenMode = "menu";
+        _game.ScreenMode = ScreenMode.Menu;
         _menu.OpenMain();
     }
 
@@ -146,7 +146,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _game.CurrentSlot = 1;
             _game.PendingMpHost = false;
             _game.PendingMpFresh = false;
-            _game.ScreenMode = "class_select";
+            _game.ScreenMode = ScreenMode.ClassSelect;
         };
         _menu.OnSaveSlot = slot =>
         {
@@ -155,7 +155,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _game.ShowMessage(ok ? $"Сохранено в слот {slot}" : "Ошибка сохранения!");
             if (_menu.FromGame && ok)
             {
-                _game.ScreenMode = "game";
+                _game.ScreenMode = ScreenMode.Game;
                 _menu.OpenFromGame();
             }
         };
@@ -166,16 +166,16 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             if (data != null)
             {
                 SaveSystem.ApplyLoad(_game, data);
-                _game.ScreenMode = "game";
+                _game.ScreenMode = ScreenMode.Game;
             }
             else
                 _game.ShowMessage($"Слот {slot} пуст");
         };
-        _menu.OnResume = () => _game.ScreenMode = "game";
+        _menu.OnResume = () => _game.ScreenMode = ScreenMode.Game;
         _menu.OnExitToMenu = () =>
         {
             SaveSystem.Save(_game, _game.CurrentSlot);  // тихое сохранение (python exit_to_main_menu)
-            _game.ScreenMode = "menu";
+            _game.ScreenMode = ScreenMode.Menu;
             _menu.OpenMain();
         };
         _menu.OnExit = () =>
@@ -194,7 +194,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             _game.PendingMpHost = true;
             _game.PendingMpFresh = true;
-            _game.ScreenMode = "class_select";
+            _game.ScreenMode = ScreenMode.ClassSelect;
         };
         _menu.OnMpJoin = hostPort =>
         {
@@ -250,67 +250,67 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             switch (mode)
             {
-                case "mp_game":
+                case ScreenMode.MpGame:
                     // Отключиться и вернуться в главное меню
                     _game.StopMultiplayer();
-                    _game.ScreenMode = "menu";
+                    _game.ScreenMode = ScreenMode.Menu;
                     _menu.OpenMain();
                     break;
-                case "class_select":
+                case ScreenMode.ClassSelect:
                     // Назад в главное меню (python: Esc → меню)
                     if (_game.PendingMpHost)
                     {
                         _game.PendingMpHost = false;
-                        _game.ScreenMode = "menu";
+                        _game.ScreenMode = ScreenMode.Menu;
                         _menu.OpenMain();
                     }
                     else
                     {
-                        _game.ScreenMode = "menu";
+                        _game.ScreenMode = ScreenMode.Menu;
                         _menu.OpenMain();
                     }
                     break;
-                case "inventory": case "skills": case "shop": case "quests":
-                case "dialogue": case "craft": case "stats": case "bigmap":
-                    _game.ScreenMode = "game";
+                case ScreenMode.Inventory: case ScreenMode.Skills: case ScreenMode.Shop: case ScreenMode.Quests:
+                case ScreenMode.Dialogue: case ScreenMode.Craft: case ScreenMode.Stats: case ScreenMode.Bigmap:
+                    _game.ScreenMode = ScreenMode.Game;
                     break;
-                // "pause": ESC обрабатывается GameController (resume)
-                // "game": ESC → пауза (тоже GameController)
+                // ScreenMode.Pause: ESC обрабатывается GameController (resume)
+                // ScreenMode.Game: ESC → пауза (тоже GameController)
             }
         }
 
-        if (mode == "mp_game")
+        if (mode == ScreenMode.MpGame)
         {
             _game.HandleInput(keys, _prevKeys, dt);
             _game.UpdateMp(dt);
         }
-        else if (mode == "class_select")
+        else if (mode == ScreenMode.ClassSelect)
         {
             // Выбор класса рисуется в Draw (он сам обрабатывает ввод)
         }
-        else if (mode == "pause")
+        else if (mode == ScreenMode.Pause)
         {
             // Меню паузы: 5 пунктов (python MENU_PAUSE)
             int? choice = _pause.HandleInput(keys, _prevKeys);
-            if (escPressed) _game.ScreenMode = "game";      // Esc — вернуться
-            else if (choice == 0) _game.ScreenMode = "game";
+            if (escPressed) _game.ScreenMode = ScreenMode.Game;      // Esc — вернуться
+            else if (choice == 0) _game.ScreenMode = ScreenMode.Game;
             else if (choice == 1)
             {
                 _menu.FromGame = true;
                 _menu.OpenSaves(true);
-                _game.ScreenMode = "menu_saves";
+                _game.ScreenMode = ScreenMode.MenuSaves;
             }
             else if (choice == 2)
             {
                 _menu.FromGame = true;
                 _menu.OpenSaves(false);
-                _game.ScreenMode = "menu_saves";
+                _game.ScreenMode = ScreenMode.MenuSaves;
             }
             else if (choice == 3)
             {
                 _menu.FromGame = true;
                 _menu.OpenSettings();
-                _game.ScreenMode = "menu_settings";
+                _game.ScreenMode = ScreenMode.MenuSettings;
             }
             else if (choice == 4) _menu.OnExitToMenu?.Invoke();
         }
@@ -345,7 +345,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _menu.Draw(_game);
             _spriteBatch.End();
         }
-        else if (mode == "class_select")
+        else if (mode == ScreenMode.ClassSelect)
         {
             _spriteBatch.Begin();
             var selected = _classSelect.Draw(keys, _prevKeys, mouse);
@@ -359,7 +359,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     _game.PendingMpFresh = false;
                     if (!_game.StartMpHost(fresh, selected))
                     {
-                        _game.ScreenMode = "menu";
+                        _game.ScreenMode = ScreenMode.Menu;
                         _menu.OpenMain();
                         _game.ShowMessage("Не удалось запустить сервер мультиплеера");
                     }
@@ -368,28 +368,28 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     _game.NewGame(selected);
             }
         }
-        else if (mode == "mp_game")
+        else if (mode == ScreenMode.MpGame)
         {
             _mpRenderer.Draw(_game);
         }
         else
         {
             // Мир под модальными окнами (в паузе фон затемняется панелью)
-            if (mode != "pause")
+            if (mode != ScreenMode.Pause)
                 _renderer.Draw(_game);
 
             _spriteBatch.Begin();
             switch (mode)
             {
-                case "inventory": _inventory.Draw(_game.Player, mouse); break;
-                case "skills": _skills.Draw(_game.Player, mouse); break;
-                case "shop": _shop.Draw(_game); break;
-                case "quests": _quests.Draw(_game); break;
-                case "dialogue": _dialogue.Draw(_game); break;
-                case "bigmap": _bigmap.Draw(_game); break;
-                case "craft": _craft.Draw(_game, mouse); break;
-                case "stats": _stats.Draw(_game, mouse); break;
-                case "pause":
+                case ScreenMode.Inventory: _inventory.Draw(_game.Player, mouse); break;
+                case ScreenMode.Skills: _skills.Draw(_game.Player, mouse); break;
+                case ScreenMode.Shop: _shop.Draw(_game); break;
+                case ScreenMode.Quests: _quests.Draw(_game); break;
+                case ScreenMode.Dialogue: _dialogue.Draw(_game); break;
+                case ScreenMode.Bigmap: _bigmap.Draw(_game); break;
+                case ScreenMode.Craft: _craft.Draw(_game, mouse); break;
+                case ScreenMode.Stats: _stats.Draw(_game, mouse); break;
+                case ScreenMode.Pause:
                     _renderer.Draw(_game);
                     _pause.Draw(_game);
                     break;

@@ -38,7 +38,11 @@ Aethelgard/
 │   ├── Locations.cs            — 13 именованных карт
 │   └── Projectiles.cs          — Projectile + ProjectileSystem
 ├── Systems/                    — правила и контроллер (бывший Core/Game)
-│   ├── GameController.cs       — состояние + ввод + апдейт
+│   ├── GameController.cs       — состояние + ввод + апдейт (SP)
+│   ├── CharacterFactory.cs     — создание игрока и бонусы класса (SP/MP)
+│   ├── CombatSystem.cs         — поиск цели, удары, награда за килл (SP/MP)
+│   ├── PlayerActions.cs        — навыки, магазин, статы, прогресс, зелья
+│   ├── MonsterAI.cs            — общий ИИ монстров (SP/MP)
 │   ├── DevConsole.cs           — dev-консоль
 │   ├── Rules.cs                — бой, лут, награды
 │   ├── Config.cs               — константы, палитра, XP-кривая
@@ -278,8 +282,27 @@ platemail) — все ключи сверены с ItemDefs.
 | Рендер | Процедурные текстуры строятся на CPU через `PixelCanvas`, `RenderTarget2D` не переключается внутри активного `SpriteBatch` |
 | CI | `dotnet build -warnaserror` + `dotnet test` на `windows-latest` (шрифты используют Windows-only System.Drawing) |
 
-Осознанные ограничения: `GameController` и `Net/GameCore` остаются крупными
-и частично дублируют правила — вынос общей симуляции в отдельный слой
-запланирован, но не входит в текущий релиз. `World/Projectiles.cs` и
-`Systems/Modes.cs` сохранены как задел: снаряды и константы экранов пока не
-подключены к активному циклу.
+Осознанные ограничения: `GameController` и `Net/GameCore` остаются
+контроллерами состояния и ввода (SP и авторитетный MP-сервер) и намеренно
+не сливаются в один класс — у них разные источники ввода и разные модели
+синхронизации. Общие правила при этом вынесены в `Systems`: бой и награды
+(`CombatSystem`, `Rules`), создание персонажа (`CharacterFactory`), ИИ
+монстров (`MonsterAI`), навыки/магазин/статы/прогресс (`PlayerActions`).
+`World/Projectiles.cs` подключён к активному циклу и в SP, и в MP
+(визуальные снаряды передаются в снапшоте и рисуются `MpRenderer`), а
+`Systems/Modes.cs` — единый источник констант экранов для `World/Game.cs`
+и `GameController`.
+
+## 17. Общая симуляция синглплеера и MP
+
+| Модуль | Что внутри | Кто использует |
+|---|---|---|
+| `Systems/CharacterFactory.cs` | создание `Player`, бонусы класса, стартовый набор и автоэкипировка | `GameController.NewGame`, `GameCore.AddPlayer` |
+| `Systems/CombatSystem.cs` | поиск ближайшей цели/цели по взгляду, первый и двойной удар, выдача награды и удаление монстра | SP-атаки и навыки, MP `PlayerAttack`/`TryMovePlayer`/`KillMonster` |
+| `Systems/MonsterAI.cs` | таймеры действий, flee/healer/ranged, дыхание босса, шаг к цели | `GameController.UpdateMonsters`, `GameCore.Update` |
+| `Systems/PlayerActions.cs` | `SkillSystem`, `ShopSystem`, `StatSystem`, `ProgressionSystem`, `ItemSystem` | панели SP, MP-сообщения и серверные обработчики |
+| `Systems/Rules.cs` | урон, крит/уклонение, лут, XP/золото, крафт, магия | оба контроллера и `MonsterAI` |
+
+`GameController` и `GameCore` теперь отвечают за состояние, ввод и
+синхронизацию, а не за копии правил. Это позволяет менять баланс или
+исправлять бой в одном месте без расхождения между синглом и кооперативом.

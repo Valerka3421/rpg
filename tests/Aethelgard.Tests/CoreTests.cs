@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Aethelgard.Data;
 using Aethelgard.Entities;
 using Aethelgard.Net;
 using Aethelgard.Systems;
@@ -286,8 +287,7 @@ public class PasswordHasherTests
 }
 
 public class WorldGenerationTests
-{
-    private static string Tiles(Dungeon d) =>
+{    private static string Tiles(Dungeon d) =>
         string.Join("|", d.Tiles.Select(row =>
             new string(row.Select(t => (char)('0' + (int)t)).ToArray())));
 
@@ -322,5 +322,81 @@ public class WorldGenerationTests
 
         Assert.Equal(Tiles(a), Tiles(b));
         Assert.Equal(a.Monsters.Count, b.Monsters.Count);
+    }
+}
+
+public class SharedSimulationTests
+{
+    [Fact]
+    public void CharacterFactory_AppliesStartItemsOnce()
+    {
+        var player = CharacterFactory.Create("mage");
+        var def = ClassData.Data("mage");
+
+        foreach (var (key, count) in def.StartItems)
+            Assert.Equal(count, player.ItemCount(key));
+    }
+
+    [Fact]
+    public void StatSystem_AllocatesPointAndRecalculates()
+    {
+        var player = new Player("warrior") { FreePoints = 1 };
+        int before = player.Str;
+
+        Assert.True(StatSystem.Allocate(player, 0));
+        Assert.Equal(before + 1, player.Str);
+        Assert.Equal(0, player.FreePoints);
+        Assert.False(StatSystem.Allocate(player, 0));
+    }
+
+    [Fact]
+    public void ShopSystem_BuysAndSellsThroughSameRules()
+    {
+        var player = new Player("warrior") { Gold = 100 };
+        var stock = new List<RecipeData.ShopEntry>
+        {
+            new() { Key = "potion_s", Price = 10, Infinite = true },
+        };
+
+        Assert.True(ShopSystem.Buy(player, stock, 0, out _));
+        Assert.Equal(90, player.Gold);
+        Assert.Equal(1, player.ItemCount("potion_s"));
+
+        int idx = player.Inventory.Keys.ToList().IndexOf("potion_s");
+        Assert.True(ShopSystem.Sell(player, idx, out _));
+        Assert.Equal(0, player.ItemCount("potion_s"));
+        Assert.True(player.Gold > 90);
+    }
+
+    [Fact]
+    public void CombatSystem_FindsAndDamagesNearestMonster()
+    {
+        var map = new Dungeon(20, 20);
+        var player = new Player("warrior") { X = 5, Y = 5 };
+        var monster = new Entity(6, 5, 50, 50, 0, 0, "Rat", 'r', Color.White, 5);
+        map.Monsters.Add(monster);
+
+        var outcome = CombatSystem.AttackNearest(player, map);
+
+        Assert.NotNull(outcome);
+        Assert.Same(monster, outcome!.Target);
+        Assert.True(monster.Hp < 50);
+    }
+
+    [Fact]
+    public void SkillSystem_AppliesDamageAndPaysMana()
+    {
+        var player = new Player("mage") { Mana = 100 };
+        var skill = SkillSystem.Get(player, 0);
+        Assert.NotNull(skill);
+
+        var target = new Entity(6, 5, 50, 50, 0, 0, "Rat", 'r', Color.White, 5);
+        int damage = SkillSystem.Damage(player, skill!, target);
+        SkillSystem.Pay(player, skill!);
+
+        Assert.Equal(skill!.Damage + player.TotalInt, damage);
+        Assert.Equal(50 - damage, target.Hp);
+        Assert.Equal(100 - skill.Mana, player.Mana);
+        Assert.True(player.ActiveSkillCd.ContainsKey(skill.Key));
     }
 }

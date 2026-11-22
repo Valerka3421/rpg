@@ -79,6 +79,17 @@ public sealed class Snapshot
 
     public List<MonsterState> Monsters { get; set; } = new();
 
+    // ── Снаряды (визуальные эффекты дальних атак и навыков) ──
+    public sealed class ProjectileState
+    {
+        public float X { get; set; }
+        public float Y { get; set; }
+        public string Kind { get; set; } = "";
+        public Color Color { get; set; }
+    }
+
+    public List<ProjectileState> Projectiles { get; set; } = new();
+
     // ── Items on ground ──
     public sealed class ItemState
     {
