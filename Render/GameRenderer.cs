@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -42,12 +39,12 @@ public class GameRenderer
         // Camera: center on player
         int viewW = Config.ViewW;
         int viewH = Config.ViewH;
-        _camX = player.X * Config.TileSize - (Game1.ScreenW - viewW * Config.TileSize) / 2;
+        _camX = player.X * Config.TileSize - (AethelgardGame.ScreenW - viewW * Config.TileSize) / 2;
         _camY = player.Y * Config.TileSize;
 
         // Clamp camera
-        _camX = Math.Max(0, Math.Min(_camX, d.W * Config.TileSize - Game1.ScreenW));
-        _camY = Math.Max(0, Math.Min(_camY, d.H * Config.TileSize - (Game1.ScreenH - Config.HudHeight)));
+        _camX = Math.Max(0, Math.Min(_camX, d.W * Config.TileSize - AethelgardGame.ScreenW));
+        _camY = Math.Max(0, Math.Min(_camY, d.H * Config.TileSize - (AethelgardGame.ScreenH - Config.HudHeight)));
 
         // Draw tiles
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
@@ -55,10 +52,15 @@ public class GameRenderer
         DrawItems(d);
         DrawNpcs(game);
         DrawEntities(d, player);
+        DrawProjectiles(game);
         _sb.End();
 
         // Draw HUD
         DrawHud(player, game);
+
+        // Minimap (M toggles)
+        if (game.MinimapVisible)
+            DrawMinimap(d, player, game);
 
         // Draw message
         if (game.MessageTimer > 0 && game.LastMessage != null && _font != null)
@@ -68,8 +70,8 @@ public class GameRenderer
             _sb.Begin();
             var size = _font.MeasureString(game.LastMessage);
             var pos = new Vector2(
-                (Game1.ScreenW - size.X) / 2,
-                Game1.ScreenH - Config.HudHeight - 30);
+                (AethelgardGame.ScreenW - size.X) / 2,
+                AethelgardGame.ScreenH - Config.HudHeight - 30);
             _sb.Draw(_blankTex,
                 new Rectangle((int)pos.X - 8, (int)pos.Y - 4,
                     (int)size.X + 16, (int)size.Y + 8),
@@ -105,6 +107,19 @@ public class GameRenderer
                                        y * Config.TileSize - _camY);
                 _sb.Draw(tex, pos, Color.White);
             }
+        }
+    }
+
+    private void DrawProjectiles(GameController game)
+    {
+        foreach (var p in game.Projectiles)
+        {
+            float px = p.X * Config.TileSize - _camX + Config.TileSize / 2f;
+            float py = p.Y * Config.TileSize - _camY + Config.TileSize / 2f;
+            int size = p.Kind is "fireball" or "lightning" ? 10 : 6;
+            _sb.Draw(_blankTex,
+                new Rectangle((int)px - size / 2, (int)py - size / 2, size, size),
+                p.Color);
         }
     }
 
@@ -214,8 +229,8 @@ public class GameRenderer
     {
         int sx = x * Config.TileSize - _camX;
         int sy = y * Config.TileSize - _camY;
-        return sx > -Config.TileSize && sx < Game1.ScreenW
-            && sy > -Config.TileSize && sy < Game1.ScreenH - Config.HudHeight;
+        return sx > -Config.TileSize && sx < AethelgardGame.ScreenW
+            && sy > -Config.TileSize && sy < AethelgardGame.ScreenH - Config.HudHeight;
     }
 
     private void DrawCircle(Vector2 center, int radius, Color color)
@@ -250,22 +265,136 @@ public class GameRenderer
         _sb.DrawString(_font, text, pos - size / 2, color);
     }
 
+    /// <summary>
+    /// Мини-карта в правом верхнем углу: исследованные/видимые клетки,
+    /// маркеры игрока, мобов и NPC (MINIMAP_SCALE = 2).
+    /// </summary>
+    private void DrawMinimap(Dungeon d, Player player, GameController game)
+    {
+        const int scale = Config.MinimapScale;
+        int maxW = 200, maxH = 140;
+        int cellsX = Math.Min(d.W, maxW / scale);
+        int cellsY = Math.Min(d.H, maxH / scale);
+        int ox = AethelgardGame.ScreenW - cellsX * scale - 12;
+        int oy = 28;
+
+        _sb.Draw(_blankTex, new Rectangle(ox - 3, oy - 3, cellsX * scale + 6, cellsY * scale + 6),
+            new Color(10, 8, 8, 200));
+
+        for (int y = 0; y < cellsY; y++)
+        {
+            for (int x = 0; x < cellsX; x++)
+            {
+                var t = d.Tiles[y][x];
+                Color c = t switch
+                {
+                    Tile.Wall => new Color(60, 54, 46),
+                    Tile.Stairs => Config.ColStairs,
+                    Tile.Exit => new Color(120, 200, 120),
+                    Tile.UpStairs => new Color(200, 160, 90),
+                    Tile.Gate => new Color(150, 130, 90),
+                    Tile.LockedDoor => new Color(200, 80, 60),
+                    Tile.Chest => new Color(230, 190, 80),
+                    _ => new Color(30, 28, 24),
+                };
+                if (t == Tile.Wall && d.Harvestables.ContainsKey((x, y)))
+                    c = new Color(46, 58, 40);
+                _sb.Draw(_blankTex, new Rectangle(ox + x * scale, oy + y * scale, scale, scale), c);
+            }
+        }
+
+        // Monsters
+        foreach (var m in d.Monsters)
+        {
+            if (!m.Alive || m.IsNpc) continue;
+            if (m.X >= cellsX || m.Y >= cellsY) continue;
+            _sb.Draw(_blankTex, new Rectangle(ox + m.X * scale, oy + m.Y * scale, scale, scale),
+                m.Boss ? new Color(255, 60, 60) : new Color(200, 80, 80));
+        }
+
+        // NPCs
+        foreach (var npc in game.AllNpcs())
+        {
+            if (npc.X >= cellsX || npc.Y >= cellsY) continue;
+            _sb.Draw(_blankTex, new Rectangle(ox + npc.X * scale, oy + npc.Y * scale, scale, scale),
+                new Color(240, 200, 90));
+        }
+
+        // Player
+        if (player.X < cellsX && player.Y < cellsY)
+            _sb.Draw(_blankTex, new Rectangle(ox + player.X * scale, oy + player.Y * scale, scale, scale),
+                Config.ColPlayer);
+    }
+
+    /// <summary>Хотбар (слоты 1–8) и панель активных навыков в HUD.</summary>
+    private void DrawHotbar(GameController game)
+    {
+        if (_font == null) return;
+        var player = game.Player;
+        int hx = 16;
+        int hy = AethelgardGame.ScreenH - 44;
+
+        for (int i = 0; i < 8; i++)
+        {
+            var rect = new Rectangle(hx + i * (Config.QuickbarSlotSize + Config.QuickbarGap),
+                hy, Config.QuickbarSlotSize, Config.QuickbarSlotSize);
+            _sb.Draw(_blankTex, rect, new Color(30, 26, 22));
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, 1), Config.ColDim);
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), Config.ColDim);
+
+            var itemKey = player.Quickbar[i];
+            if (itemKey != null)
+            {
+                Color c = ItemData.DisplayColor(itemKey);
+                _sb.Draw(_blankTex, new Rectangle(rect.X + 8, rect.Y + 8, 32, 32), c);
+                int count = player.ItemCount(itemKey);
+                _sb.DrawString(_font, count > 99 ? "99+" : count.ToString(),
+                    new Vector2(rect.X + 6, rect.Y + 30), Config.ColText);
+            }
+            _sb.DrawString(_font, $"{i + 1}", new Vector2(rect.X + 2, rect.Y + 2), Config.ColDim);
+        }
+
+        // Active skills panel (F1–F4/F6–F8/F10)
+        var skills = player.ActiveSkills();
+        int sx = hx + 8 * (Config.QuickbarSlotSize + Config.QuickbarGap) + 16;
+        for (int i = 0; i < skills.Count && i < SkillKeysLabels.Length; i++)
+        {
+            var skill = skills[i];
+            float cd = player.ActiveSkillCd.GetValueOrDefault(skill.Key);
+            var rect = new Rectangle(sx + i * 74, hy, 70, Config.QuickbarSlotSize);
+            _sb.Draw(_blankTex, rect, cd > 0 ? new Color(24, 20, 18) : new Color(38, 32, 26));
+            _sb.DrawString(_font, SkillKeysLabels[i], new Vector2(rect.X + 4, rect.Y + 2), Config.ColDim);
+            _sb.DrawString(_font, skill.Name, new Vector2(rect.X + 4, rect.Y + 16), Config.ColText);
+            _sb.DrawString(_font, $"{skill.Mana} MP", new Vector2(rect.X + 4, rect.Y + 32),
+                new Color(100, 150, 220));
+            if (cd > 0)
+                _sb.DrawString(_font, $"{cd:F1}s", new Vector2(rect.X + 40, rect.Y + 32), Config.ColDmg);
+        }
+    }
+
+    private static readonly string[] SkillKeysLabels =
+        { "F1", "F2", "F3", "F4", "F6", "F7", "F8", "F10" };
+
     private void DrawHud(Player player, GameController game)
     {
         // HUD background
         _sb.Draw(_blankTex,
-            new Rectangle(0, Game1.ScreenH - Config.HudHeight, Game1.ScreenW, Config.HudHeight),
+            new Rectangle(0, AethelgardGame.ScreenH - Config.HudHeight, AethelgardGame.ScreenW, Config.HudHeight),
             new Color(18, 16, 14, 220));
 
         if (_font == null) return;
 
-        int y = Game1.ScreenH - Config.HudHeight + 10;
+        int y = AethelgardGame.ScreenH - Config.HudHeight + 10;
         int x = 16;
 
         // Class + Level + Location
         string loc = game.WorldMode == "dungeon"
-            ? $"Dungeon F{game.Depth}"
-            : "Overworld";
+            ? $"Подземелье {game.Depth}/{Config.MaxDepth}"
+            : game.CurrentMap.LocationKey != null
+                ? Locations.All.GetValueOrDefault(game.CurrentMap.LocationKey)?.Name ?? "Открытый мир"
+                : "Открытый мир";
+        if (game.WorldMode != "dungeon" && game.CurrentMap.LocationKey == null)
+            loc = "Город Этельгард";
         _sb.DrawString(_font, $"{player.ClassName}  Lv.{player.Level}  [{loc}]",
             new Vector2(x, y), Config.ColText);
         y += 20;
@@ -286,12 +415,12 @@ public class GameRenderer
         y += 20;
 
         // Gold
-        _sb.DrawString(_font, $"Gold: {player.Gold}", new Vector2(x, y), Config.ColGold);
+        _sb.DrawString(_font, $"Золото: {player.Gold}", new Vector2(x, y), Config.ColGold);
 
         // Equipment summary (right side)
-        int ex = Game1.ScreenW - 260;
+        int ex = AethelgardGame.ScreenW - 260;
         int ey = y - 60;
-        _sb.DrawString(_font, "Eq:", new Vector2(ex, ey), Config.ColDim);
+        _sb.DrawString(_font, "Снаряжение:", new Vector2(ex, ey), Config.ColDim);
         ey += 16;
         var eqSlots = new[] { ("W", player.Weapon), ("A", player.Armor),
             ("H", player.Head), ("L", player.Legs), ("B", player.Boots) };
@@ -302,12 +431,16 @@ public class GameRenderer
             ey += 14;
         }
 
-        // FPS (top right)
-        _sb.DrawString(_font, $"FPS: {game.Fps:F0}", new Vector2(Game1.ScreenW - 80, 8), Config.ColDim);
+        // FPS (top right) — только при включённой настройке show_fps
+        if (game.ShowFps)
+            _sb.DrawString(_font, $"FPS: {game.Fps:F0}", new Vector2(AethelgardGame.ScreenW - 80, 8), Config.ColDim);
 
         // Controls hint
-        _sb.DrawString(_font, "WASD:move  Space:attack  F:stairs  I:inv  N:skills  H:potion  B:map  T:talk",
+        _sb.DrawString(_font, "WASD:шаг  Пробел:атака  F:лестница  E:добыча  I:инвентарь  K:крафт  C:статы  L:квесты  N:навыки  H:зелье  M:карта  B:большая карта  T:говорить  Esc:пауза",
             new Vector2(16, 8), Config.ColDim);
+
+        // Hotbar + skills panel
+        DrawHotbar(game);
     }
 
     private void DrawBar(int x, int y, int w, int h, int value, int max, Color color)

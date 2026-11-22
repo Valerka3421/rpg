@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+
+    env:
+      DOTNET_NOLOGO: true
+      DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore
+        run: dotnet restore Aethelgard.sln
+
+      - name: Build (warnings as errors)
+        run: dotnet build Aethelgard.sln -c Release --no-restore -warnaserror
+
+      - name: Test
+        run: dotnet test Aethelgard.sln -c Release --no-build --no-restore --verbosity normal

@@ -15,11 +15,30 @@ namespace Aethelgard.Render;
 /// Replaces MonoGame Content Pipeline (MGCB) which fails on paths with
 /// Cyrillic characters or special symbols.
 ///
-/// Generates a 256×256 texture with ASCII chars 32-126 in a grid,
-/// then wraps it as a SpriteFont for MonoGame rendering.
+/// Набор символов: ASCII 32–126 + кириллица (А–я, Ё, ё) + типографика
+/// («» — – … · № • ↑↓←→ ×). Игра полностью русскоязычная, поэтому
+/// кириллица обязательна (раньше шрифт был только ASCII — русский текст
+/// рисовался знаками «?»).
 /// </summary>
 public static class RuntimeFont
 {
+    /// <summary>Все символы, доступные в шрифте (в порядке сетки).</summary>
+    public static readonly List<char> CharsetQuery = BuildCharset();
+
+    private static List<char> BuildCharset()
+    {
+        var chars = new List<char>();
+        // ASCII printable
+        for (int i = 32; i <= 126; i++) chars.Add((char)i);
+        // Кириллица: Ё/ё + А-Я + а-я
+        chars.Add('Ё'); chars.Add('ё');
+        for (int i = 0x410; i <= 0x44F; i++) chars.Add((char)i);
+        // Типографика и служебные знаки UI
+        chars.AddRange(new[] { '«', '»', '—', '–', '…', '·', '№', '•',
+            '↑', '↓', '←', '→', '×', '§' });
+        return chars;
+    }
+
     /// <summary>
     /// Create a SpriteFont from System.Drawing at runtime.
     /// Uses Arial or fallback font installed on the system.
@@ -28,10 +47,7 @@ public static class RuntimeFont
     {
         try
         {
-            // Character range: ASCII 32 (space) to 126 (~)
-            int charStart = 32;
-            int charEnd = 126;
-            int charCount = charEnd - charStart + 1;
+            int charCount = CharsetQuery.Count;
 
             // Grid layout: 16 chars per row
             int cols = 16;
@@ -47,8 +63,8 @@ public static class RuntimeFont
             g.Clear(System.Drawing.Color.Transparent);
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
 
-            // Try Arial, fallback to generic sans-serif
-            var fontNames = new[] { "Arial", "Segoe UI", "DejaVu Sans",
+            // Сначала шрифты с гарантированной кириллицей
+            var fontNames = new[] { "Segoe UI", "Arial", "DejaVu Sans",
                 "Liberation Sans", "Microsoft Sans Serif", "Verdana" };
             System.Drawing.Font? font = null;
             foreach (var name in fontNames)
@@ -77,7 +93,7 @@ public static class RuntimeFont
 
             for (int i = 0; i < charCount; i++)
             {
-                char c = (char)(charStart + i);
+                char c = CharsetQuery[i];
                 int col = i % cols;
                 int row = i / cols;
                 int x = col * cellW;
@@ -121,19 +137,11 @@ public static class RuntimeFont
             texture.SetData(colors);
 
             // Build SpriteFont from texture + glyph data
-            // MonoGame SpriteFont constructor:
-            // (Texture2D texture, List<Rectangle> glyphBounds, List<Rectangle> cropping,
-            //  List<char> characters, int lineSpacing, float spacing,
-            //  char? defaultCharacter, bool useKerning)
-            var characters = new List<char>();
-            for (int i = charStart; i <= charEnd; i++)
-                characters.Add((char)i);
-
             var spriteFont = new SpriteFont(
                 texture,
                 glyphBounds,
                 cropping,
-                characters,
+                CharsetQuery,
                 cellH,       // lineSpacing
                 0f,          // spacing
                 kerning,     // kerning (List<Vector3>)

@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -34,7 +31,7 @@ public class DevConsoleScreen
     {
         if (!console.Open || _font == null) return;
 
-        int sw = Game1.ScreenW;
+        int sw = AethelgardGame.ScreenW;
         int panelH = 300;
 
         // Dark panel at top
@@ -42,7 +39,7 @@ public class DevConsoleScreen
         _sb.Draw(Blank, new Rectangle(0, panelH, sw, 2), Config.ColGold);
 
         // Title
-        _sb.DrawString(_font, "[ DEV CONSOLE ]", new Vector2(8, 6), Config.ColGold);
+        _sb.DrawString(_font, "[ КОНСОЛЬ РАЗРАБОТЧИКА ]", new Vector2(8, 6), Config.ColGold);
 
         // Output
         int y = 28;
@@ -72,7 +69,7 @@ public class DevConsoleScreen
             new Vector2(8, inputY), Config.ColText);
 
         // Hint
-        _sb.DrawString(_font, "Enter: submit  Up/Dn: history  Esc: close",
+        _sb.DrawString(_font, "Enter: ввод  ↑/↓: история  Esc: закрыть",
             new Vector2(sw - 280, inputY), Config.ColDim);
     }
 

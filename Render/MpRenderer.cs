@@ -4,18 +4,16 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-using Aethelgard.Net;
-
 namespace Aethelgard.Render;
 
 /// <summary>
 /// Multiplayer renderer — draws the game from server snapshots.
 /// Ported from Python net/view.py.
 ///
-/// Instead of reading from local Dungeon/Player, reads from Snapshot
-/// received over the network.
+/// Вместо упрощённого «пол везде» рисует настоящую карту из снапшота
+/// (стены/лестницы/ворота — те же процедурные тайлы, что в сингле),
+/// а также панели инвентаря/статов/навыков/квестов/магазина, дублирующие
+/// SP-экраны (паритет контента MP и SP).
 /// </summary>
 public class MpRenderer
 {
@@ -46,14 +44,14 @@ public class MpRenderer
         {
             // Waiting for first snapshot
             _sb.Begin();
-            _sb.Draw(Blank, new Rectangle(0, 0, Game1.ScreenW, Game1.ScreenH),
+            _sb.Draw(Blank, new Rectangle(0, 0, AethelgardGame.ScreenW, AethelgardGame.ScreenH),
                 new Color(12, 12, 18));
-            string msg = "Connecting to server...";
+            string msg = "Подключение к серверу...";
             var size = _font?.MeasureString(msg) ?? new Vector2(200, 20);
             if (_font != null)
                 _sb.DrawString(_font, msg,
-                    new Vector2((Game1.ScreenW - size.X) / 2,
-                                (Game1.ScreenH - size.Y) / 2),
+                    new Vector2((AethelgardGame.ScreenW - size.X) / 2,
+                                (AethelgardGame.ScreenH - size.Y) / 2),
                     Config.ColDim);
             _sb.End();
             return;
@@ -64,10 +62,10 @@ public class MpRenderer
         if (myState == null)
         {
             _sb.Begin();
-            _sb.Draw(Blank, new Rectangle(0, 0, Game1.ScreenW, Game1.ScreenH),
+            _sb.Draw(Blank, new Rectangle(0, 0, AethelgardGame.ScreenW, AethelgardGame.ScreenH),
                 new Color(12, 12, 18));
-            _sb.DrawString(_font, "Waiting for player data...",
-                new Vector2(Game1.ScreenW / 2 - 100, Game1.ScreenH / 2),
+            _sb.DrawString(_font, "Ожидание данных игрока...",
+                new Vector2(AethelgardGame.ScreenW / 2 - 100, AethelgardGame.ScreenH / 2),
                 Config.ColDim);
             _sb.End();
             return;
@@ -75,14 +73,15 @@ public class MpRenderer
 
         // Camera
         int viewW = Config.ViewW;
-        _camX = myState.X * Config.TileSize - (Game1.ScreenW - viewW * Config.TileSize) / 2;
+        _camX = myState.X * Config.TileSize - (AethelgardGame.ScreenW - viewW * Config.TileSize) / 2;
         _camY = myState.Y * Config.TileSize;
-        _camX = Math.Max(0, Math.Min(_camX, snap.MapW * Config.TileSize - Game1.ScreenW));
-        _camY = Math.Max(0, Math.Min(_camY, snap.MapH * Config.TileSize - (Game1.ScreenH - Config.HudHeight)));
+        _camX = Math.Max(0, Math.Min(_camX, snap.MapW * Config.TileSize - AethelgardGame.ScreenW));
+        _camY = Math.Max(0, Math.Min(_camY, snap.MapH * Config.TileSize - (AethelgardGame.ScreenH - Config.HudHeight)));
 
-        // Draw background tiles (procedural — we don't have the full tile map in snapshot)
+        // World
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
         DrawTiles(snap, myState);
+        DrawHarvests(snap, myState);
         DrawItems(snap);
         DrawMonsters(snap);
         DrawPlayers(snap, myState);
@@ -91,14 +90,43 @@ public class MpRenderer
         // HUD
         DrawHud(snap, myState, game);
 
-        // Chat
-        DrawChat(game);
+        // Chat + события
+        DrawChat(game, snap);
+
+        // Панель (инвентарь/статы/навыки/квесты/магазин)
+        DrawPanel(game, snap, myState);
+    }
+
+    /// <summary>
+    /// Вид тайла — та же логика, что TileRenderer.TileKindAt в сингле:
+    /// стены по биомам Overworld, лестницы/выход/ворота — спец-тайлы.
+    /// </summary>
+    private static string KindFor(Snapshot snap, int x, int y)
+    {
+        int t = x < 0 || x >= snap.MapW || y < 0 || y >= snap.Tiles.Count
+            ? (int)Tile.Wall
+            : (snap.Tiles[y].Length > x ? snap.Tiles[y][x] - '0' : (int)Tile.Wall);
+        switch ((Tile)t)
+        {
+            case Tile.Stairs: return "stairs";
+            case Tile.Exit: return "exit";
+            case Tile.Gate: return "gate";
+            case Tile.Wall:
+                return snap.WorldMode == "dungeon" ? "wall" : Overworld.WallKind(x, y);
+            default:
+                return snap.WorldMode == "dungeon" ? "floor" : Overworld.GroundKind(x, y);
+        }
     }
 
     private void DrawTiles(Snapshot snap, Snapshot.PlayerState myState)
     {
-        // Without the full tile map, draw a simple floor background
-        // In a full implementation, tiles would be delta-compressed in snapshots
+        if (snap.Tiles.Count == 0)
+        {
+            // Старый сервер без тайлов — fallback: пол
+            DrawTilesFallback(snap, myState);
+            return;
+        }
+
         int startX = Math.Max(0, _camX / Config.TileSize);
         int startY = Math.Max(0, _camY / Config.TileSize);
         int endX = Math.Min(snap.MapW, startX + Config.ViewW + 2);
@@ -108,28 +136,77 @@ public class MpRenderer
         {
             for (int x = startX; x < endX; x++)
             {
-                // Simple: draw floor everywhere (server doesn't send tile data in this simplified version)
+                string kind = KindFor(snap, x, y);
                 int variant = Config.HashInt(x, y, 13, 8);
+
                 float dist = MathF.Sqrt((x - myState.X) * (x - myState.X)
                     + (y - myState.Y) * (y - myState.Y));
                 float light = Math.Max(0.35f, 1.0f - dist / Config.FovRadius);
 
-                var tex = _tiles.GetTile("floor", variant, light);
+                var tex = _tiles.GetTile(kind, variant, light);
                 var pos = new Vector2(x * Config.TileSize - _camX,
-                                       y * Config.TileSize - _camY);
+                                      y * Config.TileSize - _camY);
                 _sb.Draw(tex, pos, Color.White);
+
+                // Замок/сундук — цветная метка поверх земли (как в миникарте SP)
+                int tile = snap.Tiles[y][x] - '0';
+                Color? mark = ((Tile)tile) switch
+                {
+                    Tile.LockedDoor => new Color(200, 80, 60),
+                    Tile.Chest => new Color(230, 190, 80),
+                    Tile.UpStairs => new Color(200, 160, 90),
+                    _ => null,
+                };
+                if (mark != null)
+                    _sb.Draw(Blank, new Rectangle((int)pos.X + 12, (int)pos.Y + 12,
+                        Config.TileSize - 24, Config.TileSize - 24), mark.Value);
             }
+        }
+    }
+
+    private void DrawTilesFallback(Snapshot snap, Snapshot.PlayerState myState)
+    {
+        int startX = Math.Max(0, _camX / Config.TileSize);
+        int startY = Math.Max(0, _camY / Config.TileSize);
+        int endX = Math.Min(snap.MapW, startX + Config.ViewW + 2);
+        int endY = Math.Min(snap.MapH, startY + Config.ViewH + 2);
+        for (int y = startY; y < endY; y++)
+        {
+            for (int x = startX; x < endX; x++)
+            {
+                int variant = Config.HashInt(x, y, 13, 8);
+                float dist = MathF.Sqrt((x - myState.X) * (x - myState.X)
+                    + (y - myState.Y) * (y - myState.Y));
+                float light = Math.Max(0.35f, 1.0f - dist / Config.FovRadius);
+                var tex = _tiles.GetTile("floor", variant, light);
+                _sb.Draw(tex, new Vector2(x * Config.TileSize - _camX,
+                                          y * Config.TileSize - _camY), Color.White);
+            }
+        }
+    }
+
+    /// <summary>Маркеры живых ресурсов для добычи (E).</summary>
+    private void DrawHarvests(Snapshot snap, Snapshot.PlayerState myState)
+    {
+        foreach (var node in snap.Harvests)
+        {
+            float dist = MathF.Sqrt((node.X - myState.X) * (node.X - myState.X)
+                + (node.Y - myState.Y) * (node.Y - myState.Y));
+            if (dist > Config.FovRadius) continue;
+            var pos = new Vector2(node.X * Config.TileSize - _camX + Config.TileSize / 2,
+                                  node.Y * Config.TileSize - _camY + Config.TileSize / 2);
+            DrawCircle(pos, 10, new Color(110, 160, 80));
         }
     }
 
     private void DrawItems(Snapshot snap)
     {
-        foreach (var (x, y, key) in snap.Items)
+        foreach (var item in snap.Items)
         {
-            var def = ItemData.Get(key);
+            var def = ItemData.Get(item.Key);
             if (def == null) continue;
-            var pos = new Vector2(x * Config.TileSize - _camX + Config.TileSize / 2,
-                                   y * Config.TileSize - _camY + Config.TileSize / 2);
+            var pos = new Vector2(item.X * Config.TileSize - _camX + Config.TileSize / 2,
+                                   item.Y * Config.TileSize - _camY + Config.TileSize / 2);
             DrawCircle(pos, 8, def.Color);
         }
     }
@@ -172,7 +249,6 @@ public class MpRenderer
             int radius = isMe ? 20 : 18;
             DrawCircle(pos, radius, p.Color);
 
-            // Highlight my player
             if (isMe)
                 DrawCircleOutline(pos, radius + 2, Config.ColGold);
 
@@ -181,14 +257,12 @@ public class MpRenderer
                 _sb.DrawString(_font, p.Ch.ToString(),
                     pos - _font.MeasureString(p.Ch.ToString()) / 2, Color.White);
 
-                // Player name/PID above
-                string nameText = isMe ? "[YOU]" : $"P{p.Pid}";
+                string nameText = isMe ? "[ВЫ]" : $"И{p.Pid}";
                 var nameSize = _font.MeasureString(nameText);
                 _sb.DrawString(_font, nameText,
                     new Vector2(pos.X - nameSize.X / 2, pos.Y - radius - 16),
                     isMe ? Config.ColGold : Config.ColText);
 
-                // HP bar
                 if (p.Hp < p.MaxHp)
                 {
                     int barW = 30;
@@ -204,18 +278,17 @@ public class MpRenderer
 
     private void DrawHud(Snapshot snap, Snapshot.PlayerState myState, GameController game)
     {
-        // HUD background
         _sb.Draw(Blank,
-            new Rectangle(0, Game1.ScreenH - Config.HudHeight, Game1.ScreenW, Config.HudHeight),
+            new Rectangle(0, AethelgardGame.ScreenH - Config.HudHeight, AethelgardGame.ScreenW, Config.HudHeight),
             new Color(18, 16, 14, 220));
 
         if (_font == null) return;
 
-        int y = Game1.ScreenH - Config.HudHeight + 10;
+        int y = AethelgardGame.ScreenH - Config.HudHeight + 10;
         int x = 16;
 
         string loc = snap.WorldMode == "dungeon"
-            ? $"Dungeon F{snap.Depth}" : "Overworld";
+            ? $"Подземелье {snap.Depth}" : "Открытый мир";
         _sb.DrawString(_font, $"{myState.ClassName}  Lv.{myState.Level}  [{loc}]  (MP)",
             new Vector2(x, y), Config.ColText);
         y += 20;
@@ -233,25 +306,69 @@ public class MpRenderer
         DrawBar(x + 120, y + 4, 200, 12, myState.Xp, myState.XpNext, Config.ColXp);
         y += 20;
 
-        _sb.DrawString(_font, $"Gold: {myState.Gold}", new Vector2(x, y), Config.ColGold);
+        _sb.DrawString(_font, $"Золото: {myState.Gold}", new Vector2(x, y), Config.ColGold);
 
-        // Player count
-        _sb.DrawString(_font, $"Players: {snap.Players.Count}",
-            new Vector2(Game1.ScreenW - 120, y), Config.ColText);
+        // Статусы (как в SP HUD)
+        if (myState.Statuses.Count > 0)
+        {
+            string statuses = "Статусы: " + string.Join(", ",
+                myState.Statuses.Keys);
+            _sb.DrawString(_font, statuses,
+                new Vector2(x + 250, y), new Color(200, 120, 200));
+        }
 
-        // Controls
-        _sb.DrawString(_font, "WASD:move  Space:attack  E:stairs  H:potion  Y:chat  Esc:menu",
+        _sb.DrawString(_font, $"Игроков: {snap.Players.Count}",
+            new Vector2(AethelgardGame.ScreenW - 120, y), Config.ColText);
+
+        // Подсказки по клавишам (паритет с SP: F/E/T/I/C/N/L/B, Z/X/P, F5)
+        _sb.DrawString(_font,
+            "WASD:шаг  Пробел:атака  F:лестница  E:добыча  T:говорить  I:инвентарь  C:статы  N:навыки  L:квесты  B:магазин  H:зелье  X:ждать  Z:дуэль  P:повышение  Y/Enter:чат  F5:сохранить мир  Esc:панель",
             new Vector2(16, 8), Config.ColDim);
+
+        // Хотбар (1–8) — как в SP
+        DrawHotbar(myState);
     }
 
-    private void DrawChat(GameController game)
+    private void DrawHotbar(Snapshot.PlayerState myState)
+    {
+        if (_font == null) return;
+        int hx = 16;
+        int hy = AethelgardGame.ScreenH - Config.HudHeight + 66;
+
+        for (int i = 0; i < 8 && i < myState.Quickbar.Length; i++)
+        {
+            var rect = new Rectangle(hx + i * 40, hy, 36, 22);
+            _sb.Draw(Blank, rect, new Color(30, 26, 22));
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 1), Config.ColDim);
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), Config.ColDim);
+            _sb.DrawString(_font, $"{i + 1}", new Vector2(rect.X + 3, rect.Y + 2), Config.ColDim);
+
+            var key = myState.Quickbar[i];
+            if (key != null)
+            {
+                var def = ItemData.Get(key);
+                Color c = def?.Color ?? Config.ColText;
+                _sb.Draw(Blank, new Rectangle(rect.X + 22, rect.Y + 5, 12, 12), c);
+                if (def != null && _font != null)
+                    _sb.DrawString(_font, def.Ch.ToString(),
+                        new Vector2(rect.X + 14, rect.Y + 3), Color.White);
+            }
+        }
+    }
+
+    private void DrawChat(GameController game, Snapshot snap)
     {
         if (_font == null) return;
 
         int chatX = 16;
-        int chatY = Game1.ScreenH - Config.HudHeight - 200;
+        int chatY = AethelgardGame.ScreenH - Config.HudHeight - 200;
         int chatW = 400;
-        int chatH = 180;
+
+        // События мира (боевой лог) — 3 последние над чатом
+        var events = snap.Events.TakeLast(3).ToList();
+        for (int i = 0; i < events.Count; i++)
+            _sb.DrawString(_font, events[i],
+                new Vector2(chatX, chatY - (events.Count - i) * 18), Config.ColDim);
 
         // Chat log (last 8 messages)
         var recent = game.ChatLog.TakeLast(8).ToList();
@@ -261,7 +378,6 @@ public class MpRenderer
                 Config.ColText);
         }
 
-        // Chat input
         if (game.ChatActive)
         {
             _sb.Draw(Blank, new Rectangle(chatX - 4, chatY + 8 * 18 + 4, chatW, 24),
@@ -271,6 +387,163 @@ public class MpRenderer
             _sb.DrawString(_font, $"{game.ChatInput}_",
                 new Vector2(chatX, chatY + 8 * 18 + 8), Config.ColText);
         }
+    }
+
+    // ── Панели (инвентарь/статы/навыки/квесты/магазин) ──
+
+    private void DrawPanel(GameController game, Snapshot snap, Snapshot.PlayerState my)
+    {
+        if (_font == null || game.MpPanel == "") return;
+
+        List<string> lines = new();
+        string title;
+        string hints;
+        List<string>? numbered = null;
+
+        switch (game.MpPanel)
+        {
+            case "inventory":
+            {
+                title = "ИНВЕНТАРЬ (MP)";
+                string eq(string label, string? slot) => $"{label}: {(slot != null ? ItemData.DisplayName(slot) : "—")}";
+                lines.Add(eq("Оружие", my.Weapon));
+                lines.Add(eq("Броня", my.Armor));
+                lines.Add(eq("Шлем", my.Head));
+                lines.Add(eq("Поножи", my.Legs));
+                lines.Add(eq("Обувь", my.Boots));
+                lines.Add("");
+                var items = my.Inventory.Keys.ToList();
+                numbered = new List<string>();
+                int pageStart = game.MpPage * 8;
+                for (int i = 0; i < 8; i++)
+                {
+                    int idx = pageStart + i;
+                    if (idx >= items.Count) break;
+                    var key = items[idx];
+                    var def = ItemData.Get(key);
+                    numbered.Add($"{i + 1}. {def?.Name ?? key} ×{my.Inventory[key]}");
+                }
+                hints = "1–8:использовать/надеть  Shift+1–8:быстрая панель  Q/E:страница  U/V/H/B/N:снять  I/Esc:закрыть";
+                break;
+            }
+
+            case "stats":
+            {
+                title = "ХАРАКТЕРИСТИКИ (MP)";
+                lines.Add($"Свободных очков: {my.FreePoints}");
+                lines.Add("");
+                numbered = new List<string>
+                {
+                    $"1. STR {my.Str}", $"2. AGI {my.Agi}", $"3. VIT {my.Vit}",
+                    $"4. LUK {my.Luk}", $"5. DEF {my.DfStat}", $"6. INT {my.IntStat}",
+                };
+                hints = "1–6:вложить очко  C/Esc:закрыть";
+                break;
+            }
+
+            case "skills":
+            {
+                title = game.MpSkillCast ? "НАВЫКИ — применение (MP)" : "НАВЫКИ — изучение (MP)";
+                if (!game.MpSkillCast)
+                {
+                    numbered = snap.Skills.Select((s, i) =>
+                        $"{i + 1}. {s.Name} (Ур.{s.Level}){(s.Learned ? " [изучен]" : "")}")
+                        .ToList();
+                    if (snap.Promotions.Count > 0)
+                    {
+                        lines.Add($"Повышение: {string.Join(", ", snap.Promotions.Select(k => ClassData.Get(k)?.Name ?? k))}");
+                    }
+                }
+                else
+                {
+                    numbered = snap.ActiveSkills.Select((s, i) =>
+                        $"{i + 1}. {s.Name} ({s.Mana} MP)").ToList();
+                }
+                hints = "Q/E:изучение/применение  1–7/1–8:действие  P:повышение  N/Esc:закрыть";
+                break;
+            }
+
+            case "quests":
+            {
+                title = "КВЕСТЫ (MP)";
+                numbered = new List<string>();
+                int n = 1;
+                foreach (var q in snap.QuestBoard.Where(q => q.State == "available"))
+                    numbered.Add($"{n++}. [доступен] {q.Name} (0/{q.Count})");
+                foreach (var q in snap.QuestBoard.Where(q => q.State == "active"))
+                    numbered.Add($"    [активен] {q.Name} ({q.Progress}/{q.Count})");
+                foreach (var q in snap.QuestBoard.Where(q => q.State == "completed"))
+                    numbered.Add($"{n++}. [выполнен] {q.Name} — сдать");
+                hints = "1–9:взять/сдать (рядом со Старейшиной)  L/Esc:закрыть";
+                break;
+            }
+
+            case "shop":
+            {
+                title = game.MpShopSell ? "МАГАЗИН — продажа (MP)" : "МАГАЗИН — покупка (MP)";
+                // Сток: подземелье — из снапшота; город — по смежному NPC
+                var stock = ShopStockFor(snap, my);
+                int pageStart = game.MpShopPage * Config.ShopPageSize;
+                if (!game.MpShopSell)
+                {
+                    numbered = new List<string>();
+                    for (int i = pageStart; i < stock.Count && i < pageStart + Config.ShopPageSize; i++)
+                        numbered.Add($"{i - pageStart + 1}. {ItemData.DisplayName(stock[i].Key)} — {stock[i].Price} золота");
+                }
+                else
+                {
+                    var inv = my.Inventory.Keys.ToList();
+                    numbered = new List<string>();
+                    for (int i = pageStart; i < inv.Count && i < pageStart + Config.ShopPageSize; i++)
+                        numbered.Add($"{i - pageStart + 1}. {ItemData.DisplayName(inv[i])} ×{my.Inventory[inv[i]]} (продажа: {ItemData.SellPrice(inv[i])} золота)");
+                }
+                hints = "S:покупка/продажа  1–9:действие  ←/→:страница  R:обновить  B/Esc:закрыть";
+                break;
+            }
+
+            default:
+                return;
+        }
+
+        DrawPanelBox(title, lines, numbered, hints);
+    }
+
+    private List<Snapshot.ShopEntry> ShopStockFor(Snapshot snap, Snapshot.PlayerState my)
+    {
+        if (snap.WorldMode == "dungeon")
+            return snap.MerchantStock;
+        // Город: находим смежного лавочника и берём его фиксированный сток
+        foreach (var npc in snap.Npcs)
+        {
+            if (npc.NpcType is "blacksmith" or "alchemist" or "innkeeper"
+                && CityData.Npcs.TryGetValue(npc.NpcType, out var def))
+                return def.ShopStock
+                    .Select(e => new Snapshot.ShopEntry { Key = e.Key, Price = e.Price })
+                    .ToList();
+        }
+        return new List<Snapshot.ShopEntry>();
+    }
+
+    private void DrawPanelBox(string title, List<string> lines, List<string>? numbered, string hints)
+    {
+        var all = lines.Concat(numbered ?? new List<string>()).ToList();
+        int w = 460, lineH = 18;
+        int h = 40 + all.Count * lineH + 40;
+        int x = 60, y = 60;
+
+        _sb.Draw(Blank, new Rectangle(x, y, w, h), new Color(16, 14, 12, 235));
+        _sb.Draw(Blank, new Rectangle(x, y, w, 2), Config.ColGold);
+        _sb.Draw(Blank, new Rectangle(x, y + h - 2, w, 2), Config.ColGold);
+
+        _sb.DrawString(_font!, title, new Vector2(x + 12, y + 8), Config.ColGold);
+        int cy = y + 34;
+        foreach (var line in all)
+        {
+            _sb.DrawString(_font!, line, new Vector2(x + 12, cy),
+                numbered != null && numbered.Contains(line) ? Config.ColText : Config.ColText);
+            cy += lineH;
+        }
+        _sb.DrawString(_font!, hints, new Vector2(x + 12, y + h - 26), Config.ColDim);
     }
 
     private void DrawCircle(Vector2 center, int radius, Color color)

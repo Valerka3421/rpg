@@ -3,28 +3,28 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
-using Aethelgard.Core;
-
 namespace Aethelgard.Net;
 
 /// <summary>
 /// TCP server for cooperative multiplayer.
 /// Ported from Python net/server.py.
 ///
-/// - Accepts connections on port 9000
-/// - Assigns player IDs
-/// - Receives input from clients
+/// - Accepts connections on port 9000 (+20 при занятости)
+/// - Assigns player IDs, максимум MaxPlayers (5-й получает error)
+/// - Receives input from clients (MAX_MSG_SIZE: буфер без \n больше 64К → разрыв)
 /// - Sends snapshots 20 times/sec
-/// - Player save/restore by IP+token
+/// - Пароль сервера — constant-time сравнение (hmac.compare_digest)
+/// - HMAC-подпись сообщений сессионным ключом (os.urandom(32))
 /// </summary>
 public class GameServer
 {
     public const int DefaultPort = 9000;
     public const int MaxPlayers = 4;
-    public const int MaxMsgSize = 65536;
+    public const int MaxMsgSize = Config.MaxMsgSize;  // 65536
     public const float SnapshotInterval = 0.05f;  // 20 Hz
 
     private TcpListener? _listener;
@@ -33,13 +33,27 @@ public class GameServer
     private volatile bool _running;
     private int _nextPid = 1;
     private readonly Dictionary<int, TcpClient> _clients = new();
+    private readonly Dictionary<int, byte[]> _sessionKeys = new();
+    private readonly Dictionary<int, bool> _authenticated = new();
     private readonly object _lock = new();
 
     public GameCore Core { get; } = new();
     public int Port { get; private set; }
-    public string? ServerPassword { get; set; }
 
-    // Saved players by token
+    // Хранится только хеш. Setter принимает либо готовый PBKDF2-хеш,
+    // либо открытый пароль (тогда он сразу хешируется).
+    private string? _serverPasswordHash;
+    public string? ServerPassword
+    {
+        get => _serverPasswordHash;
+        set => _serverPasswordHash = string.IsNullOrEmpty(value)
+            ? null
+            : value.StartsWith("pbkdf2_sha256$", StringComparison.Ordinal)
+                ? value
+                : PasswordHasher.Hash(value);
+    }
+
+    // Saved players by token and IP (net/server.py:86-102)
     private readonly Dictionary<string, string> _savedPlayers = new();
 
     public void Start(int port = DefaultPort)
@@ -113,18 +127,30 @@ public class GameServer
 
     private void HandleClient(int pid, TcpClient client)
     {
+        var remoteIp = (client.Client.RemoteEndPoint as IPEndPoint)?.Address?.ToString() ?? "";
         try
         {
             var stream = client.GetStream();
-            var buf = new byte[MaxMsgSize];
+            var buf = new byte[8192];
             var lineBuf = new StringBuilder();
+            var decoder = Encoding.UTF8.GetDecoder();
+            var chars = new char[Encoding.UTF8.GetMaxCharCount(buf.Length)];
 
-            // Send welcome
+            // Простой rate limit: не более 240 команд в секунду с одного клиента.
+            var rateWindow = DateTime.UtcNow;
+            int rateCount = 0;
+
+            // Session key for HMAC message signing (os.urandom(32))
+            var sessionKey = RandomNumberGenerator.GetBytes(32);
+            lock (_lock) { _sessionKeys[pid] = sessionKey; _authenticated[pid] = false; }
+
+            // Send welcome with pid, token, session key
             var welcome = new ServerMsg
             {
                 Type = "welcome",
                 Pid = pid,
                 YourToken = $"tok_{pid}_{DateTime.Now.Ticks}",
+                SessionKey = Convert.ToBase64String(sessionKey),
             };
             SendMsg(stream, welcome);
 
@@ -133,7 +159,17 @@ public class GameServer
                 int read = stream.Read(buf, 0, buf.Length);
                 if (read == 0) break;
 
-                lineBuf.Append(Encoding.UTF8.GetString(buf, 0, read));
+                lineBuf.Append(chars, 0, decoder.GetChars(buf, 0, read, chars, 0));
+
+                // MAX_MSG_SIZE: буфер без \n больше лимита → разрыв соединения
+                if (lineBuf.Length > MaxMsgSize)
+                    break;
+
+                if ((DateTime.UtcNow - rateWindow).TotalSeconds >= 1.0)
+                {
+                    rateWindow = DateTime.UtcNow;
+                    rateCount = 0;
+                }
 
                 // Process complete lines
                 while (true)
@@ -145,62 +181,134 @@ public class GameServer
                     string line = data[..nl];
                     lineBuf.Remove(0, nl + 1);
 
+                    if (line.Length > MaxMsgSize) break;
+
+                    if (++rateCount > 240)
+                        break;  // flood — рвём соединение
+
+                    ClientMsg? msg = null;
                     try
                     {
-                        var msg = JsonSerializer.Deserialize<ClientMsg>(line);
-                        if (msg == null) continue;
+                        msg = Protocol.Deserialize<ClientMsg>(line);
+                    }
+                    catch { /* invalid JSON — не роняет сервер */ }
+                    if (msg == null || string.IsNullOrEmpty(msg.Type)) continue;
 
-                        if (msg.Type == "hello")
+                    // HMAC-подпись: проверяем только для аутентифицированных
+                    // после hello. Payload — тот же объект без Sig, а не
+                    // строковая хирургия исходного JSON.
+                    lock (_lock)
+                    {
+                        if (_authenticated.GetValueOrDefault(pid) && msg.Sig != null)
                         {
-                            string classKey = msg.Class ?? "warrior";
-                            // Check password
-                            if (ServerPassword != null)
-                            {
-                                if (msg.ServerPassword != ServerPassword)
-                                {
-                                    SendMsg(stream, new ServerMsg
-                                    {
-                                        Type = "error",
-                                        Msg = "Wrong server password"
-                                    });
-                                    break;
-                                }
-                            }
-                            Core.AddPlayer(pid, classKey);
-                        }
-                        else if (msg.Type == "input")
-                        {
-                            lock (_lock)
-                            {
-                                Core.ProcessInput(pid, msg);
-                            }
-                        }
-                        else if (msg.Type == "chat")
-                        {
-                            lock (_lock)
-                            {
-                                Core.ChatLog.Add((pid, msg.ChatText ?? ""));
-                            }
-                        }
-                        else if (msg.Type == "disconnect")
-                        {
-                            break;
+                            if (!VerifyHmac(pid, msg))
+                                break; // подделка — разрыв
                         }
                     }
-                    catch { }
+
+                    if (msg.Type == "hello")
+                    {
+                        if (msg.ProtocolVersion != Protocol.Version)
+                        {
+                            SendMsg(stream, new ServerMsg
+                            {
+                                Type = "error",
+                                Msg = $"protocol mismatch: server={Protocol.Version}, client={msg.ProtocolVersion}"
+                            });
+                            break;
+                        }
+                        // MaxPlayers: пятый клиент получает error
+                        lock (_lock)
+                        {
+                            if (Core.Players.Count >= MaxPlayers)
+                            {
+                                SendMsg(stream, new ServerMsg { Type = "error", Msg = "server full" });
+                                break;
+                            }
+                        }
+                        string classKey = msg.Class ?? "warrior";
+                        // Пароль сервера — PBKDF2-хеш + constant-time проверка.
+                        if (!string.IsNullOrEmpty(_serverPasswordHash))
+                        {
+                            if (!PasswordHasher.Verify(msg.ServerPassword ?? "", _serverPasswordHash))
+                            {
+                                SendMsg(stream, new ServerMsg
+                                {
+                                    Type = "error",
+                                    Msg = "Wrong server password"
+                                });
+                                break;
+                            }
+                        }
+                        lock (_lock)
+                        {
+                            Core.AddPlayer(pid, classKey);
+                            _authenticated[pid] = true;
+                        }
+                        // Remember player by token+IP
+                        if (!string.IsNullOrEmpty(msg.Token))
+                            _savedPlayers[$"{msg.Token}|{remoteIp}"] = classKey;
+                    }
+                    else if (msg.Type == "input")
+                    {
+                        lock (_lock)
+                        {
+                            Core.ProcessInput(pid, msg);
+                        }
+                    }
+                    else if (msg.Type == "chat")
+                    {
+                        lock (_lock)
+                        {
+                            string clean = Config.SanitizeChat(msg.ChatText ?? "");
+                            if (clean.Length > 0) Core.ChatLog.Add((pid, clean));
+                        }
+                    }
+                    else if (msg.Type == "save_world")
+                    {
+                        lock (_lock)
+                        {
+                            Core.SaveWorld();
+                        }
+                    }
+                    else if (msg.Type == "disconnect")
+                    {
+                        break;
+                    }
+                    // мусорные пакеты без известного типа молча игнорируются
                 }
             }
         }
         catch { }
         finally
         {
-            Core.RemovePlayer(pid);
             lock (_lock)
             {
+                Core.RemovePlayer(pid);
                 _clients.Remove(pid);
+                _sessionKeys.Remove(pid);
+                _authenticated.Remove(pid);
             }
             try { client.Close(); } catch { }
         }
+    }
+
+    /// <summary>
+    /// Проверка HMAC-подписи: HMACSHA256(session_key, canonical payload).
+    /// Payload — тот же DTO без поля Sig, сериализованный теми же опциями,
+    /// что и на клиенте. Никакой строковой хирургии исходного JSON.
+    /// </summary>
+    private bool VerifyHmac(int pid, ClientMsg msg)
+    {
+        byte[]? key = null;
+        lock (_lock)
+        {
+            _sessionKeys.TryGetValue(pid, out key);
+        }
+        if (key == null || string.IsNullOrEmpty(msg.Sig)) return false;
+
+        string payload = Protocol.SignedPayload(msg);
+        return Protocol.Verify(payload, msg.Sig, key);
     }
 
     private void UpdateLoop()
@@ -232,20 +340,28 @@ public class GameServer
 
     private void SendSnapshots()
     {
+        // Собираем DTO под lock (читаем живое состояние), но сериализуем
+        // и пишем в сокет уже вне блокировки — сеть не тормозит симуляцию.
+        var snapshots = new List<(TcpClient Client, Snapshot Snap)>();
         lock (_lock)
         {
             foreach (var (pid, client) in _clients)
             {
                 if (!client.Connected) continue;
-                try
-                {
-                    var snap = Core.BuildSnapshot(pid);
-                    var json = JsonSerializer.Serialize(snap) + "\n";
-                    var bytes = Encoding.UTF8.GetBytes(json);
-                    client.GetStream().Write(bytes, 0, bytes.Length);
-                }
+                try { snapshots.Add((client, Core.BuildSnapshot(pid))); }
                 catch { }
             }
+        }
+
+        foreach (var (client, snap) in snapshots)
+        {
+            try
+            {
+                var json = Protocol.Serialize(snap) + "\n";
+                var bytes = Encoding.UTF8.GetBytes(json);
+                client.GetStream().Write(bytes, 0, bytes.Length);
+            }
+            catch { }
         }
     }
 
@@ -253,7 +369,7 @@ public class GameServer
     {
         try
         {
-            var json = JsonSerializer.Serialize(msg) + "\n";
+            var json = Protocol.Serialize(msg) + "\n";
             var bytes = Encoding.UTF8.GetBytes(json);
             stream.Write(bytes, 0, bytes.Length);
         }

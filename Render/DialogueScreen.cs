@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -31,7 +28,7 @@ public class DialogueScreen
     {
         if (game.DialogueText == null || game.DialogueNpc == null) return;
 
-        int sw = Game1.ScreenW, sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
 
         // Dark overlay
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 160));
@@ -60,7 +57,7 @@ public class DialogueScreen
         }
 
         // Continue hint
-        _sb.DrawString(_font, "[Enter/T/Esc to continue]",
+        _sb.DrawString(_font, "[Enter / T / Esc — далее]",
             new Vector2(bx + boxW - 200, by + boxH - 20), Config.ColDim);
     }
 

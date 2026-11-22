@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
-using Aethelgard.Core;
 
 namespace Aethelgard.Render;
 
@@ -10,18 +9,13 @@ namespace Aethelgard.Render;
 /// Procedural item icon renderer — draws 32×32 icons for inventory.
 /// Ported from Python render/icons/_items.py (ItemMixin).
 ///
-/// Each item type has a distinct visual:
-/// - Weapons: blade/axe/hammer shape
-/// - Armor: body shape
-/// - Potions: bottle with liquid
-/// - Food: mushroom/berry/bread
-/// - Resources: wood/stone/ore
-/// - Books: rectangle with symbol
+/// Иконки генерируются в памяти (PixelCanvas) и кэшируются. Раньше они
+/// рисовались через RenderTarget2D прямо внутри активного SpriteBatch,
+/// что сбрасывало цель рендера и могло ломать кадр инвентаря/магазина.
 /// </summary>
 public class ItemRenderer
 {
     private readonly GraphicsDevice _device;
-    private readonly SpriteBatch _sb;
     private readonly Dictionary<string, Texture2D> _cache = new();
     private Texture2D? _blank;
 
@@ -30,7 +24,6 @@ public class ItemRenderer
     public ItemRenderer(GraphicsDevice device)
     {
         _device = device;
-        _sb = new SpriteBatch(device);
     }
 
     /// <summary>
@@ -45,224 +38,168 @@ public class ItemRenderer
         if (def == null)
             return GetBlank();
 
-        var rt = new RenderTarget2D(_device, IconSize, IconSize,
-            false, SurfaceFormat.Color, DepthFormat.None);
-        _device.SetRenderTarget(rt);
-        _device.Clear(Color.Transparent);
-        _sb.Begin();
+        var canvas = new PixelCanvas(IconSize, IconSize);
+        canvas.Clear(Color.Transparent);
 
-        switch (def.Type)
+        switch (def.Kind)
         {
             case ItemData.ItemType.Weapon:
-                DrawWeapon(_sb, def);
+                DrawWeapon(canvas, def);
                 break;
             case ItemData.ItemType.Armor:
-                DrawArmor(_sb, def);
+                DrawArmor(canvas, def);
                 break;
             case ItemData.ItemType.Helmet:
-                DrawHelmet(_sb, def);
+                DrawHelmet(canvas, def);
                 break;
-            case ItemData.ItemType.Potion:
-                DrawPotion(_sb, def);
+            case ItemData.ItemType.Heal:
+                DrawPotion(canvas, def);
                 break;
             case ItemData.ItemType.Food:
-                DrawFood(_sb, def);
+                DrawFood(canvas, def);
                 break;
             case ItemData.ItemType.Resource:
-                DrawResource(_sb, def);
+                DrawResource(canvas, def);
                 break;
             case ItemData.ItemType.Book:
-                DrawBook(_sb, def);
+                DrawBook(canvas, def);
                 break;
             case ItemData.ItemType.Key:
-                DrawKey(_sb, def);
+                DrawKey(canvas, def);
                 break;
             default:
-                DrawUnknown(_sb, def);
+                DrawUnknown(canvas, def);
                 break;
         }
 
-        _sb.End();
-        _device.SetRenderTarget(null);
-        _cache[itemKey] = rt;
-        return rt;
+        tex = canvas.ToTexture(_device);
+        _cache[itemKey] = tex;
+        return tex;
     }
 
-    private void DrawWeapon(SpriteBatch sb, ItemData.Def def)
+    private static void DrawWeapon(PixelCanvas canvas, ItemData.Def def)
     {
-        // Blade — vertical line with crossguard
         var color = def.Color;
-        // Handle
-        sb.Draw(Blank, new Rectangle(14, 24, 4, 6), new Color(80, 60, 40));
-        // Crossguard
-        sb.Draw(Blank, new Rectangle(10, 22, 12, 2), new Color(160, 140, 80));
-        // Blade
+        canvas.FillRect(14, 24, 4, 6, new Color(80, 60, 40));
+        canvas.FillRect(10, 22, 12, 2, new Color(160, 140, 80));
         int bladeLen = def.Key == "warhammer" ? 18 : def.Key == "axe" ? 16 : 20;
-        sb.Draw(Blank, new Rectangle(15, 22 - bladeLen, 2, bladeLen), color);
-        // Blade tip
-        sb.Draw(Blank, new Rectangle(15, 22 - bladeLen - 2, 2, 2), color);
+        canvas.FillRect(15, 22 - bladeLen, 2, bladeLen, color);
+        canvas.FillRect(15, 22 - bladeLen - 2, 2, 2, color);
 
         if (def.Key == "axe")
-        {
-            // Axe head — triangle
-            sb.Draw(Blank, new Rectangle(11, 8, 10, 8), color);
-        }
+            canvas.FillRect(11, 8, 10, 8, color);
         else if (def.Key == "warhammer")
-        {
-            // Hammer head — rectangle
-            sb.Draw(Blank, new Rectangle(10, 6, 12, 6), color);
-        }
+            canvas.FillRect(10, 6, 12, 6, color);
     }
 
-    private void DrawArmor(SpriteBatch sb, ItemData.Def def)
+    private static void DrawArmor(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
-        // Body shape — trapezoid
-        sb.Draw(Blank, new Rectangle(10, 8, 12, 4), color);    // shoulders
-        sb.Draw(Blank, new Rectangle(11, 12, 10, 12), color);  // torso
-        sb.Draw(Blank, new Rectangle(12, 24, 8, 4), color);    // waist
-        // Highlight
+        canvas.FillRect(10, 8, 12, 4, color);
+        canvas.FillRect(11, 12, 10, 12, color);
+        canvas.FillRect(12, 24, 8, 4, color);
+
         var light = new Color(
             Math.Min(255, color.R + 30),
             Math.Min(255, color.G + 30),
             Math.Min(255, color.B + 30));
-        sb.Draw(Blank, new Rectangle(12, 10, 3, 14), light);
+        canvas.FillRect(12, 10, 3, 14, light);
     }
 
-    private void DrawHelmet(SpriteBatch sb, ItemData.Def def)
+    private static void DrawHelmet(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
-        // Dome shape
-        sb.Draw(Blank, new Rectangle(10, 8, 12, 2), color);
-        sb.Draw(Blank, new Rectangle(9, 10, 14, 6), color);
-        sb.Draw(Blank, new Rectangle(10, 16, 12, 2), color);
-        // Visor slit
-        sb.Draw(Blank, new Rectangle(11, 12, 10, 2), new Color(20, 20, 20));
+        canvas.FillRect(10, 8, 12, 2, color);
+        canvas.FillRect(9, 10, 14, 6, color);
+        canvas.FillRect(10, 16, 12, 2, color);
+        canvas.FillRect(11, 12, 10, 2, new Color(20, 20, 20));
     }
 
-    private void DrawPotion(SpriteBatch sb, ItemData.Def def)
+    private static void DrawPotion(PixelCanvas canvas, ItemData.Def def)
     {
-        // Bottle shape
         var bottleColor = new Color(180, 180, 190, 180);
-        // Neck
-        sb.Draw(Blank, new Rectangle(14, 4, 4, 4), bottleColor);
-        // Cork
-        sb.Draw(Blank, new Rectangle(14, 2, 4, 2), new Color(120, 90, 50));
-        // Body
-        sb.Draw(Blank, new Rectangle(10, 8, 12, 16), bottleColor);
-        // Liquid
-        var liquid = def.Color;
-        sb.Draw(Blank, new Rectangle(11, 14, 10, 9), liquid);
-        // Shine
-        sb.Draw(Blank, new Rectangle(12, 10, 2, 10),
-            new Color(255, 255, 255, 80));
+        canvas.FillRect(14, 4, 4, 4, bottleColor);
+        canvas.FillRect(14, 2, 4, 2, new Color(120, 90, 50));
+        canvas.FillRect(10, 8, 12, 16, bottleColor);
+        canvas.FillRect(11, 14, 10, 9, def.Color);
+        canvas.FillRect(12, 10, 2, 10, new Color(255, 255, 255, 80));
     }
 
-    private void DrawFood(SpriteBatch sb, ItemData.Def def)
+    private static void DrawFood(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
         if (def.Key == "mushroom")
         {
-            // Mushroom cap
-            sb.Draw(Blank, new Rectangle(10, 8, 12, 6), color);
-            sb.Draw(Blank, new Rectangle(8, 10, 16, 4), color);
-            // Stem
-            sb.Draw(Blank, new Rectangle(14, 14, 4, 10), new Color(200, 190, 170));
+            canvas.FillRect(10, 8, 12, 6, color);
+            canvas.FillRect(8, 10, 16, 4, color);
+            canvas.FillRect(14, 14, 4, 10, new Color(200, 190, 170));
         }
         else if (def.Key == "berry")
         {
-            // Berries — 3 small circles
             for (int i = 0; i < 3; i++)
             {
                 int bx = 8 + i * 8, by = 12 + (i % 2) * 4;
-                DrawFilledCircle(sb, new Vector2(bx + 4, by + 4), 4, color);
+                canvas.FillCircle(new Vector2(bx + 4, by + 4), 4, color);
             }
         }
         else
         {
-            // Bread — oval
-            sb.Draw(Blank, new Rectangle(8, 12, 16, 8), color);
-            sb.Draw(Blank, new Rectangle(10, 10, 12, 4), color);
+            canvas.FillRect(8, 12, 16, 8, color);
+            canvas.FillRect(10, 10, 12, 4, color);
         }
     }
 
-    private void DrawResource(SpriteBatch sb, ItemData.Def def)
+    private static void DrawResource(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
         if (def.Key == "wood")
         {
-            // Log — horizontal rectangle with rings
-            sb.Draw(Blank, new Rectangle(6, 12, 20, 8), color);
-            sb.Draw(Blank, new Rectangle(6, 12, 20, 1), new Color(60, 40, 20));
-            // Rings
-            sb.Draw(Blank, new Rectangle(15, 14, 2, 4), new Color(90, 65, 35));
+            canvas.FillRect(6, 12, 20, 8, color);
+            canvas.FillRect(6, 12, 20, 1, new Color(60, 40, 20));
+            canvas.FillRect(15, 14, 2, 4, new Color(90, 65, 35));
         }
         else
         {
-            // Stone/ore — irregular blob
-            DrawFilledCircle(sb, new Vector2(16, 16), 10, color);
-            // Highlights
+            canvas.FillCircle(new Vector2(16, 16), 10, color);
             var light = new Color(
                 Math.Min(255, color.R + 25),
                 Math.Min(255, color.G + 25),
                 Math.Min(255, color.B + 25));
-            DrawFilledCircle(sb, new Vector2(13, 13), 4, light);
-            // Ore specks
+            canvas.FillCircle(new Vector2(13, 13), 4, light);
+
             if (def.Key == "ore" || def.Key == "gold_ore")
             {
                 var specColor = def.Key == "gold_ore"
                     ? new Color(240, 200, 80) : new Color(140, 100, 60);
-                sb.Draw(Blank, new Rectangle(14, 14, 2, 2), specColor);
-                sb.Draw(Blank, new Rectangle(18, 16, 2, 2), specColor);
+                canvas.FillRect(14, 14, 2, 2, specColor);
+                canvas.FillRect(18, 16, 2, 2, specColor);
             }
         }
     }
 
-    private void DrawBook(SpriteBatch sb, ItemData.Def def)
+    private static void DrawBook(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
-        // Book cover
-        sb.Draw(Blank, new Rectangle(8, 6, 16, 20), color);
-        // Spine
-        sb.Draw(Blank, new Rectangle(8, 6, 3, 20), new Color(60, 50, 40));
-        // Pages
-        sb.Draw(Blank, new Rectangle(11, 8, 13, 16), new Color(220, 210, 190));
-        // Symbol — stat letter
-        char sym = def.Stat?[..1].ToUpper()[0] ?? '?';
-        // Draw symbol as small shape
-        sb.Draw(Blank, new Rectangle(15, 14, 3, 3),
-            new Color(60, 40, 20));
+        canvas.FillRect(8, 6, 16, 20, color);
+        canvas.FillRect(8, 6, 3, 20, new Color(60, 50, 40));
+        canvas.FillRect(11, 8, 13, 16, new Color(220, 210, 190));
+        canvas.FillRect(15, 14, 3, 3, new Color(60, 40, 20));
     }
 
-    private void DrawKey(SpriteBatch sb, ItemData.Def def)
+    private static void DrawKey(PixelCanvas canvas, ItemData.Def def)
     {
         var color = def.Color;
-        // Key head — circle
-        DrawFilledCircle(sb, new Vector2(10, 10), 5, color);
-        // Shaft
-        sb.Draw(Blank, new Rectangle(14, 9, 12, 2), color);
-        // Teeth
-        sb.Draw(Blank, new Rectangle(22, 11, 2, 3), color);
-        sb.Draw(Blank, new Rectangle(25, 11, 2, 2), color);
+        canvas.FillCircle(new Vector2(10, 10), 5, color);
+        canvas.FillRect(14, 9, 12, 2, color);
+        canvas.FillRect(22, 11, 2, 3, color);
+        canvas.FillRect(25, 11, 2, 2, color);
     }
 
-    private void DrawUnknown(SpriteBatch sb, ItemData.Def def)
+    private static void DrawUnknown(PixelCanvas canvas, ItemData.Def def)
     {
-        // Question mark in a circle
-        DrawFilledCircle(sb, new Vector2(16, 16), 10, def.Color);
-        sb.Draw(Blank, new Rectangle(15, 10, 2, 8), Color.White);
-        sb.Draw(Blank, new Rectangle(15, 20, 2, 2), Color.White);
-    }
-
-    private void DrawFilledCircle(SpriteBatch sb, Vector2 center, int radius, Color color)
-    {
-        for (int dy = -radius; dy <= radius; dy++)
-        {
-            int w = (int)Math.Sqrt(radius * radius - dy * dy);
-            int x = (int)center.X - w;
-            int y = (int)center.Y + dy;
-            sb.Draw(Blank, new Rectangle(x, y, w * 2, 1), color);
-        }
+        canvas.FillCircle(new Vector2(16, 16), 10, def.Color);
+        canvas.FillRect(15, 10, 2, 8, Color.White);
+        canvas.FillRect(15, 20, 2, 2, Color.White);
     }
 
     private Texture2D Blank
@@ -278,8 +215,5 @@ public class ItemRenderer
         }
     }
 
-    private Texture2D GetBlank()
-    {
-        return Blank;
-    }
+    private Texture2D GetBlank() => Blank;
 }

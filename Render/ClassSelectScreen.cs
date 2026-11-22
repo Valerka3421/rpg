@@ -3,8 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -38,8 +36,8 @@ public class ClassSelectScreen
     /// </summary>
     public string? Draw(KeyboardState keys, KeyboardState prevKeys, MouseState mouse)
     {
-        int sw = Game1.ScreenW;
-        int sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW;
+        int sh = AethelgardGame.ScreenH;
 
         // Background
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(12, 12, 18));
@@ -47,7 +45,7 @@ public class ClassSelectScreen
         if (_font == null) return null;
 
         // Title
-        string title = "CHOOSE YOUR CLASS";
+        string title = "ВЫБОР КЛАССА";
         var titleSize = _font.MeasureString(title);
         _sb.DrawString(_font, title,
             new Vector2((sw - titleSize.X) / 2, 60),
@@ -116,7 +114,7 @@ public class ClassSelectScreen
 
             // Starting stats
             descY += 8;
-            _sb.DrawString(_font, "Starting bonuses:",
+            _sb.DrawString(_font, "Стартовые бонусы:",
                 new Vector2(cx + 10, descY), Config.ColText);
             descY += 18;
 
@@ -173,7 +171,7 @@ public class ClassSelectScreen
             mouseOverBtn ? new Color(60, 50, 30) : new Color(30, 28, 22));
         _sb.Draw(Blank, new Rectangle(btnX, btnY, btnW, 2), Config.ColGold);
 
-        string btnText = "BEGIN ADVENTURE";
+        string btnText = "НАЧАТЬ ИГРУ";
         var btnSize = _font.MeasureString(btnText);
         _sb.DrawString(_font, btnText,
             new Vector2(btnX + (btnW - btnSize.X) / 2, btnY + 10),

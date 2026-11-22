@@ -4,9 +4,6 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -34,12 +31,12 @@ public class ShopScreen
 
     public void Draw(GameController game)
     {
-        if (game.ActiveShopNpc == null) return;
-        var npcDef = CityData.Npcs.GetValueOrDefault(game.ActiveShopNpc);
-        if (npcDef == null) return;
+        var stock = game.CurrentShopStock();
+        string title = game.DungeonShopMode ? "Подземный торговец"
+            : CityData.Npcs.GetValueOrDefault(game.ActiveShopNpc ?? "")?.Name ?? "Лавка";
 
         var player = game.Player;
-        int sw = Game1.ScreenW, sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
 
         // Dark overlay
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
@@ -55,32 +52,40 @@ public class ShopScreen
         if (_font == null) return;
 
         // Title
-        _sb.DrawString(_font, $"{npcDef.Name}'s Shop", new Vector2(px + 16, py + 10), Config.ColGold);
-        _sb.DrawString(_font, $"Gold: {player.Gold}", new Vector2(px + panelW - 120, py + 10),
+        _sb.DrawString(_font, title, new Vector2(px + 16, py + 10), Config.ColGold);
+        _sb.DrawString(_font, $"Золото: {player.Gold}", new Vector2(px + panelW - 120, py + 10),
             Config.ColGold);
 
-        // Mode indicator
-        string modeText = game.ShopSubMode == "buy" ? "[BUY]  Sell (S)" : "Buy (S)  [SELL]";
+        // Mode indicator + reroll hint (только у подземного торговца)
+        string modeText = game.ShopSubMode == "buy" ? "[ПОКУПКА]  Продажа (S)" : "Покупка (S)  [ПРОДАЖА]";
         _sb.DrawString(_font, modeText, new Vector2(px + 16, py + 34),
             game.ShopSubMode == "buy" ? new Color(120, 200, 120) : new Color(200, 150, 100));
+        if (game.DungeonShopMode)
+            _sb.DrawString(_font, $"R: обновить ({Config.RerollPrice(Math.Max(1, game.Depth))} золота)",
+                new Vector2(px + 300, py + 34), Config.ColDim);
 
         // Content
         int listY = py + 60;
         if (game.ShopSubMode == "buy")
-            DrawBuyList(npcDef, player, px + 16, listY, panelW - 32);
+            DrawBuyList(stock, player, px + 16, listY, panelW - 32, game.ShopPage);
         else
             DrawSellList(player, px + 16, listY, panelW - 32, game.ShopPage);
 
         // Hint
-        _sb.DrawString(_font, "1-8: buy/sell  S: switch mode  Q/E: pages  Esc: close",
+        _sb.DrawString(_font, "1–9: купить/продать  S: режим  Q/E: страницы  Esc: закрыть",
             new Vector2(px + 16, py + panelH - 24), Config.ColDim);
     }
 
-    private void DrawBuyList(CityData.NpcDef npcDef, Player player, int x, int y, int w)
+    private void DrawBuyList(List<RecipeData.ShopEntry> stock, Player player, int x, int y,
+        int w, int page)
     {
-        for (int i = 0; i < npcDef.ShopStock.Length; i++)
+        int pageStart = page * Config.ShopPageSize;
+        for (int i = 0; i < Config.ShopPageSize; i++)
         {
-            string key = npcDef.ShopStock[i];
+            int idx = pageStart + i;
+            if (idx >= stock.Count) break;
+            var entry = stock[idx];
+            string key = entry.Key;
             var def = ItemData.Get(key);
             if (def == null) continue;
 
@@ -94,22 +99,24 @@ public class ShopScreen
             _sb.Draw(icon, new Vector2(x + 4, rowY + 2), Color.White);
 
             // Name
-            _sb.DrawString(_font, $"{i + 1}. {def.Name}", new Vector2(x + 44, rowY + 4),
+            _sb.DrawString(_font, $"{i + 1}. {ItemData.DisplayName(key)}", new Vector2(x + 44, rowY + 4),
                 Config.ColText);
 
             // Price
-            string priceText = $"{def.Price}g";
-            var priceColor = player.Gold >= def.Price ? Config.ColGold : new Color(180, 80, 80);
+            string priceText = $"{entry.Price}g";
+            var priceColor = player.Gold >= entry.Price ? Config.ColGold : new Color(180, 80, 80);
             _sb.DrawString(_font, priceText, new Vector2(x + w - 60, rowY + 4), priceColor);
 
             // Description
-            string desc = def.Type switch
+            string desc = def.Kind switch
             {
                 ItemData.ItemType.Weapon => $"+{def.Value} ATK",
                 ItemData.ItemType.Armor or ItemData.ItemType.Helmet
                     or ItemData.ItemType.Leggings or ItemData.ItemType.Boots => $"+{def.Value} DEF",
-                ItemData.ItemType.Potion or ItemData.ItemType.Food
+                ItemData.ItemType.Heal or ItemData.ItemType.Food
                     => def.Effect == "heal" ? $"+{def.Value} HP" : $"+{def.Value} MP",
+                ItemData.ItemType.Scroll or ItemData.ItemType.Rune
+                    => $"{def.ManaCost} MP" + (def.Heal > 0 ? $" +{def.Heal} HP" : ""),
                 _ => "",
             };
             if (!string.IsNullOrEmpty(desc))
@@ -142,9 +149,9 @@ public class ShopScreen
             if (count > 1) nameText += $" x{count}";
             _sb.DrawString(_font, nameText, new Vector2(x + 44, rowY + 4), Config.ColText);
 
-            string sellText = def.SellPrice > 0 ? $"{def.SellPrice}g" : "No sell";
+            string sellText = def.Sell > 0 ? $"{def.Sell} золота" : "не продаётся";
             _sb.DrawString(_font, sellText, new Vector2(x + w - 60, rowY + 4),
-                def.SellPrice > 0 ? Config.ColGold : Config.ColDim);
+                def.Sell > 0 ? Config.ColGold : Config.ColDim);
         }
     }
 

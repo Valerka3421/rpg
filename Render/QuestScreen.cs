@@ -4,9 +4,6 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -32,7 +29,7 @@ public class QuestScreen
 
     public void Draw(GameController game)
     {
-        int sw = Game1.ScreenW, sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
 
         // Dark overlay
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
@@ -48,7 +45,7 @@ public class QuestScreen
         if (_font == null) return;
 
         // Title
-        _sb.DrawString(_font, "QUEST BOARD", new Vector2(px + 16, py + 10), Config.ColGold);
+        _sb.DrawString(_font, "ДОСКА ЗАДАНИЙ", new Vector2(px + 16, py + 10), Config.ColGold);
 
         int y = py + 40;
 
@@ -56,14 +53,14 @@ public class QuestScreen
         var available = game.Quests.Available.ToList();
         if (available.Count > 0)
         {
-            _sb.DrawString(_font, "Available:", new Vector2(px + 16, y), Config.ColText);
+            _sb.DrawString(_font, "Доступные:", new Vector2(px + 16, y), Config.ColText);
             y += 24;
             for (int i = 0; i < available.Count; i++)
             {
                 var def = QuestData.Get(available[i]);
                 if (def == null) continue;
                 bool selected = i == game.QuestSelected;
-                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter to accept");
+                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter — принять");
                 y += 48;
             }
         }
@@ -72,7 +69,7 @@ public class QuestScreen
         if (game.Quests.Active.Count > 0)
         {
             y += 8;
-            _sb.DrawString(_font, "Active:", new Vector2(px + 16, y), Config.ColText);
+            _sb.DrawString(_font, "Активные:", new Vector2(px + 16, y), Config.ColText);
             y += 24;
             foreach (var (key, progress) in game.Quests.Active)
             {
@@ -91,7 +88,7 @@ public class QuestScreen
         if (completed.Count > 0)
         {
             y += 8;
-            _sb.DrawString(_font, "Completed (turn in for rewards):", new Vector2(px + 16, y),
+            _sb.DrawString(_font, "Выполненные (сдайте для награды):", new Vector2(px + 16, y),
                 new Color(120, 200, 120));
             y += 24;
             for (int i = 0; i < completed.Count; i++)
@@ -100,13 +97,13 @@ public class QuestScreen
                 if (def == null) continue;
                 int selIdx = available.Count + i;
                 bool selected = selIdx == game.QuestSelected;
-                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter to turn in!");
+                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter — сдать!");
                 y += 48;
             }
         }
 
         // Hint
-        _sb.DrawString(_font, "Up/Down: select  Enter: accept/turn in  Esc: close",
+        _sb.DrawString(_font, "↑/↓: выбор  Enter: принять/сдать  Esc: закрыть",
             new Vector2(px + 16, py + panelH - 24), Config.ColDim);
     }
 
@@ -123,8 +120,8 @@ public class QuestScreen
 
         // Rewards
         string rewards = $"+{def.RewardGold}g  +{def.RewardXp} XP";
-        if (def.RewardItems.Length > 0)
-            rewards += $"  +{ItemData.DisplayName(def.RewardItems[0])}";
+        if (def.RewardItems.Count > 0)
+            rewards += $"  +{ItemData.DisplayName(def.RewardItems.Keys.First())}";
         _sb.DrawString(_font, rewards, new Vector2(x + w - 180, y + 4), Config.ColGold);
 
         // Action hint

@@ -128,6 +128,15 @@ public class AudioSystem : IDisposable
             "error" => GenerateError(),
             "unlock" => GeneratePickup(),
             "chest" => GeneratePickup(),
+            // Недостающие звуки (audio/audio.py: 12 звуков, паритет):
+            "crit" => GenerateCrit(),
+            "miss" => GenerateMiss(),
+            "death_monster" => GenerateDeathMonster(),
+            "death_player" => GenerateDeathPlayer(),
+            "fireball" => GenerateFireball(),
+            "heal" => GenerateHeal(),
+            "menu_select" => GenerateBlip(600, 0.05f),
+            "menu_open" => GenerateBlip(400, 0.05f),
             _ => null,
         };
 
@@ -144,6 +153,115 @@ public class AudioSystem : IDisposable
     }
 
     // ── Sound generators ──
+
+    /// <summary>Крит: два тона 300+200 Гц (audio.py:crit).</summary>
+    private byte[] GenerateCrit()
+    {
+        float duration = 0.15f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float env = (1 - t) * 0.4f;
+            float wave = (float)(Math.Sin(2 * Math.PI * 300 * i / _sampleRate)
+                + Math.Sin(2 * Math.PI * 200 * i / _sampleRate)) * 0.5f;
+            short val = (short)(wave * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
+
+    /// <summary>Промах: короткий шум (audio.py:miss).</summary>
+    private byte[] GenerateMiss()
+    {
+        float duration = 0.08f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        var rng = new Random();
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float noise = (float)(rng.NextDouble() * 2 - 1);
+            float env = (1 - t) * 0.15f;
+            short val = (short)(noise * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
+
+    /// <summary>Смерть монстра: нисходящий тон 300→90 Гц (audio.py:death_monster).</summary>
+    private byte[] GenerateDeathMonster()
+    {
+        float duration = 0.3f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float freq = 300 - 210 * t;
+            float env = (1 - t) * 0.35f;
+            float wave = (float)Math.Sin(2 * Math.PI * freq * i / _sampleRate);
+            short val = (short)(wave * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
+
+    /// <summary>Смерть игрока: низкий тон 120 Гц, 0.8 с (audio.py:death_player).</summary>
+    private byte[] GenerateDeathPlayer()
+    {
+        float duration = 0.8f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float env = (1 - t) * 0.4f;
+            float wave = (float)Math.Sin(2 * Math.PI * 120 * i / _sampleRate);
+            short val = (short)(wave * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
+
+    /// <summary>Огненный шар: шум + 400→40 Гц (audio.py:fireball).</summary>
+    private byte[] GenerateFireball()
+    {
+        float duration = 0.35f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        var rng = new Random();
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float freq = 400 - 360 * t;
+            float noise = (float)(rng.NextDouble() * 2 - 1) * 0.3f;
+            float wave = (float)Math.Sin(2 * Math.PI * freq * i / _sampleRate) + noise;
+            float env = (1 - t) * 0.35f;
+            short val = (short)(Math.Clamp(wave, -1f, 1f) * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
+
+    /// <summary>Лечение: восходящий тон 400→800 Гц (audio.py:heal).</summary>
+    private byte[] GenerateHeal()
+    {
+        float duration = 0.25f;
+        int samples = (int)(_sampleRate * duration);
+        var data = new byte[samples * 2];
+        for (int i = 0; i < samples; i++)
+        {
+            float t = (float)i / samples;
+            float freq = 400 + 400 * t;
+            float env = (1 - t) * 0.3f;
+            float wave = (float)Math.Sin(2 * Math.PI * freq * i / _sampleRate);
+            short val = (short)(wave * env * short.MaxValue);
+            BitConverter.GetBytes(val).CopyTo(data, i * 2);
+        }
+        return data;
+    }
 
     private byte[] GenerateAttack()
     {

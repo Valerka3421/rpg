@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-using Aethelgard.Game;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -33,7 +30,7 @@ public class BigmapScreen
     public void Draw(GameController game)
     {
         var d = game.CurrentMap;
-        int sw = Game1.ScreenW, sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
 
         // Dark background
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(8, 7, 5));
@@ -42,8 +39,8 @@ public class BigmapScreen
 
         // Title
         string title = game.WorldMode == "dungeon"
-            ? $"Dungeon Floor {game.Depth}"
-            : "Overworld Map";
+            ? $"Подземелье — этаж {game.Depth}"
+            : "Карта открытого мира";
         _sb.DrawString(_font, title, new Vector2(20, 10), Config.ColGold);
 
         // Calculate scale to fit map on screen
@@ -154,7 +151,7 @@ public class BigmapScreen
         }
 
         // Hint
-        _sb.DrawString(_font, "B/Esc: close  |  Gold=you  Red=boss  Yellow=NPC/item",
+        _sb.DrawString(_font, "B/Esc: закрыть · Золотой — вы · Красный — босс · Жёлтый — NPC/предметы",
             new Vector2(20, sh - 24), Config.ColDim);
     }
 

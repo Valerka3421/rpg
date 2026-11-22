@@ -4,8 +4,6 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -31,8 +29,8 @@ public class InventoryScreen
     private Texture2D? _blank;
 
     public const int GridCols = 10;
-    public const int GridRows = 8;
-    public const int CellSize = 40;
+    public const int GridRows = 10; // сетка 10×10 (INVENTORY_PAGE_SIZE=100)
+    public const int CellSize = 36;
     public const int CellGap = 2;
 
     public int CurrentPage = 0;
@@ -53,16 +51,16 @@ public class InventoryScreen
     /// </summary>
     public string? Draw(Player player, MouseState mouse)
     {
-        int sw = Game1.ScreenW;
-        int sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW;
+        int sh = AethelgardGame.ScreenH;
 
         // Dark overlay
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
 
         // Panel
-        int panelW = 600, panelH = 480;
+        int panelW = 620, panelH = 560;
         int px = (sw - panelW) / 2;
-        int py = (sh - panelH) / 2;
+        int py = Math.Max(12, (sh - panelH) / 2);
         _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH),
             new Color(20, 18, 14, 240));
 
@@ -74,7 +72,7 @@ public class InventoryScreen
 
         // Title
         if (_font != null)
-            _sb.DrawString(_font, "INVENTORY", new Vector2(px + 16, py + 10),
+            _sb.DrawString(_font, "ИНВЕНТАРЬ", new Vector2(px + 16, py + 10),
                 Config.ColGold);
 
         // ── Equipment panel (left) ──
@@ -92,7 +90,7 @@ public class InventoryScreen
         if (_font != null)
         {
             int totalPages = Math.Max(1, (player.Inventory.Count - 1) / (GridCols * GridRows) + 1);
-            string pageInfo = $"Page {CurrentPage + 1}/{totalPages}  (Q/E to switch)";
+            string pageInfo = $"Страница {CurrentPage + 1}/{totalPages}  (Q/E — переключить)";
             _sb.DrawString(_font, pageInfo,
                 new Vector2(gridX, gridY + GridRows * (CellSize + CellGap) + 8),
                 Config.ColDim);
@@ -111,16 +109,16 @@ public class InventoryScreen
     {
         if (_font == null) return;
 
-        _sb.DrawString(_font, "Equipment", new Vector2(x, y), Config.ColText);
+        _sb.DrawString(_font, "Снаряжение", new Vector2(x, y), Config.ColText);
         y += 24;
 
         var slots = new (string Label, string? Key, string Slot)[]
         {
-            ("Weapon", player.Weapon, "Weapon"),
-            ("Armor", player.Armor, "Armor"),
-            ("Helmet", player.Head, "Head"),
-            ("Legs", player.Legs, "Legs"),
-            ("Boots", player.Boots, "Boots"),
+            ("Оружие", player.Weapon, "Weapon"),
+            ("Броня", player.Armor, "Armor"),
+            ("Шлем", player.Head, "Head"),
+            ("Поножи", player.Legs, "Legs"),
+            ("Обувь", player.Boots, "Boots"),
         };
 
         foreach (var (label, key, slot) in slots)
@@ -151,7 +149,7 @@ public class InventoryScreen
 
         // Gold
         y += 8;
-        _sb.DrawString(_font, $"Gold: {player.Gold}", new Vector2(x, y), Config.ColGold);
+        _sb.DrawString(_font, $"Золото: {player.Gold}", new Vector2(x, y), Config.ColGold);
     }
 
     private string? DrawGrid(Player player, int x, int y, MouseState mouse)
@@ -223,7 +221,7 @@ public class InventoryScreen
         };
 
         // Type-specific info
-        switch (def.Type)
+        switch (def.Kind)
         {
             case ItemData.ItemType.Weapon:
                 lines.Add($"+{def.Value} ATK");
@@ -234,7 +232,7 @@ public class InventoryScreen
             case ItemData.ItemType.Boots:
                 lines.Add($"+{def.Value} DEF");
                 break;
-            case ItemData.ItemType.Potion:
+            case ItemData.ItemType.Heal:
             case ItemData.ItemType.Food:
                 lines.Add(def.Effect == "heal" ? $"+{def.Value} HP" : $"+{def.Value} MP");
                 break;
@@ -243,8 +241,8 @@ public class InventoryScreen
                 break;
         }
 
-        if (def.SellPrice > 0)
-            lines.Add($"Sell: {def.SellPrice}g");
+        if (def.Sell > 0)
+            lines.Add($"Продажа: {def.Sell} золота");
 
         // Tooltip background
         int ttX = mouse.X + 16;
@@ -259,8 +257,8 @@ public class InventoryScreen
         int ttH = lines.Count * 16 + 12;
 
         // Keep tooltip on screen
-        if (ttX + ttW > Game1.ScreenW) ttX = mouse.X - ttW - 8;
-        if (ttY + ttH > Game1.ScreenH) ttY = mouse.Y - ttH - 8;
+        if (ttX + ttW > AethelgardGame.ScreenW) ttX = mouse.X - ttW - 8;
+        if (ttY + ttH > AethelgardGame.ScreenH) ttY = mouse.Y - ttH - 8;
 
         _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, ttH),
             new Color(15, 13, 10, 230));

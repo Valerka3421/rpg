@@ -4,8 +4,6 @@ using System.Linq;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
-using Aethelgard.Core;
-
 namespace Aethelgard.Render;
 
 /// <summary>
@@ -34,7 +32,7 @@ public class SkillScreen
     public int CurrentTab = 0;  // 0=class, 1=blacksmith, 2=alchemy, 3=magic_eng
     public string? HoveredNode;
 
-    private static readonly string[] TabNames = { "Class", "Smithing", "Alchemy", "Magic" };
+    private static readonly string[] TabNames = { "Класс", "Ковка", "Алхимия", "Инженерия" };
     private static readonly string[] TabKeys = { "", "blacksmith", "alchemy", "magic_engineering" };
 
     public SkillScreen(GraphicsDevice device, SpriteBatch sb)
@@ -51,8 +49,8 @@ public class SkillScreen
     /// </summary>
     public string? Draw(Player player, MouseState mouse)
     {
-        int sw = Game1.ScreenW;
-        int sh = Game1.ScreenH;
+        int sw = AethelgardGame.ScreenW;
+        int sh = AethelgardGame.ScreenH;
 
         // Dark overlay
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
@@ -69,16 +67,16 @@ public class SkillScreen
         if (_font == null) return null;
 
         // Title
-        _sb.DrawString(_font, "SKILL TREE", new Vector2(px + 16, py + 10), Config.ColGold);
+        _sb.DrawString(_font, "ДРЕВО НАВЫКОВ", new Vector2(px + 16, py + 10), Config.ColGold);
         var classDef = ClassData.Get(player.ClassKey);
         string className = classDef?.Name ?? player.ClassKey;
-        _sb.DrawString(_font, $"{className}  Lv.{player.Level}",
+        _sb.DrawString(_font, $"{className}  Ур.{player.Level}",
             new Vector2(px + panelW - 200, py + 10), Config.ColText);
 
         // Skill points badge
         if (player.SkillPoints > 0)
         {
-            string badge = $"● {player.SkillPoints} skill points";
+            string badge = $"● Очки навыков: {player.SkillPoints}";
             _sb.DrawString(_font, badge, new Vector2(px + 16, py + 34), Config.ColGold);
         }
 
@@ -132,7 +130,7 @@ public class SkillScreen
         if (nodes.Length == 0)
         {
             if (_font != null)
-                _sb.DrawString(_font, "No skill tree for this class.",
+                _sb.DrawString(_font, "У этого класса нет древа навыков.",
                     new Vector2(x + 10, y + 10), Config.ColDim);
             return null;
         }
@@ -188,7 +186,7 @@ public class SkillScreen
             DrawHex(nx, ny, radius, nodeColor, learned);
 
             // Level requirement
-            string reqText = learned ? "✓" : $"Lv{node.Level}";
+            string reqText = learned ? "+" : $"Ур.{node.Level}";
             _sb.DrawString(_font, reqText, new Vector2(nx - 12, ny - 6),
                 learned ? Color.White : (locked ? new Color(180, 100, 80) : Config.ColText));
 
@@ -213,7 +211,7 @@ public class SkillScreen
         // Bottom hint
         if (_font != null)
         {
-            string hint = "Hover for details. Click node or press 1-7 to learn.";
+            string hint = "Наведи для подробностей. Клик или 1–7 — изучить.";
             _sb.DrawString(_font, hint,
                 new Vector2(x + 10, y + h - 20), Config.ColDim);
         }
@@ -238,7 +236,7 @@ public class SkillScreen
                 Config.ColGold);
             _sb.DrawString(_font, branch.Desc, new Vector2(x + 10, y + 34),
                 Config.ColDim);
-            _sb.DrawString(_font, $"Level: {lvl}/25  XP: {xp}/{xpNext}",
+            _sb.DrawString(_font, $"Уровень: {lvl}/25  Опыт: {xp}/{xpNext}",
                 new Vector2(x + 10, y + 56), Config.ColText);
         }
 
@@ -254,7 +252,7 @@ public class SkillScreen
 
         // Recipe list
         int listY = y + 100;
-        _sb.DrawString(_font, "Recipes:", new Vector2(x + 10, listY),
+        _sb.DrawString(_font, "Рецепты:", new Vector2(x + 10, listY),
             Config.ColText);
         listY += 24;
 
@@ -274,7 +272,7 @@ public class SkillScreen
                     new Color(50, 45, 38));
 
                 string name = def.Name;
-                string reqStr = unlocked ? "" : $" (req Lv.{reqLevel})";
+                string reqStr = unlocked ? "" : $" (нужен ур. {reqLevel})";
                 _sb.DrawString(_font, $"{name}{reqStr}",
                     new Vector2(x + 16, listY + 6),
                     unlocked ? Config.ColText : Config.ColDim);
@@ -291,7 +289,7 @@ public class SkillScreen
                     bool canCraft = CanCraft(player, recipeKey);
                     if (canCraft)
                     {
-                        _sb.DrawString(_font, "[1] Craft",
+                        _sb.DrawString(_font, "[1] создать",
                             new Vector2(x + w - 80, listY + 6),
                             Config.ColGold);
                     }
@@ -468,13 +466,13 @@ public class SkillScreen
 
         bool learned = player.LearnedNodes.Contains(node.Key);
         if (learned)
-            lines.Add("✓ Learned");
+            lines.Add("Изучено");
         else if (player.Level < node.Level)
-            lines.Add($"Requires level {node.Level}");
+            lines.Add($"Требуется уровень {node.Level}");
         else if (player.SkillPoints < 1)
-            lines.Add("No skill points");
+            lines.Add("Нет очков навыков");
         else
-            lines.Add("Available — click to learn");
+            lines.Add("Доступно — кликните, чтобы изучить");
 
         // Tooltip background
         int maxW = 0;
@@ -487,8 +485,8 @@ public class SkillScreen
         int ttH = lines.Count * 16 + 12;
         int ttX = mouse.X + 16;
         int ttY = mouse.Y + 16;
-        if (ttX + ttW > Game1.ScreenW) ttX = mouse.X - ttW - 8;
-        if (ttY + ttH > Game1.ScreenH) ttY = mouse.Y - ttH - 8;
+        if (ttX + ttW > AethelgardGame.ScreenW) ttX = mouse.X - ttW - 8;
+        if (ttY + ttH > AethelgardGame.ScreenH) ttY = mouse.Y - ttH - 8;
 
         _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, ttH),
             new Color(15, 13, 10, 230));
