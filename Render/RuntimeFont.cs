@@ -36,6 +36,10 @@ public static class RuntimeFont
         // Типографика и служебные знаки UI
         chars.AddRange(new[] { '«', '»', '—', '–', '…', '·', '№', '•',
             '↑', '↓', '←', '→', '×', '§' });
+        // MonoGame SpriteFont требует строго возрастающую карту символов
+        // (без сортировки конструктор бросает InvalidOperationException —
+        // 'ё' U+0451 стоит после диапазона А–я U+044F).
+        chars.Sort();
         return chars;
     }
 
@@ -150,8 +154,9 @@ public static class RuntimeFont
 
             return spriteFont;
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            Console.Error.WriteLine("RuntimeFont.Create failed: " + ex);
             return null;
         }
     }
