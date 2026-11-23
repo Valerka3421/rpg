@@ -338,6 +338,13 @@ public class GameRenderer
         int hx = 16;
         int hy = AethelgardGame.ScreenH - 44;
 
+        // Общая подложка хотбара + панели навыков
+        int skillsCount = Math.Min(player.ActiveSkills().Count, SkillKeysLabels.Length);
+        int hotbarW = 8 * (Config.QuickbarSlotSize + Config.QuickbarGap) + 8;
+        int skillsW = skillsCount * 74 + 8;
+        _sb.Draw(_blankTex, new Rectangle(hx - 8, hy - 8, hotbarW + skillsCount * 74 + 24,
+            Config.QuickbarSlotSize + 16), new Color(12, 10, 8, 190));
+
         for (int i = 0; i < 8; i++)
         {
             var rect = new Rectangle(hx + i * (Config.QuickbarSlotSize + Config.QuickbarGap),
@@ -351,6 +358,11 @@ public class GameRenderer
             {
                 Color c = ItemData.DisplayColor(itemKey);
                 _sb.Draw(_blankTex, new Rectangle(rect.X + 8, rect.Y + 8, 32, 32), c);
+                // Рамка иконки
+                _sb.Draw(_blankTex, new Rectangle(rect.X + 8, rect.Y + 8, 32, 1), new Color(0, 0, 0, 120));
+                _sb.Draw(_blankTex, new Rectangle(rect.X + 8, rect.Y + 39, 32, 1), new Color(0, 0, 0, 120));
+                _sb.Draw(_blankTex, new Rectangle(rect.X + 8, rect.Y + 8, 1, 32), new Color(0, 0, 0, 120));
+                _sb.Draw(_blankTex, new Rectangle(rect.X + 39, rect.Y + 8, 1, 32), new Color(0, 0, 0, 120));
                 int count = player.ItemCount(itemKey);
                 _sb.DrawString(_font, count > 99 ? "99+" : count.ToString(),
                     new Vector2(rect.X + 6, rect.Y + 30), Config.ColText);
@@ -439,9 +451,12 @@ public class GameRenderer
         if (game.ShowFps)
             _sb.DrawString(_font, $"FPS: {game.Fps:F0}", new Vector2(AethelgardGame.ScreenW - 80, 8), Config.ColDim);
 
-        // Controls hint
-        _sb.DrawString(_font, "WASD:шаг  Пробел:атака  F:лестница  E:добыча  I:инвентарь  K:крафт  C:статы  L:квесты  N:навыки  H:зелье  M:карта  B:большая карта  T:говорить  Esc:пауза",
-            new Vector2(16, 8), Config.ColDim);
+        // Controls hint — на тёмной подложке, чтобы читалось на любом фоне
+        var hintText = "WASD:шаг  Пробел:атака  F:лестница  E:добыча  I:инвентарь  K:крафт  C:статы  L:квесты  N:навыки  H:зелье  M:карта  B:большая карта  T:говорить  Esc:пауза";
+        var hintSize = _font.MeasureString(hintText);
+        _sb.Draw(_blankTex, new Rectangle(8, 4, (int)hintSize.X + 16, (int)hintSize.Y + 10),
+            new Color(10, 8, 6, 170));
+        _sb.DrawString(_font, hintText, new Vector2(16, 8), Config.ColDim);
 
         // Hotbar + skills panel
         DrawHotbar(game);
@@ -450,13 +465,16 @@ public class GameRenderer
     private void DrawBar(int x, int y, int w, int h, int value, int max, Color color)
     {
         // Background
-        _sb.Draw(_blankTex, new Rectangle(x, y, w, h), new Color(30, 25, 20));
-        // Fill
+        _sb.Draw(_blankTex, new Rectangle(x, y, w, h), new Color(24, 20, 16));
+        // Fill + блик сверху для объёма
         int fillW = max > 0 ? w * value / max : 0;
         _sb.Draw(_blankTex, new Rectangle(x, y, fillW, h), color);
+        _sb.Draw(_blankTex, new Rectangle(x, y, fillW, 2), Color.White * 0.25f);
         // Border
         _sb.Draw(_blankTex, new Rectangle(x, y, w, 1), Config.ColDim);
         _sb.Draw(_blankTex, new Rectangle(x, y + h - 1, w, 1), Config.ColDim);
+        _sb.Draw(_blankTex, new Rectangle(x, y, 1, h), Config.ColDim);
+        _sb.Draw(_blankTex, new Rectangle(x + w - 1, y, 1, h), Config.ColDim);
     }
 
     private Texture2D _blankTex

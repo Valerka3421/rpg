@@ -194,7 +194,13 @@ public class StatsScreen : ModalScreenBase
     public void Draw(GameController game, MouseState mouse)
     {
         var panel = new Rectangle(320, 80, 640, 480);
+
+        // Тень панели и золотая шапка
+        _sb.Draw(Blank, new Rectangle(panel.X + 6, panel.Y + 8,
+            panel.Width, panel.Height), new Color(0, 0, 0, 130));
         Panel(panel);
+        _sb.Draw(Blank, new Rectangle(panel.X, panel.Y, panel.Width, 4),
+            Config.ColGold);
         if (_font == null) return;
 
         var p = game.Player;
@@ -203,16 +209,35 @@ public class StatsScreen : ModalScreenBase
         y += 26;
         Text($"Свободных очков: {p.FreePoints}    Очков навыков: {p.SkillPoints}",
             new Vector2(panel.X + 24, y), p.FreePoints > 0 ? Config.ColHeal : Config.ColDim);
-        y += 34;
+        y += 10;
 
         int[] values = { p.TotalStr, p.TotalAgi, p.TotalVit, p.TotalLuk, p.TotalDfStat, p.TotalInt };
         for (int i = 0; i < Stats.Length; i++)
         {
             bool selected = game.StatSelected == i;
+            int rowH = 28;
+            var rowRect = new Rectangle(panel.X + 16, y - 3, panel.Width - 32, rowH);
+
+            if (selected)
+            {
+                // Подсветка выбранной строки + золотой маркер
+                _sb.Draw(Blank, rowRect, new Color(52, 43, 30));
+                _sb.Draw(Blank, new Rectangle(rowRect.X, rowRect.Y, 4, rowRect.Height),
+                    new Color(206, 166, 82, 200));
+            }
+            else if (p.FreePoints > 0)
+            {
+                // Строки, куда можно вложить очко, слегка акцентированы
+                _sb.Draw(Blank, new Rectangle(rowRect.X, rowRect.Y, rowRect.Width, 1),
+                    new Color(60, 52, 40));
+            }
+
             Color c = selected ? Config.ColGold : Config.ColText;
-            Text($"{(selected ? "> " : "  ")}{i + 1}. {Stats[i].Label}: {values[i]}",
+            Text($"{(selected ? "> " : "  ")}{i + 1}. {Stats[i].Label}",
                 new Vector2(panel.X + 30, y), c);
-            y += 28;
+            Text($"{values[i]}",
+                new Vector2(panel.X + panel.Width - 110, y), c);
+            y += rowH;
         }
 
         y += 12;
@@ -250,6 +275,8 @@ public class PauseScreen : ModalScreenBase
 {
     public int Selected;
 
+    private Rectangle _panel;
+
     public PauseScreen(GraphicsDevice device, SpriteBatch sb) : base(device, sb) { }
 
     private static readonly string[] Items =
@@ -257,6 +284,12 @@ public class PauseScreen : ModalScreenBase
         "Вернуться в игру", "Сохранить игру", "Загрузить игру",
         "Настройки", "Выйти в главное меню",
     };
+
+    private Rectangle ItemRect(int i) =>
+        new(_panel.X + 32, _panel.Y + 76 + i * 40, _panel.Width - 64, 34);
+
+    private bool Hovered(Rectangle r, MouseState mouse) =>
+        mouse.X >= r.X && mouse.X < r.Right && mouse.Y >= r.Y && mouse.Y < r.Bottom;
 
     /// <summary>Обработка клавиатуры: возвращает индекс выбранного пункта или null.</summary>
     public int? HandleInput(KeyboardState keys, KeyboardState prevKeys)
@@ -270,28 +303,65 @@ public class PauseScreen : ModalScreenBase
         return null;
     }
 
+    /// <summary>Мышь: наведение выделяет пункт, клик подтверждает. Возвращает индекс или null.</summary>
+    public int? HandleMouse(MouseState mouse, MouseState prevMouse)
+    {
+        for (int i = 0; i < Items.Length; i++)
+        {
+            if (Hovered(ItemRect(i), mouse))
+                Selected = i;
+        }
+        bool click = mouse.LeftButton == ButtonState.Pressed
+            && prevMouse.LeftButton != ButtonState.Pressed;
+        if (click)
+        {
+            for (int i = 0; i < Items.Length; i++)
+                if (Hovered(ItemRect(i), mouse))
+                    return i;
+        }
+        return null;
+    }
+
     /// <summary>Отрисовка панели паузы (фон рисует вызывающий код).</summary>
     public void Draw(GameController game)
     {
-        var panel = new Rectangle(440, 160, 400, 320);
-        Panel(panel);
+        // Затемнение всего экрана — фон (мир) просвечивает слабо
+        _sb.Draw(Blank, new Rectangle(0, 0,
+            AethelgardGame.ScreenW, AethelgardGame.ScreenH), new Color(0, 0, 0, 130));
+
+        _panel = new Rectangle(430, 140, 420, 360);
+
+        // Тень панели
+        _sb.Draw(Blank, new Rectangle(_panel.X + 6, _panel.Y + 8,
+            _panel.Width, _panel.Height), new Color(0, 0, 0, 140));
+        Panel(_panel);
         if (_font == null) return;
 
-        int y = panel.Y + 24;
+        // Цветная шапка
+        _sb.Draw(Blank, new Rectangle(_panel.X, _panel.Y, _panel.Width, 4),
+            Config.ColGold);
+
+        int y = _panel.Y + 24;
         string title = "ПАУЗА";
         var size = _font.MeasureString(title);
-        Text(title, new Vector2(panel.X + panel.Width / 2 - size.X / 2, y), Config.ColGold);
-        y += 48;
+        Text(title, new Vector2(_panel.X + _panel.Width / 2 - size.X / 2, y),
+            Config.ColGold);
 
         for (int i = 0; i < Items.Length; i++)
         {
-            Color c = i == Selected ? Config.ColGold : Config.ColText;
-            Text($"{(i == Selected ? "> " : "  ")}{Items[i]}",
-                new Vector2(panel.X + 48, y), c);
-            y += 38;
+            var rect = ItemRect(i);
+            bool sel = i == Selected;
+            if (sel)
+            {
+                _sb.Draw(Blank, rect, new Color(52, 43, 30));
+                _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, 4, rect.Height),
+                    new Color(206, 166, 82, 200));
+            }
+            Color c = sel ? Config.ColGold : Config.ColText;
+            Text(Items[i], new Vector2(rect.X + 20, rect.Y + 8), c);
         }
 
-        Text("↑/↓ — выбор · Enter — подтвердить · Esc — вернуться",
-            new Vector2(panel.X + 30, panel.Bottom - 30), Config.ColDim);
+        Text("↑/↓ или мышь — выбор · Enter/клик — подтвердить · Esc — вернуться",
+            new Vector2(_panel.X + 20, _panel.Bottom - 34), Config.ColDim);
     }
 }

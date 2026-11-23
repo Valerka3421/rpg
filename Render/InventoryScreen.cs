@@ -260,9 +260,15 @@ public class InventoryScreen
         if (ttX + ttW > AethelgardGame.ScreenW) ttX = mouse.X - ttW - 8;
         if (ttY + ttH > AethelgardGame.ScreenH) ttY = mouse.Y - ttH - 8;
 
+        _sb.Draw(Blank, new Rectangle(ttX + 3, ttY + 4, ttW, ttH),
+            new Color(0, 0, 0, 120));
         _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, ttH),
             new Color(15, 13, 10, 230));
+        // Полная рамка тултипа
         _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, 1), Config.ColGold);
+        _sb.Draw(Blank, new Rectangle(ttX, ttY + ttH - 1, ttW, 1), Config.ColGold);
+        _sb.Draw(Blank, new Rectangle(ttX, ttY, 1, ttH), Config.ColGold);
+        _sb.Draw(Blank, new Rectangle(ttX + ttW - 1, ttY, 1, ttH), Config.ColGold);
 
         for (int i = 0; i < lines.Count; i++)
         {

@@ -292,6 +292,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             // Меню паузы: 5 пунктов (python MENU_PAUSE)
             int? choice = _pause.HandleInput(keys, _prevKeys);
+            int? mouseChoice = _pause.HandleMouse(mouse, _prevMouse);
+            if (mouseChoice.HasValue) choice = mouseChoice;
             if (escPressed) _game.ScreenMode = ScreenMode.Game;      // Esc — вернуться
             else if (choice == 0) _game.ScreenMode = ScreenMode.Game;
             else if (choice == 1)

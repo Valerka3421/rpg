@@ -386,8 +386,11 @@ public class MainMenuScreen
 
     // ─────────────────────────── MOUSE ───────────────────────────
 
+    private MouseState _lastMouse;   // для подсветки кнопок под курсором
+
     public void HandleMouse(MouseState mouse, MouseState prevMouse)
     {
+        _lastMouse = mouse;
         bool click = mouse.LeftButton == ButtonState.Pressed
             && prevMouse.LeftButton != ButtonState.Pressed;
         if (!click) return;
@@ -524,14 +527,39 @@ public class MainMenuScreen
         }
     }
 
+    /// <summary>Подсвечена ли кнопка курсором (hover).</summary>
+    private bool Hovered(Rectangle rect)
+    {
+        return _lastMouse.X >= rect.X && _lastMouse.X < rect.Right
+            && _lastMouse.Y >= rect.Y && _lastMouse.Y < rect.Bottom;
+    }
+
     private void DrawButtonBg(Rectangle rect, bool selected)
     {
+        bool hover = !selected && Hovered(rect);
+
+        // Тень под кнопкой
+        _sb.Draw(Blank, new Rectangle(rect.X + 4, rect.Y + 5, rect.Width, rect.Height),
+            new Color(0, 0, 0, 110));
+
+        // Фон
         _sb.Draw(Blank, rect,
-            selected ? new Color(48, 40, 28) : new Color(26, 22, 18));
-        _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 2),
-            selected ? new Color(206, 166, 82) : new Color(80, 68, 50));
-        _sb.Draw(Blank, new Rectangle(rect.X, rect.Y + rect.Height - 2,
-            rect.Width, 2), selected ? new Color(120, 96, 52) : new Color(50, 42, 32));
+            selected ? new Color(52, 43, 30)
+            : hover ? new Color(38, 32, 24)
+            : new Color(26, 22, 18));
+
+        // Рамка по всему периметру
+        var border = selected ? new Color(206, 166, 82)
+            : hover ? new Color(130, 108, 66) : new Color(70, 58, 42);
+        _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 2), border);
+        _sb.Draw(Blank, new Rectangle(rect.X, rect.Bottom - 2, rect.Width, 2), border);
+        _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, 2, rect.Height), border);
+        _sb.Draw(Blank, new Rectangle(rect.Right - 2, rect.Y, 2, rect.Height), border);
+
+        // Золотая полоса-акцент слева у выбранной кнопки
+        if (selected)
+            _sb.Draw(Blank, new Rectangle(rect.X + 6, rect.Y + 8, 4, rect.Height - 16),
+                new Color(206, 166, 82, 200));
     }
 
     private void DrawArrow(int x, int y)
