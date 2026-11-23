@@ -14,7 +14,7 @@ public class Settings
     public bool Fullscreen = false;
     public bool ShowFps = false;
     public bool ShowMinimap = true;
-    public int[] Resolution = { 1600, 900 };
+    public int[] Resolution = { 1920, 1080 };
     public string? DevConsoleSalt;
 
     public static string SettingsFile => Path.Combine(Config.DataDir, "settings.json");

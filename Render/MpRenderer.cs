@@ -71,12 +71,13 @@ public class MpRenderer
             return;
         }
 
-        // Camera
-        int viewW = Config.ViewW;
-        _camX = myState.X * Config.TileSize - (AethelgardGame.ScreenW - viewW * Config.TileSize) / 2;
-        _camY = myState.Y * Config.TileSize;
-        _camX = Math.Max(0, Math.Min(_camX, snap.MapW * Config.TileSize - AethelgardGame.ScreenW));
-        _camY = Math.Max(0, Math.Min(_camY, snap.MapH * Config.TileSize - (AethelgardGame.ScreenH - Config.HudHeight)));
+        // Camera: игрок по центру (кроме краёв карты)
+        int worldW = AethelgardGame.ScreenW;
+        int worldH = AethelgardGame.ScreenH - Config.HudHeight;
+        _camX = myState.X * Config.TileSize + Config.TileSize / 2 - worldW / 2;
+        _camY = myState.Y * Config.TileSize + Config.TileSize / 2 - worldH / 2;
+        _camX = Math.Max(0, Math.Min(_camX, Math.Max(0, snap.MapW * Config.TileSize - worldW)));
+        _camY = Math.Max(0, Math.Min(_camY, Math.Max(0, snap.MapH * Config.TileSize - worldH)));
 
         // World
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);

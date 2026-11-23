@@ -41,6 +41,14 @@ public static class Program
             g.ScreenMode = ScreenMode.Quests; Thread.Sleep(1200); Shot("08-quests");
             // 9. Пауза
             g.ScreenMode = ScreenMode.Pause; Thread.Sleep(1200); Shot("09-pause");
+            // 10. Большая карта
+            g.ScreenMode = ScreenMode.Game;
+            Thread.Sleep(300);
+            // походить, чтобы открыть туман войны
+            for (int i = 0; i < 15; i++) { g.HandleInput(new Microsoft.Xna.Framework.Input.KeyboardState(new[] { Microsoft.Xna.Framework.Input.Keys.S }), new Microsoft.Xna.Framework.Input.KeyboardState(), 0.016f); g.Update(0.016f); Thread.Sleep(30); }
+            g.ScreenMode = ScreenMode.Bigmap; Thread.Sleep(1200); Shot("10-bigmap");
+            // 11. Мини-карта крупным планом (кроп делаем с полного кадра игры)
+            g.ScreenMode = ScreenMode.Game; Thread.Sleep(1200); Shot("11-minimap");
             g.ScreenMode = ScreenMode.Game;
             Thread.Sleep(500);
             game.Exit();

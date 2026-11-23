@@ -24,6 +24,11 @@
     <None Include="Content/fonts/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
+  <!-- Иконки навыков и спрайты копируются рядом со сборкой -->
+  <ItemGroup>
+    <None Include="assets/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Игровые данные перенесены из data/*.json в C#-классы (Data/*Defs.cs) -->
 
   <!-- Тестовый проект лежит в tests/ и не должен попадать в игру -->

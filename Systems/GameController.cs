@@ -86,6 +86,7 @@ public class GameController
 
     // Minimap
     public bool MinimapVisible = true;
+    private int _lastRevealX = -1, _lastRevealY = -1; // последняя открытая туманом позиция
 
     // Run statistics (Tab)
     public int KillsTotal, GoldEarned, ItemsCrafted, QuestsDone;
@@ -137,6 +138,9 @@ public class GameController
 
         if (Overworld.Tiles[cy][cx] == Tile.Wall)
             Overworld.Tiles[cy][cx] = Tile.Floor;
+
+        // Открыть туман войны вокруг точки спавна
+        Overworld.RevealAround(cx, cy, Config.RevealRadius);
 
         Dungeon = Overworld;
         _worldMode = "overworld";
@@ -260,10 +264,19 @@ public class GameController
             return;
         }
 
-        // Quests screen (L)
+        // Quests screen (L) — только рядом с доской поручений, старейшиной
+        // или торговцем (раньше открывалась «стоя на воздухе» где угодно)
         if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
         {
-            ScreenMode = ScreenMode == Screens.Quests ? Screens.Game : Screens.Quests;
+            var questNpc = NearbyNpc();
+            bool nearQuestGiver = questNpc?.NpcType == "quest_board"
+                || questNpc?.NpcType == "elder" || questNpc?.NpcType == "merchant";
+            if (nearQuestGiver)
+            {
+                ScreenMode = ScreenMode == Screens.Quests ? Screens.Game : Screens.Quests;
+            }
+            else
+                ShowMessage("Квесты доступны у доски поручений, старейшины или торговца");
             return;
         }
 
@@ -361,16 +374,14 @@ public class GameController
         if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
             TryHarvest();
 
-        // B — bigmap
-        if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
+        // B / M — большая карта (как в python: M открывает карту).
+        // Миникарта включается в настройках, а не хоткеем.
+        if ((keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
+            || (keys.IsKeyDown(Keys.M) && !prevKeys.IsKeyDown(Keys.M)))
         {
             ScreenMode = ScreenMode == Screens.Bigmap ? Screens.Game : Screens.Bigmap;
             return;
         }
-
-        // M — minimap toggle
-        if (keys.IsKeyDown(Keys.M) && !prevKeys.IsKeyDown(Keys.M))
-            MinimapVisible = !MinimapVisible;
 
         // U/V — unequip helmet/leggings
         if (keys.IsKeyDown(Keys.U) && !prevKeys.IsKeyDown(Keys.U))
@@ -529,6 +540,11 @@ public class GameController
 
         var branch = ItemData.CategoryOf(key);
         int branchLevel = Player.CraftLevels.GetValueOrDefault(branch, 1);
+        if (Player.Level < def.LevelReq)
+        {
+            ShowMessage($"Требуется уровень персонажа: {def.LevelReq}.");
+            return;
+        }
         if (def.SkillReq > branchLevel)
         {
             ShowMessage($"Требуется уровень ветки «{branch}»: {def.SkillReq}.");
@@ -912,20 +928,37 @@ public class GameController
             ShowMessage(message);
     }
 
-    /// <summary>Клик мышью по узлу древа навыков (из SkillScreen.Draw).</summary>
-    public void HandleSkillClick(string? nodeKey, MouseState mouse, MouseState prevMouse)
+    /// <summary>Клик мышью по узлу древа навыков (из SkillScreen.Draw).
+    /// SkillScreen возвращает команду только на «свежий» клик (один раз
+    /// на нажатие), здесь остаётся только исполнить её.</summary>
+    public void HandleSkillClick(string? command)
     {
-        if (nodeKey == null) return;
-        if (mouse.LeftButton != ButtonState.Pressed
-            || prevMouse.LeftButton == ButtonState.Pressed) return;
+        if (string.IsNullOrEmpty(command)) return;
 
-        var nodes = SkillTree.GetNodes(Player);
-        for (int i = 0; i < nodes.Length; i++)
+        // Кнопка эволюции класса
+        if (command.StartsWith("promote:"))
         {
-            if (nodes[i].Key == nodeKey)
+            string newKey = command["promote:".Length..];
+            if (ClassData.Promote(Player, newKey))
+                ShowMessage($"Новый класс: {ClassData.Get(newKey)?.Name}!");
+            else
+                ShowMessage($"Смена класса доступна с уровня " +
+                    $"{ClassData.ClassChangeLevels[Math.Min(Player.ClassChanges, ClassData.ClassChangeLevels.Length - 1)]}.");
+            return;
+        }
+
+        // Изучение узла
+        if (command.StartsWith("learn:"))
+        {
+            string nodeKey = command["learn:".Length..];
+            var nodes = SkillTree.GetNodes(Player);
+            for (int i = 0; i < nodes.Length; i++)
             {
-                TryLearnNode(i);
-                return;
+                if (nodes[i].Key == nodeKey)
+                {
+                    TryLearnNode(i);
+                    return;
+                }
             }
         }
     }
@@ -1049,6 +1082,9 @@ public class GameController
         Player.Y = ny;
         Player.StepCounter++;
 
+        // Открыть туман войны вокруг новой позиции
+        CurrentMap.RevealAround(nx, ny, Config.RevealRadius);
+
         // Gate — переход между локациями по F (UseStairs)
         if (tile == Tile.Gate)
         {
@@ -1088,6 +1124,7 @@ public class GameController
             _worldMode = "overworld";
             Player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
             Player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
+            Overworld.RevealAround(Player.X, Player.Y, Config.RevealRadius);
             ShowMessage("Вы вернулись в Город Этельгард.");
             return;
         }
@@ -1111,6 +1148,7 @@ public class GameController
             CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
         Player.X = entryX;
         Player.Y = entryY;
+        CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
         ShowMessage($"Вы вошли в: {Locations.All[to].Name}.");
     }
 
@@ -1475,6 +1513,16 @@ public class GameController
     public void Update(float dt)
     {
         if (ScreenMode != Screens.Game) return;
+
+        // Туман войны: открываем клетки вокруг игрока (в т.ч. после телепортов,
+        // загрузки, переходов между локациями — покрывает все способы перемещения)
+        if (Player.X != _lastRevealX || Player.Y != _lastRevealY || CurrentMap._revealDirty)
+        {
+            _lastRevealX = Player.X;
+            _lastRevealY = Player.Y;
+            CurrentMap._revealDirty = false;
+            CurrentMap.RevealAround(Player.X, Player.Y, Config.RevealRadius);
+        }
 
         // Guard AI (overworld only)
         UpdateGuard(dt);

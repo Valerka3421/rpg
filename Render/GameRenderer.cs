@@ -36,15 +36,16 @@ public class GameRenderer
         var d = game.CurrentMap;
         var player = game.Player;
 
-        // Camera: center on player
-        int viewW = Config.ViewW;
-        int viewH = Config.ViewH;
-        _camX = player.X * Config.TileSize - (AethelgardGame.ScreenW - viewW * Config.TileSize) / 2;
-        _camY = player.Y * Config.TileSize;
+        // Camera: игрок всегда в центре экрана; у края локации камера
+        // упирается в границу карты (игрок смещается от центра)
+        int worldW = AethelgardGame.ScreenW;
+        int worldH = AethelgardGame.ScreenH - Config.HudHeight;
+        _camX = player.X * Config.TileSize + Config.TileSize / 2 - worldW / 2;
+        _camY = player.Y * Config.TileSize + Config.TileSize / 2 - worldH / 2;
 
         // Clamp camera
-        _camX = Math.Max(0, Math.Min(_camX, d.W * Config.TileSize - AethelgardGame.ScreenW));
-        _camY = Math.Max(0, Math.Min(_camY, d.H * Config.TileSize - (AethelgardGame.ScreenH - Config.HudHeight)));
+        _camX = Math.Max(0, Math.Min(_camX, Math.Max(0, d.W * Config.TileSize - worldW)));
+        _camY = Math.Max(0, Math.Min(_camY, Math.Max(0, d.H * Config.TileSize - worldH)));
 
         // Draw world
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
@@ -268,68 +269,85 @@ public class GameRenderer
     }
 
     /// <summary>
-    /// Мини-карта в правом верхнем углу: исследованные/видимые клетки,
-    /// маркеры игрока, мобов и NPC (MINIMAP_SCALE = 2).
+    /// Мини-карта в правом верхнем углу: окно следует за игроком, показывает
+    /// ТОЛЬКО исследованные клетки (тот же туман войны и та же палитра, что
+    /// у большой карты — поэтому мини-карта всегда соответствует карте).
     /// </summary>
     private void DrawMinimap(Dungeon d, Player player, GameController game)
     {
         const int scale = Config.MinimapScale;
-        int maxW = 200, maxH = 140;
+        const int maxW = 390, maxH = 260;
         int cellsX = Math.Min(d.W, maxW / scale);
         int cellsY = Math.Min(d.H, maxH / scale);
-        int ox = AethelgardGame.ScreenW - cellsX * scale - 12;
-        int oy = 28;
 
-        _sb.Draw(_blankTex, new Rectangle(ox - 3, oy - 3, cellsX * scale + 6, cellsY * scale + 6),
-            new Color(10, 8, 8, 200));
+        // Окно миникарты следует за игроком и не выходит за границы карты
+        int viewX = Math.Clamp(player.X - cellsX / 2, 0, Math.Max(0, d.W - cellsX));
+        int viewY = Math.Clamp(player.Y - cellsY / 2, 0, Math.Max(0, d.H - cellsY));
+
+        int ox = AethelgardGame.ScreenW - cellsX * scale - 12;
+        int oy = 30;
+        int w = cellsX * scale, h = cellsY * scale;
+
+        // Подложка + рамка
+        _sb.Draw(_blankTex, new Rectangle(ox - 4, oy - 4, w + 8, h + 8), new Color(10, 8, 8, 220));
+        _sb.Draw(_blankTex, new Rectangle(ox - 2, oy - 2, w + 4, h + 4), new Color(120, 100, 60));
+        _sb.Draw(_blankTex, new Rectangle(ox - 1, oy - 1, w + 2, h + 2), new Color(10, 8, 8));
+
+        bool overworld = game.WorldMode != "dungeon" || game.CurrentMap.LocationKey != null;
 
         for (int y = 0; y < cellsY; y++)
         {
+            int my = viewY + y;
             for (int x = 0; x < cellsX; x++)
             {
-                var t = d.Tiles[y][x];
-                Color c = t switch
-                {
-                    Tile.Wall => new Color(60, 54, 46),
-                    Tile.Stairs => Config.ColStairs,
-                    Tile.Exit => new Color(120, 200, 120),
-                    Tile.UpStairs => new Color(200, 160, 90),
-                    Tile.Gate => new Color(150, 130, 90),
-                    Tile.LockedDoor => new Color(200, 80, 60),
-                    Tile.Chest => new Color(230, 190, 80),
-                    _ => new Color(30, 28, 24),
-                };
-                if (t == Tile.Wall && d.Harvestables.ContainsKey((x, y)))
-                    c = new Color(46, 58, 40);
+                int mx = viewX + x;
+                Color c = d.Explored.Contains((mx, my))
+                    ? MapPalette.TileColor(d, mx, my, overworld)
+                    : MapPalette.Unexplored;
                 _sb.Draw(_blankTex, new Rectangle(ox + x * scale, oy + y * scale, scale, scale), c);
             }
         }
 
-        // Monsters
+        // Monsters (только на исследованных клетках)
         foreach (var m in d.Monsters)
         {
             if (!m.Alive || m.IsNpc) continue;
-            if (m.X >= cellsX || m.Y >= cellsY) continue;
-            _sb.Draw(_blankTex, new Rectangle(ox + m.X * scale, oy + m.Y * scale, scale, scale),
-                m.Boss ? new Color(255, 60, 60) : new Color(200, 80, 80));
+            int mx = m.X - viewX, my = m.Y - viewY;
+            if (mx < 0 || my < 0 || mx >= cellsX || my >= cellsY) continue;
+            if (!d.Explored.Contains((m.X, m.Y))) continue;
+            _sb.Draw(_blankTex, new Rectangle(ox + mx * scale, oy + my * scale, scale, scale),
+                m.Boss ? MapPalette.Boss : MapPalette.Monster);
         }
 
         // NPCs
         foreach (var npc in game.AllNpcs())
         {
-            if (npc.X >= cellsX || npc.Y >= cellsY) continue;
-            _sb.Draw(_blankTex, new Rectangle(ox + npc.X * scale, oy + npc.Y * scale, scale, scale),
-                new Color(240, 200, 90));
+            int nx = npc.X - viewX, ny = npc.Y - viewY;
+            if (nx < 0 || ny < 0 || nx >= cellsX || ny >= cellsY) continue;
+            if (!d.Explored.Contains((npc.X, npc.Y))) continue;
+            _sb.Draw(_blankTex, new Rectangle(ox + nx * scale, oy + ny * scale, scale, scale),
+                MapPalette.Npc);
         }
 
-        // Player
-        if (player.X < cellsX && player.Y < cellsY)
-            _sb.Draw(_blankTex, new Rectangle(ox + player.X * scale, oy + player.Y * scale, scale, scale),
-                Config.ColPlayer);
+        // Items (только на исследованных клетках)
+        foreach (var ((x, y), _) in d.Items)
+        {
+            int ix = x - viewX, iy = y - viewY;
+            if (ix < 0 || iy < 0 || ix >= cellsX || iy >= cellsY) continue;
+            if (!d.Explored.Contains((x, y))) continue;
+            _sb.Draw(_blankTex, new Rectangle(ox + ix * scale, oy + iy * scale, scale, scale),
+                MapPalette.Item);
+        }
+
+        // Player — золотой маркер 2×2 клетки
+        int plx = player.X - viewX, ply = player.Y - viewY;
+        if (plx >= 0 && ply >= 0 && plx < cellsX && ply < cellsY)
+            _sb.Draw(_blankTex, new Rectangle(ox + plx * scale - 1, oy + ply * scale - 1, scale + 2, scale + 2),
+                MapPalette.Player);
     }
 
     /// <summary>Хотбар (слоты 1–8) и панель активных навыков в HUD.</summary>
-    private void DrawHotbar(GameController game)
+    private void DrawHotbar(GameController game, MouseState? mouse = null)
     {
         if (_font == null) return;
         var player = game.Player;
@@ -372,6 +390,11 @@ public class GameRenderer
                     new Vector2(rect.X + 6, rect.Y + 30), Config.ColText);
             }
             _sb.DrawString(_font, $"{i + 1}", new Vector2(rect.X + 2, rect.Y + 2), Config.ColDim);
+
+            // Подсказка при наведении на слот (название предмета)
+            if (mouse.HasValue && itemKey != null && rect.Contains(mouse.Value.X, mouse.Value.Y))
+                DrawTooltip(mouse.Value.X, mouse.Value.Y - 8,
+                    ItemData.DisplayName(itemKey), ItemData.DisplayColor(itemKey));
         }
 
         // Active skills panel (F1–F4/F6–F8/F10)
@@ -394,6 +417,20 @@ public class GameRenderer
 
     private static readonly string[] SkillKeysLabels =
         { "F1", "F2", "F3", "F4", "F6", "F7", "F8", "F10" };
+
+    /// <summary>Тёмная панель-подсказка над курсором (название предмета/навыка).</summary>
+    private void DrawTooltip(int x, int y, string text, Color accent)
+    {
+        var size = _font!.MeasureString(text);
+        int w = (int)size.X + 16;
+        int h = (int)size.Y + 10;
+        x = Math.Clamp(x - w / 2, 4, AethelgardGame.ScreenW - w - 4);
+        y = Math.Max(4, y - h);
+        _sb.Draw(_blankTex, new Rectangle(x + 2, y + 2, w, h), new Color(0, 0, 0, 130));
+        _sb.Draw(_blankTex, new Rectangle(x, y, w, h), new Color(16, 14, 11, 235));
+        _sb.Draw(_blankTex, new Rectangle(x, y, w, 2), accent);
+        _sb.DrawString(_font, text, new Vector2(x + 8, y + 5), Config.ColText);
+    }
 
     /// <summary>Кнопки интерфейса HUD (как в python-версии UI): ярлык + режим.</summary>
     public static readonly (string Label, string Mode)[] HudButtons =
@@ -497,7 +534,7 @@ public class GameRenderer
         DrawHudButtons(game, mouse);
 
         // Hotbar + skills panel
-        DrawHotbar(game);
+        DrawHotbar(game, mouse);
     }
 
     /// <summary>Ряд кликабельных кнопок интерфейса слева сверху (вместо подсказок).</summary>
@@ -522,8 +559,10 @@ public class GameRenderer
                 active || hover ? Config.ColGold : new Color(84, 72, 56));
             _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1),
                 new Color(30, 26, 20));
-            _sb.DrawString(_font, label, new Vector2(rect.X + 7, rect.Y + 5),
-                active ? Config.ColGold : hover ? new Color(230, 214, 180) : new Color(170, 158, 134));
+            // Текст кнопки — по центру по горизонтали и вертикали
+            Ui.TextCentered(_sb, _font, label, rect,
+                active ? Config.ColGold : hover ? new Color(230, 214, 180) : new Color(170, 158, 134),
+                shadow: false);
 
             _buttonRects.Add(rect);
             bx += w + 4;

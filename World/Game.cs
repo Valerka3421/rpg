@@ -48,8 +48,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     private float _fps;
     private float _fpsTimer;
 
-    public const int ScreenW = 1280;
-    public const int ScreenH = 720;
+    public const int ScreenW = 1920;
+    public const int ScreenH = 1080;
 
     private static readonly string[] MenuModes =
     {
@@ -96,8 +96,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
 
         // Generate fonts at runtime (no MGCB content pipeline needed).
         // Обычный — для интерфейса, крупный — для заголовков и кнопок меню.
-        var font = RuntimeFont.Create(GraphicsDevice, 14);
-        var fontBig = RuntimeFont.Create(GraphicsDevice, 22);
+        var font = RuntimeFont.Create(GraphicsDevice, 18);
+        var fontBig = RuntimeFont.Create(GraphicsDevice, 28);
         if (font != null)
         {
             _renderer.LoadFont(font);
@@ -220,19 +220,22 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     }
 
     /// <summary>
-    /// Мышь приходит в координатах окна (которые могут отличаться от
-    /// дизайн-разрешения 1280×720 — render target растягивается на всё окно),
-    /// а весь UI размечен в дизайн-координатах. Пересчитываем.
+    /// Мышь приходит в координатах клиентской области окна (логических,
+    /// как их отдаёт SDL/MonoGame), а весь UI размечен в дизайн-координатах
+    /// 1280×720 (render target растягивается на всё окно). Пересчитываем.
+    /// Важно: используем Window.ClientBounds, а не GraphicsDevice.Viewport —
+    /// при масштабировании Windows (125%/150%) viewport измеряется в
+    /// физических пикселях и мышь «не точь в точь» попадает по UI.
     /// </summary>
     private MouseState ScaleMouse(MouseState m)
     {
         int vw, vh;
-        try { vw = GraphicsDevice.Viewport.Width; vh = GraphicsDevice.Viewport.Height; }
+        try { vw = Window.ClientBounds.Width; vh = Window.ClientBounds.Height; }
         catch { return m; }
         if (vw <= 0 || vh <= 0 || (vw == ScreenW && vh == ScreenH)) return m;
         return new MouseState(
-            (int)(m.X * (float)ScreenW / vw),
-            (int)(m.Y * (float)ScreenH / vh),
+            (int)MathF.Round(m.X * (float)ScreenW / vw),
+            (int)MathF.Round(m.Y * (float)ScreenH / vh),
             m.ScrollWheelValue,
             m.LeftButton, m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
     }
@@ -266,7 +269,11 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         }
 
         // ── ESC-навигация вне меню ──
+        // Важно: если ESC закрыл модальный экран, кадр «поглощается» —
+        // иначе тот же ESC в этом же кадре увидит GameController и сразу
+        // откроет паузу (баг: Esc из магазина открывал паузу).
         bool escPressed = keys.IsKeyDown(Keys.Escape) && !_prevKeys.IsKeyDown(Keys.Escape);
+        bool escConsumed = false;
         if (escPressed)
         {
             switch (mode)
@@ -276,27 +283,29 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     _game.StopMultiplayer();
                     _game.ScreenMode = ScreenMode.Menu;
                     _menu.OpenMain();
+                    escConsumed = true;
                     break;
                 case ScreenMode.ClassSelect:
                     // Назад в главное меню (python: Esc → меню)
-                    if (_game.PendingMpHost)
-                    {
-                        _game.PendingMpHost = false;
-                        _game.ScreenMode = ScreenMode.Menu;
-                        _menu.OpenMain();
-                    }
-                    else
-                    {
-                        _game.ScreenMode = ScreenMode.Menu;
-                        _menu.OpenMain();
-                    }
+                    _game.PendingMpHost = false;
+                    _game.ScreenMode = ScreenMode.Menu;
+                    _menu.OpenMain();
+                    escConsumed = true;
                     break;
                 case ScreenMode.Inventory: case ScreenMode.Skills: case ScreenMode.Shop: case ScreenMode.Quests:
                 case ScreenMode.Dialogue: case ScreenMode.Craft: case ScreenMode.Stats: case ScreenMode.Bigmap:
                     _game.ScreenMode = ScreenMode.Game;
+                    escConsumed = true;
                     break;
                 // ScreenMode.Pause: ESC обрабатывается GameController (resume)
                 // ScreenMode.Game: ESC → пауза (тоже GameController)
+            }
+            if (escConsumed)
+            {
+                _prevKeys = keys;
+                _prevMouse = mouse;
+                base.Update(gameTime);
+                return;
             }
         }
 
@@ -415,8 +424,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                 case ScreenMode.Inventory: _inventory.Draw(_game.Player, mouse); break;
                 case ScreenMode.Skills:
                 {
-                    var node = _skills.Draw(_game.Player, mouse);
-                    _game.HandleSkillClick(node, mouse, _prevMouse);
+                    var cmd = _skills.Draw(_game.Player, mouse);
+                    _game.HandleSkillClick(cmd);
                     break;
                 }
                 case ScreenMode.Shop: _shop.Draw(_game); break;

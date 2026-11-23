@@ -294,10 +294,9 @@ public class ClassSelectScreen
 
         var selDef = ClassData.Get(StarterClasses[Selected]);
         string btnText = $"НАЧАТЬ — {selDef?.Name ?? ""}";
-        var btnSize = _font.MeasureString(btnText);
-        _sb.DrawString(_font, btnText,
-            new Vector2(btnX + (btnW - btnSize.X) / 2, btnY + 12),
-            mouseOverBtn ? Config.ColGold : Config.ColText);
+        // Текст кнопки — строго по центру (горизонталь + вертикаль)
+        Ui.TextCentered(_sb, _font, btnText, new Rectangle(btnX, btnY, btnW, btnH),
+            mouseOverBtn ? Config.ColGold : Config.ColText, shadow: false);
 
         // Enter or click to confirm
         if ((keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter)) || mouseClick)

@@ -28,8 +28,10 @@ public static class Config
     public const int LegacyMapH = 70;
 
     // ── Resolution ──
-    public const int ScreenW = 1280;
-    public const int ScreenH = 720;
+    // Дизайн-разрешение рендер-таргета. 1920×1080 — 1:1 с типичным окном,
+    // интерфейс и мир не растягиваются → картинка резкая.
+    public const int ScreenW = 1920;
+    public const int ScreenH = 1080;
 
     public static int ViewW => ScreenW / TileSize;            // 20
     public static int ViewH => (ScreenH - HudHeight) / TileSize; // 8
@@ -49,8 +51,9 @@ public static class Config
     public const int MaxStack = 99;
     public const int ShopPageSize = 9;
     public const int CraftPageSize = 8;
-    public const int MinimapScale = 2;
+    public const int MinimapScale = 3;
     public const int MinimapMargin = 8;
+    public const int RevealRadius = int.MaxValue / 4; // туман войны отключён — карта открыта целиком
     public const int SaveVersion = 8;
 
     // ── Player cooldowns (seconds) ──
