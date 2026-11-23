@@ -46,7 +46,7 @@ public class GameRenderer
         _camX = Math.Max(0, Math.Min(_camX, d.W * Config.TileSize - AethelgardGame.ScreenW));
         _camY = Math.Max(0, Math.Min(_camY, d.H * Config.TileSize - (AethelgardGame.ScreenH - Config.HudHeight)));
 
-        // Draw tiles
+        // Draw world
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
         DrawTiles(d, player);
         DrawItems(d);
@@ -55,12 +55,16 @@ public class GameRenderer
         DrawProjectiles(game);
         _sb.End();
 
-        // Draw HUD
+        // Draw HUD + minimap (собственный Begin/End — раньше здесь был
+        // вызов _sb.Draw без Begin, что падало в первый же кадр игры
+        // сразу после выбора класса: окно зависало).
+        _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
         DrawHud(player, game);
 
         // Minimap (M toggles)
         if (game.MinimapVisible)
             DrawMinimap(d, player, game);
+        _sb.End();
 
         // Draw message
         if (game.MessageTimer > 0 && game.LastMessage != null && _font != null)

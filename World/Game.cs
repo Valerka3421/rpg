@@ -374,9 +374,9 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         }
         else
         {
-            // Мир под модальными окнами (в паузе фон затемняется панелью)
-            if (mode != ScreenMode.Pause)
-                _renderer.Draw(_game);
+            // Мир рисуется всегда (GameRenderer сам делает Begin/End),
+            // в паузе фон перекрывается панелью паузы.
+            _renderer.Draw(_game);
 
             _spriteBatch.Begin();
             switch (mode)
@@ -389,10 +389,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                 case ScreenMode.Bigmap: _bigmap.Draw(_game); break;
                 case ScreenMode.Craft: _craft.Draw(_game, mouse); break;
                 case ScreenMode.Stats: _stats.Draw(_game, mouse); break;
-                case ScreenMode.Pause:
-                    _renderer.Draw(_game);
-                    _pause.Draw(_game);
-                    break;
+                case ScreenMode.Pause: _pause.Draw(_game); break;
             }
             // Dev console overlay (always on top)
             if (_game.Console.Open)
