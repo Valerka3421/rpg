@@ -73,12 +73,22 @@ public class CraftScreen : ModalScreenBase
         int y = panel.Y + 16;
 
         Text("КРАФТ", new Vector2(panel.X + 20, y), Config.ColGold);
+
+        // Вкладки-кнопки (реальные категории рецептов)
         var tabs = RecipeData.CraftTabs;
+        int tabX = panel.X + 130;
         for (int i = 0; i < tabs.Length; i++)
         {
-            Color c = i == game.CraftTab ? Config.ColGold : Config.ColDim;
-            Text($"[{tabs[i].Key}] {tabs[i].Name}",
-                new Vector2(panel.X + 140 + i * 200, y), c);
+            string label = tabs[i].Name;
+            var size = _font.MeasureString(label);
+            var rect = new Rectangle(tabX, y - 2, (int)size.X + 18, 22);
+            bool active = i == game.CraftTab;
+            _sb.Draw(Blank, rect, active ? new Color(52, 43, 30) : new Color(30, 26, 22));
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 1),
+                active ? Config.ColGold : new Color(70, 60, 48));
+            Text(label, new Vector2(rect.X + 9, rect.Y + 3),
+                active ? Config.ColGold : Config.ColDim);
+            tabX += rect.Width + 6;
         }
         y += 26;
         Text($"Партия: {game.CraftQty}  ([ / ])   Ветка: {CraftBranchInfo(game)}",
@@ -115,16 +125,17 @@ public class CraftScreen : ModalScreenBase
             _sb.Draw(Blank, new Rectangle(panel.X + 20, rowY, 30, 30), ItemData.DisplayColor(key));
             Text($"{i + 1}. {ItemData.DisplayName(key)}",
                 new Vector2(panel.X + 62, rowY), c);
-            Text($"Lvl {def.SkillReq}  Tier {def.Tier}  [{branch}]",
-                new Vector2(panel.X + 400, rowY), Config.ColDim);
+            // Требования — отдельная колонка справа от названия
+            Text($"Lvl {def.SkillReq} · Tier {def.Tier} · {BranchName(branch)}",
+                new Vector2(panel.X + 420, rowY), Config.ColDim);
 
-            // Ингредиенты
+            // Ингредиенты — на второй строке, чтобы не наезжали на колонку требований
             var variants = ItemData.RecipesOf(key);
             if (variants.Count > 0)
             {
                 string mats = string.Join(", ", variants[0].Materials
                     .Select(m => $"{ItemData.DisplayName(m.Key)}×{m.Value}"));
-                Text(mats, new Vector2(panel.X + 560, rowY),
+                Text(mats, new Vector2(panel.X + 62, rowY + 16),
                     CanAfford(game, variants[0].Materials) ? Config.ColHeal : Config.ColDmg);
             }
         }
@@ -133,16 +144,19 @@ public class CraftScreen : ModalScreenBase
             new Vector2(panel.X + 20, panel.Bottom - 30), Config.ColDim);
     }
 
+    private string BranchName(string branch) =>
+        RecipeData.Skills.TryGetValue(branch, out var s) ? s.Name : branch;
+
     private bool CanAfford(GameController game, Dictionary<string, int> mats) =>
         mats.All(m => game.Player.ItemCount(m.Key) >= m.Value);
 
     private string CraftBranchInfo(GameController game)
     {
         string? branch = game.CraftTab == 0 ? null : RecipeData.SkillOrder[game.CraftTab - 1];
-        if (branch == null) return "all";
+        if (branch == null) return "все";
         int lvl = game.Player.CraftLevels.GetValueOrDefault(branch, 1);
         int xp = game.Player.CraftXp.GetValueOrDefault(branch);
-        return $"{branch} lvl {lvl} ({xp}/{RecipeData.SkillXpToNext(lvl)})";
+        return $"{BranchName(branch)} ур. {lvl} ({xp}/{RecipeData.SkillXpToNext(lvl)})";
     }
 
     /// <summary>Мини-игра точности: бегающий индикатор, Space — остановить.</summary>
@@ -205,11 +219,11 @@ public class StatsScreen : ModalScreenBase
 
         var p = game.Player;
         int y = panel.Y + 18;
-        Text($"{p.ClassName}  Ур. {p.Level}  {p.ClassKey}", new Vector2(panel.X + 24, y), Config.ColGold);
+        Text($"{p.ClassName}  ·  Ур. {p.Level}", new Vector2(panel.X + 24, y), Config.ColGold);
         y += 26;
         Text($"Свободных очков: {p.FreePoints}    Очков навыков: {p.SkillPoints}",
             new Vector2(panel.X + 24, y), p.FreePoints > 0 ? Config.ColHeal : Config.ColDim);
-        y += 10;
+        y += 20;
 
         int[] values = { p.TotalStr, p.TotalAgi, p.TotalVit, p.TotalLuk, p.TotalDfStat, p.TotalInt };
         for (int i = 0; i < Stats.Length; i++)
@@ -217,6 +231,12 @@ public class StatsScreen : ModalScreenBase
             bool selected = game.StatSelected == i;
             int rowH = 28;
             var rowRect = new Rectangle(panel.X + 16, y - 3, panel.Width - 32, rowH);
+
+            // Наведение мыши выбирает строку
+            if (mouse.X >= rowRect.X && mouse.X < rowRect.Right
+                && mouse.Y >= rowRect.Y && mouse.Y < rowRect.Bottom)
+                game.StatSelected = i;
+            selected = game.StatSelected == i;
 
             if (selected)
             {
@@ -361,7 +381,11 @@ public class PauseScreen : ModalScreenBase
             Text(Items[i], new Vector2(rect.X + 20, rect.Y + 8), c);
         }
 
-        Text("↑/↓ или мышь — выбор · Enter/клик — подтвердить · Esc — вернуться",
-            new Vector2(_panel.X + 20, _panel.Bottom - 34), Config.ColDim);
+        string hint1 = "↑/↓ или мышь — выбор";
+        string hint2 = "Enter/клик — подтвердить · Esc — вернуться";
+        var h1s = _font.MeasureString(hint1);
+        var h2s = _font.MeasureString(hint2);
+        Text(hint1, new Vector2(_panel.X + (_panel.Width - h1s.X) / 2, _panel.Bottom - 58), Config.ColDim);
+        Text(hint2, new Vector2(_panel.X + (_panel.Width - h2s.X) / 2, _panel.Bottom - 34), Config.ColDim);
     }
 }

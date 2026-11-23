@@ -22,6 +22,9 @@ namespace Aethelgard.World;
 /// </summary>
 public class AethelgardGame : Microsoft.Xna.Framework.Game
 {
+    /// <summary>Тестовый хук: вызывается в конце каждого кадра (для снятия скриншотов).</summary>
+    public static Action<GraphicsDevice>? CaptureHook;
+
     private GraphicsDeviceManager _graphics;
     private SpriteBatch _spriteBatch;
     private GameController _game;
@@ -216,10 +219,28 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         _menu.OnVolume = _ => _game.ApplySettings();
     }
 
+    /// <summary>
+    /// Мышь приходит в координатах окна (которые могут отличаться от
+    /// дизайн-разрешения 1280×720 — render target растягивается на всё окно),
+    /// а весь UI размечен в дизайн-координатах. Пересчитываем.
+    /// </summary>
+    private MouseState ScaleMouse(MouseState m)
+    {
+        int vw, vh;
+        try { vw = GraphicsDevice.Viewport.Width; vh = GraphicsDevice.Viewport.Height; }
+        catch { return m; }
+        if (vw <= 0 || vh <= 0 || (vw == ScreenW && vh == ScreenH)) return m;
+        return new MouseState(
+            (int)(m.X * (float)ScreenW / vw),
+            (int)(m.Y * (float)ScreenH / vh),
+            m.ScrollWheelValue,
+            m.LeftButton, m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
+    }
+
     protected override void Update(GameTime gameTime)
     {
         var keys = Keyboard.GetState();
-        var mouse = Mouse.GetState();
+        var mouse = ScaleMouse(Mouse.GetState());
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
         // FPS
@@ -320,6 +341,14 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             _inventory.CurrentPage = _game.CurrentPage;
             _skills.CurrentTab = _game.SkillTab;
+            // Клик по кнопкам интерфейса (приоритет над игровым вводом)
+            if (_renderer.HandleButtonClick(mouse, _prevMouse, _game))
+            {
+                _prevKeys = keys;
+                _prevMouse = mouse;
+                base.Update(gameTime);
+                return;
+            }
             _game.HandleInput(keys, _prevKeys, dt);
             _game.Update(dt);
         }
@@ -338,7 +367,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         GraphicsDevice.Clear(new Color(12, 12, 18));
 
         var keys = Keyboard.GetState();
-        var mouse = Mouse.GetState();
+        var mouse = ScaleMouse(Mouse.GetState());
         string mode = _game.ScreenMode;
 
         if (Array.IndexOf(MenuModes, mode) >= 0)
@@ -378,13 +407,18 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             // Мир рисуется всегда (GameRenderer сам делает Begin/End),
             // в паузе фон перекрывается панелью паузы.
-            _renderer.Draw(_game);
+            _renderer.Draw(_game, mouse);
 
             _spriteBatch.Begin();
             switch (mode)
             {
                 case ScreenMode.Inventory: _inventory.Draw(_game.Player, mouse); break;
-                case ScreenMode.Skills: _skills.Draw(_game.Player, mouse); break;
+                case ScreenMode.Skills:
+                {
+                    var node = _skills.Draw(_game.Player, mouse);
+                    _game.HandleSkillClick(node, mouse, _prevMouse);
+                    break;
+                }
                 case ScreenMode.Shop: _shop.Draw(_game); break;
                 case ScreenMode.Quests: _quests.Draw(_game); break;
                 case ScreenMode.Dialogue: _dialogue.Draw(_game); break;
@@ -410,5 +444,6 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         _spriteBatch.End();
 
         base.Draw(gameTime);
+        CaptureHook?.Invoke(GraphicsDevice);
     }
 }

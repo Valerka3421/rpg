@@ -56,7 +56,7 @@ public class SkillScreen
         _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
 
         // Panel
-        int panelW = 700, panelH = 500;
+        int panelW = 940, panelH = 600;
         int px = (sw - panelW) / 2;
         int py = (sh - panelH) / 2;
         _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH),
@@ -76,7 +76,7 @@ public class SkillScreen
         // Skill points badge
         if (player.SkillPoints > 0)
         {
-            string badge = $"● Очки навыков: {player.SkillPoints}";
+            string badge = $"Очки навыков: {player.SkillPoints}";
             _sb.DrawString(_font, badge, new Vector2(px + 16, py + 34), Config.ColGold);
         }
 
@@ -141,9 +141,9 @@ public class SkillScreen
 
         // Hex positions: center + 6 surrounding
         int centerX = x + w / 2;
-        int centerY = y + h / 2;
-        int radius = 32;
-        int ringR = 110;
+        int centerY = y + h / 2 - 8;
+        int radius = 42;
+        int ringR = 150;
 
         var positions = new List<(int X, int Y)>();
         // Center node
@@ -164,7 +164,10 @@ public class SkillScreen
         {
             var (x0, y0) = positions[0];
             var (x1, y1) = positions[i];
-            DrawDottedLine(x0, y0, x1, y1, new Color(60, 55, 45));
+            bool connLearned = i < nodes.Length
+                && player.LearnedNodes.Contains(nodes[i].Key);
+            DrawDottedLine(x0, y0, x1, y1,
+                connLearned ? new Color(110, 160, 90) : new Color(96, 86, 66));
         }
 
         // Draw nodes
@@ -185,16 +188,17 @@ public class SkillScreen
 
             DrawHex(nx, ny, radius, nodeColor, learned);
 
-            // Level requirement
+            // Level requirement — по центру гекса
             string reqText = learned ? "+" : $"Ур.{node.Level}";
-            _sb.DrawString(_font, reqText, new Vector2(nx - 12, ny - 6),
-                learned ? Color.White : (locked ? new Color(180, 100, 80) : Config.ColText));
+            var reqSize = _font.MeasureString(reqText);
+            _sb.DrawString(_font, reqText, new Vector2(nx - reqSize.X / 2, ny - reqSize.Y / 2 - 2),
+                learned ? Color.White : (locked ? new Color(200, 110, 90) : Config.ColText));
 
-            // Node name (short)
-            string shortName = node.Name.Length > 12
-                ? node.Name[..12] + "…" : node.Name;
-            _sb.DrawString(_font, shortName, new Vector2(nx - shortName.Length * 3, ny + radius + 4),
-                Config.ColDim);
+            // Node name — полная, по центру под гексом
+            string label = node.Name.Length > 18 ? node.Name[..17] + "…" : node.Name;
+            var labelSize = _font.MeasureString(label);
+            _sb.DrawString(_font, label, new Vector2(nx - labelSize.X / 2, ny + radius + 4),
+                learned ? new Color(120, 190, 110) : Config.ColDim);
 
             // Hover and click
             var mouseRect = new Rectangle(mouse.X, mouse.Y, 1, 1);
@@ -205,6 +209,8 @@ public class SkillScreen
                 _sb.Draw(Blank, new Rectangle(nx - radius - 2, ny - radius - 2,
                     radius * 2 + 4, radius * 2 + 4),
                     new Color(240, 210, 90, 40));
+                if (mouse.LeftButton == ButtonState.Pressed && !learned)
+                    clicked = node.Key;
             }
         }
 
@@ -213,7 +219,7 @@ public class SkillScreen
         {
             string hint = "Наведи для подробностей. Клик или 1–7 — изучить.";
             _sb.DrawString(_font, hint,
-                new Vector2(x + 10, y + h - 20), Config.ColDim);
+                new Vector2(x + 10, y + h - 22), Config.ColDim);
         }
 
         return clicked;
@@ -277,20 +283,20 @@ public class SkillScreen
                     new Vector2(x + 16, listY + 6),
                     unlocked ? Config.ColText : Config.ColDim);
 
-                // Materials needed (simplified)
+                // Materials needed (из реальных рецептов)
                 if (unlocked)
                 {
                     string mats = GetRecipeMaterials(recipeKey);
                     _sb.DrawString(_font, mats,
                         new Vector2(x + 16, listY + 18),
-                        Config.ColDim);
+                        CanCraft(player, recipeKey) ? new Color(120, 180, 110) : Config.ColDim);
 
                     // Check if craftable
                     bool canCraft = CanCraft(player, recipeKey);
                     if (canCraft)
                     {
-                        _sb.DrawString(_font, "[1] создать",
-                            new Vector2(x + w - 80, listY + 6),
+                        _sb.DrawString(_font, "крафт — клавиша K",
+                            new Vector2(x + w - 130, listY + 6),
                             Config.ColGold);
                     }
                 }
@@ -304,53 +310,24 @@ public class SkillScreen
     }
 
     /// <summary>
-    /// Get materials needed for a recipe (simplified).
+    /// Materials needed for a recipe — из реальных данных рецептов (первый вариант).
     /// </summary>
     private string GetRecipeMaterials(string recipeKey)
     {
-        return recipeKey switch
-        {
-            "dagger" => "2 wood, 1 stone",
-            "sword" => "3 wood, 2 ore",
-            "axe" => "4 wood, 3 ore",
-            "warhammer" => "5 wood, 5 ore",
-            "leather" => "3 wood",
-            "chainmail" => "4 ore",
-            "platemail" => "6 ore, 2 gold_ore",
-            "cap" => "2 wood",
-            "helm" => "3 ore",
-            "potion_hp_s" => "1 mushroom",
-            "potion_hp_m" => "2 mushroom, 1 berry",
-            "potion_mana_s" => "1 berry",
-            "book_str" => "5 ore, 3 gold_ore",
-            "book_int" => "5 ore, 3 gold_ore",
-            _ => "",
-        };
+        var variants = ItemData.RecipesOf(recipeKey);
+        if (variants.Count == 0) return "";
+        return string.Join(", ", variants[0].Materials
+            .Select(m => $"{ItemData.DisplayName(m.Key)}×{m.Value}"));
     }
 
     /// <summary>
-    /// Check if player has materials to craft an item.
+    /// Check if player has materials to craft an item (по реальным рецептам).
     /// </summary>
     private bool CanCraft(Player player, string recipeKey)
     {
-        var requirements = recipeKey switch
-        {
-            "dagger" => new[] { ("wood", 2), ("stone", 1) },
-            "sword" => new[] { ("wood", 3), ("ore", 2) },
-            "axe" => new[] { ("wood", 4), ("ore", 3) },
-            "warhammer" => new[] { ("wood", 5), ("ore", 5) },
-            "leather" => new[] { ("wood", 3) },
-            "chainmail" => new[] { ("ore", 4) },
-            "platemail" => new[] { ("ore", 6), ("gold_ore", 2) },
-            "cap" => new[] { ("wood", 2) },
-            "helm" => new[] { ("ore", 3) },
-            "potion_hp_s" => new[] { ("mushroom", 1) },
-            "potion_hp_m" => new[] { ("mushroom", 2), ("berry", 1) },
-            "potion_mana_s" => new[] { ("berry", 1) },
-            _ => Array.Empty<(string, int)>(),
-        };
-
-        foreach (var (mat, count) in requirements)
+        var variants = ItemData.RecipesOf(recipeKey);
+        if (variants.Count == 0) return false;
+        foreach (var (mat, count) in variants[0].Materials)
         {
             if (player.Inventory.GetValueOrDefault(mat) < count)
                 return false;

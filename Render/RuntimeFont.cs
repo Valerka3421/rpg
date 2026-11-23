@@ -1,29 +1,34 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.Drawing.Text;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Color = Microsoft.Xna.Framework.Color;
 using Rectangle = Microsoft.Xna.Framework.Rectangle;
+using StbTrueType = StbTrueTypeSharp.StbTrueType;
 
 namespace Aethelgard.Render;
 
 /// <summary>
-/// Runtime font generator — creates SpriteFont texture via System.Drawing.
-/// Replaces MonoGame Content Pipeline (MGCB) which fails on paths with
-/// Cyrillic characters or special symbols.
+/// Runtime font generator — creates SpriteFont texture at runtime via
+/// stb_truetype (StbTrueTypeSharp, MIT). Полностью кроссплатформенно:
+/// Windows / Linux / macOS, без System.Drawing и без MGCB content pipeline
+/// (MGCB падает на путях с кириллицей).
+///
+/// Шрифт берётся из Content/fonts (DejaVu Sans идёт в комплекте, свободная
+/// лицензия), с фолбэком на системные шрифты.
 ///
 /// Набор символов: ASCII 32–126 + кириллица (А–я, Ё, ё) + типографика
-/// («» — – … · № • ↑↓←→ ×). Игра полностью русскоязычная, поэтому
-/// кириллица обязательна (раньше шрифт был только ASCII — русский текст
-/// рисовался знаками «?»).
+/// («» — – … · № • ↑↓←→ × §).
 /// </summary>
 public static class RuntimeFont
 {
     /// <summary>Все символы, доступные в шрифте (в порядке сетки).</summary>
     public static readonly List<char> CharsetQuery = BuildCharset();
+
+    private static byte[]? _cachedFontData;
 
     private static List<char> BuildCharset()
     {
@@ -36,127 +41,181 @@ public static class RuntimeFont
         // Типографика и служебные знаки UI
         chars.AddRange(new[] { '«', '»', '—', '–', '…', '·', '№', '•',
             '↑', '↓', '←', '→', '×', '§' });
-        // MonoGame SpriteFont требует строго возрастающую карту символов
-        // (без сортировки конструктор бросает InvalidOperationException —
-        // 'ё' U+0451 стоит после диапазона А–я U+044F).
-        chars.Sort();
-        return chars;
+        // SpriteFont требует строго возрастающий порядок кодов
+        return chars.Distinct().OrderBy(c => (int)c).ToList();
     }
 
     /// <summary>
-    /// Create a SpriteFont from System.Drawing at runtime.
-    /// Uses Arial or fallback font installed on the system.
+    /// Найти TTF-файл шрифта: сначала в комплекте (Content/fonts),
+    /// затем системные пути. Возвращает null, если ничего не найдено.
     /// </summary>
-    public static SpriteFont? Create(GraphicsDevice device, int fontSize = 14)
+    private static string? LocateFontFile(bool bold)
+    {
+        string[] bundled = bold
+            ? new[] { "Content/fonts/DejaVuSans-Bold.ttf", "Content/fonts/DejaVuSans.ttf" }
+            : new[] { "Content/fonts/DejaVuSans.ttf" };
+        foreach (var p in bundled)
+            if (File.Exists(p)) return Path.GetFullPath(p);
+
+        string[] candidates = bold
+            ? new[] {
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf" }
+            : new[] {
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                "C:/Windows/Fonts/arial.ttf" };
+        return candidates.FirstOrDefault(File.Exists);
+    }
+
+    private static byte[] GetFontData(bool bold)
+    {
+        if (_cachedFontData != null) return _cachedFontData;
+        string? path = LocateFontFile(bold) ?? LocateFontFile(!bold)
+            ?? throw new FileNotFoundException("Не найден ни один TTF-шрифт для RuntimeFont");
+        _cachedFontData = File.ReadAllBytes(path);
+        return _cachedFontData;
+    }
+
+    /// <summary>
+    /// Create a SpriteFont at runtime. Все глифы растеризуются stb_truetype
+    /// на общий базлайн — ровная строка без «прыжков» по вертикали.
+    /// </summary>
+    public static unsafe SpriteFont? Create(GraphicsDevice device, int fontSize = 14)
     {
         try
         {
-            int charCount = CharsetQuery.Count;
+            var data = GetFontData(false);
+            var pixels = new Color[1]; // убедимся, что тип доступен до fixed
 
-            // Grid layout: 16 chars per row
-            int cols = 16;
-            int rows = (charCount + cols - 1) / cols;
-            int cellW = fontSize + 4;
-            int cellH = fontSize + 6;
-            int texW = cols * cellW;
-            int texH = rows * cellH;
-
-            // Create bitmap with System.Drawing
-            using var bmp = new Bitmap(texW, texH, PixelFormat.Format32bppArgb);
-            using var g = System.Drawing.Graphics.FromImage(bmp);
-            g.Clear(System.Drawing.Color.Transparent);
-            g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-
-            // Сначала шрифты с гарантированной кириллицей
-            var fontNames = new[] { "Segoe UI", "Arial", "DejaVu Sans",
-                "Liberation Sans", "Microsoft Sans Serif", "Verdana" };
-            System.Drawing.Font? font = null;
-            foreach (var name in fontNames)
+            fixed (byte* pData = data)
             {
-                try
+                var info = new StbTrueType.stbtt_fontinfo();
+                if (StbTrueType.stbtt_InitFont(info, pData, 0) == 0)
+                    return null;
+
+                int charCount = CharsetQuery.Count;
+
+                // Grid layout. cellW/cellH включают запас: wide-глифы («—», «Ш»)
+                // и пустые поля 2px по краям ячейки, чтобы линейный сэмплер
+                // не «подтягивал» края соседних глифов (эффект призрачного текста).
+                const int pad = 3;
+                int cols = 16;
+                int rows = (charCount + cols - 1) / cols;
+                int cellW = fontSize + pad * 2;
+                int cellH = fontSize + pad * 2 + 6; // доп. запас по вертикали: выносные элементы («Й», «Ц», скобки)
+                int texW = cols * cellW;
+                int texH = rows * cellH;
+
+                float scale = StbTrueType.stbtt_ScaleForPixelHeight(info, fontSize);
+                int ascent0 = 0, descent0 = 0, lineGap0 = 0;
+                StbTrueType.stbtt_GetFontVMetrics(info, &ascent0, &descent0, &lineGap0);
+                float ascent = ascent0 * scale;      // от базлайна вверх
+                float descent = descent0 * scale;    // отрицательное
+                float lineH = ascent - descent;
+
+                var texPixels = new Color[texW * texH];
+                var glyphBounds = new List<Rectangle>();
+                var cropping = new List<Rectangle>();
+                var kerning = new List<Vector3>();
+
+                for (int i = 0; i < charCount; i++)
                 {
-                    font = new System.Drawing.Font(name, fontSize, FontStyle.Regular);
-                    break;
+                    char c = CharsetQuery[i];
+                    int col = i % cols;
+                    int row = i / cols;
+                    int cellX = col * cellW;
+                    int cellY = row * cellH;
+
+                    // Растеризуем глиф
+                    int gw = 0, gh = 0;
+                    int xoff = 0, yoff = 0;
+                    byte* bmpPtr = StbTrueType.stbtt_GetCodepointBitmap(
+                        info, scale, scale, c, &gw, &gh, &xoff, &yoff);
+                    var bmp = new byte[gw * gh];
+                    if (gw > 0 && gh > 0)
+                        Marshal.Copy((IntPtr)bmpPtr, bmp, 0, gw * gh);
+                    StbTrueType.stbtt_FreeBitmap(bmpPtr, null);
+
+                    // Базлайн общий для всех глифов — центрируем строку в ячейке
+                    float baselineY = cellY + (cellH - lineH) / 2f + ascent;
+
+                    // Позиция битмапа относительно базлайна
+                    int ix0 = 0, iy0 = 0, ix1 = 0, iy1 = 0;
+                    StbTrueType.stbtt_GetCodepointBitmapBox(
+                        info, c, scale, scale,
+                        &ix0, &iy0, &ix1, &iy1);
+                    int destX = cellX + ix0;
+                    int destY = (int)MathF.Round(baselineY + iy0);
+
+                    if (gw > 0 && gh > 0)
+                    {
+                        // Клампим внутрь ячейки с полем pad, чтобы широкие глифы
+                        // не вылезли к соседям (иначе — призрачные артефакты).
+                        int loX = cellX + Math.Min(pad, Math.Max(0, (cellW - gw) / 2));
+                        int hiX = cellX + cellW - gw - Math.Min(pad, Math.Max(0, (cellW - gw) / 2));
+                        destX = hiX >= loX ? Math.Clamp(destX, loX, hiX)
+                                       : cellX + (cellW - gw) / 2;
+                        int loY = cellY + Math.Min(pad, Math.Max(0, (cellH - gh) / 2));
+                        int hiY = cellY + cellH - gh - Math.Min(pad, Math.Max(0, (cellH - gh) / 2));
+                        destY = hiY >= loY ? Math.Clamp(destY, loY, hiY)
+                                       : cellY + (cellH - gh) / 2;
+                        for (int y = 0; y < gh; y++)
+                        {
+                            int dy = destY + y;
+                            if (dy < 0 || dy >= texH) continue;
+                            for (int x = 0; x < gw; x++)
+                            {
+                                int dx = destX + x;
+                                if (dx < 0 || dx >= texW) continue;
+                                byte a = bmp[y * gw + x];
+                                if (a > 0)
+                                    texPixels[dy * texW + dx] = new Color(255, 255, 255, (int)a);
+                            }
+                        }
+                    }
+
+                    // Advance из метрик шрифта — точная типографика
+                    int advW = 0, lsb = 0;
+                    StbTrueType.stbtt_GetCodepointHMetrics(info, c, &advW, &lsb);
+                    float advance = Math.Max(advW * scale + 1f, fontSize * 0.25f);
+
+                    // Квадрат: реальный прямоугольник пикселей глифа в ячейке.
+                    // Dest = перо + Cropping; источник = BoundsInTexture, поэтому
+                    // Cropping = смещение пикселей внутри ячейки (как при полной ячейке).
+                    int gx = Math.Max(0, destX - cellX);
+                    int gy = Math.Max(0, destY - cellY);
+                    int gr = Math.Min(cellW, destX - cellX + gw);
+                    int gb = Math.Min(cellH, destY - cellY + gh);
+                    int qW = Math.Max(1, gr - gx);
+                    int qH = Math.Max(1, gb - gy);
+                    glyphBounds.Add(new Rectangle(cellX + gx, cellY + gy, qW, qH));
+                    cropping.Add(new Rectangle(gx, gy, qW, qH));
+                    kerning.Add(new Vector3(0, Math.Min(advance, cellW), 0));
                 }
-                catch { }
+
+                var texture = new Texture2D(device, texW, texH, false, SurfaceFormat.Color);
+                texture.SetData(texPixels);
+
+                // Build SpriteFont from texture + glyph data
+                var spriteFont = new SpriteFont(
+                    texture,
+                    glyphBounds,
+                    cropping,
+                    CharsetQuery,
+                    (int)MathF.Round(lineH) + 1,  // lineSpacing — реальная высота строки
+                    0f,          // spacing
+                    kerning,     // kerning (List<Vector3>)
+                    '?'          // defaultCharacter (char?)
+                );
+
+                return spriteFont;
             }
-            if (font == null)
-                font = new System.Drawing.Font(FontFamily.GenericSansSerif, fontSize);
-
-            // Draw each character into its cell
-            var glyphBounds = new List<Rectangle>();
-            var cropping = new List<Rectangle>();
-            var kerning = new List<Vector3>();
-
-            var brush = new SolidBrush(System.Drawing.Color.White);
-            var format = new StringFormat
-            {
-                Alignment = StringAlignment.Center,
-                LineAlignment = StringAlignment.Center,
-            };
-
-            for (int i = 0; i < charCount; i++)
-            {
-                char c = CharsetQuery[i];
-                int col = i % cols;
-                int row = i / cols;
-                int x = col * cellW;
-                int y = row * cellH;
-
-                // Draw character centered in cell
-                var rect = new System.Drawing.RectangleF(x, y, cellW, cellH);
-                g.DrawString(c.ToString(), font, brush, rect, format);
-
-                // Glyph bounds in texture
-                glyphBounds.Add(new Rectangle(x, y, cellW, cellH));
-                cropping.Add(new Rectangle(0, 0, cellW, cellH));
-
-                // Simple kerning: advance by cell width
-                float advance = cellW;
-                kerning.Add(new Vector3(0, advance, 0));
-            }
-
-            // Convert Bitmap to Texture2D
-            var data = new uint[texW * texH];
-            var bmpData = bmp.LockBits(
-                new System.Drawing.Rectangle(0, 0, texW, texH),
-                ImageLockMode.ReadOnly, PixelFormat.Format32bppArgb);
-            System.Runtime.InteropServices.Marshal.Copy(bmpData.Scan0,
-                (int[])(object)data, 0, texW * texH);
-            bmp.UnlockBits(bmpData);
-
-            // Convert BGRA → RGBA for MonoGame
-            var colors = new Color[texW * texH];
-            for (int i = 0; i < data.Length; i++)
-            {
-                uint pixel = data[i];
-                byte b = (byte)(pixel & 0xFF);
-                byte grn = (byte)((pixel >> 8) & 0xFF);
-                byte r = (byte)((pixel >> 16) & 0xFF);
-                byte a = (byte)((pixel >> 24) & 0xFF);
-                colors[i] = new Color(r, grn, b, a);
-            }
-
-            var texture = new Texture2D(device, texW, texH, false, SurfaceFormat.Color);
-            texture.SetData(colors);
-
-            // Build SpriteFont from texture + glyph data
-            var spriteFont = new SpriteFont(
-                texture,
-                glyphBounds,
-                cropping,
-                CharsetQuery,
-                cellH,       // lineSpacing
-                0f,          // spacing
-                kerning,     // kerning (List<Vector3>)
-                '?'          // defaultCharacter (char?)
-            );
-
-            return spriteFont;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine("RuntimeFont.Create failed: " + ex);
+            Console.WriteLine($"[RuntimeFont] FAIL size={fontSize}: {ex.GetType().Name}: {ex.Message}");
             return null;
         }
     }

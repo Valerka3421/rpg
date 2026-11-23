@@ -912,6 +912,24 @@ public class GameController
             ShowMessage(message);
     }
 
+    /// <summary>Клик мышью по узлу древа навыков (из SkillScreen.Draw).</summary>
+    public void HandleSkillClick(string? nodeKey, MouseState mouse, MouseState prevMouse)
+    {
+        if (nodeKey == null) return;
+        if (mouse.LeftButton != ButtonState.Pressed
+            || prevMouse.LeftButton == ButtonState.Pressed) return;
+
+        var nodes = SkillTree.GetNodes(Player);
+        for (int i = 0; i < nodes.Length; i++)
+        {
+            if (nodes[i].Key == nodeKey)
+            {
+                TryLearnNode(i);
+                return;
+            }
+        }
+    }
+
     /// <summary>
     /// Try to promote to the first available class.
     /// </summary>

@@ -17,5 +17,11 @@ internal static class RecipeDefs
 
     public static readonly string[] SkillOrder = new[] { "blacksmith", "alchemy", "magic_engineering" };
 
-    public static readonly (string Key, string Name)[] CraftTabs = new[] { ("Item1", "Item2"), ("Item1", "Item2"), ("Item1", "Item2"), ("Item1", "Item2") };
+    public static readonly (string Key, string Name)[] CraftTabs = new[]
+    {
+        ("all", "Все"),
+        ("blacksmith", "Кузнечное"),
+        ("alchemy", "Алхимия"),
+        ("magic_engineering", "Инженерия"),
+    };
 }

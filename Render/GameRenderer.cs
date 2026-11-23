@@ -29,9 +29,9 @@ public class GameRenderer
     }
 
     /// <summary>
-    /// Main draw: world tiles + entities + HUD.
+    /// Main draw: world tiles + entities + HUD. mouse — в дизайн-координатах 1280×720.
     /// </summary>
-    public void Draw(GameController game)
+    public void Draw(GameController game, MouseState? mouse = null)
     {
         var d = game.CurrentMap;
         var player = game.Player;
@@ -59,7 +59,7 @@ public class GameRenderer
         // вызов _sb.Draw без Begin, что падало в первый же кадр игры
         // сразу после выбора класса: окно зависало).
         _sb.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend);
-        DrawHud(player, game);
+        DrawHud(player, game, mouse);
 
         // Minimap (M toggles)
         if (game.MinimapVisible)
@@ -137,16 +137,17 @@ public class GameRenderer
 
             var pos = new Vector2(m.X * Config.TileSize - _camX + Config.TileSize / 2,
                                    m.Y * Config.TileSize - _camY + Config.TileSize / 2);
-            // Monster body — circle with size based on boss status
-            int radius = m.Boss ? 24 : 16;
-            DrawCircle(pos, radius, m.Color);
+            // Спрайт монстра: PNG из assets/sprites или процедурный фолбэк
+            int spr = m.Boss ? 58 : 46;
+            var sprTex = SpriteStore.Get(_device, m.Boss ? "bosses" : "monsters", m.MonsterKey, m.Color);
+            _sb.Draw(sprTex,
+                new Rectangle((int)pos.X - spr / 2, (int)pos.Y - spr / 2 + 2, spr, spr),
+                Color.White);
             // Boss outline
             if (m.Boss)
             {
-                DrawCircleOutline(pos, radius + 2, new Color(220, 50, 50));
+                DrawCircleOutline(pos, 30, new Color(220, 50, 50));
             }
-            // Character letter
-            DrawChar(m.Ch, pos, Color.White);
 
             // HP bar above monster if damaged
             if (m.Hp < m.MaxHp)
@@ -154,7 +155,7 @@ public class GameRenderer
                 int barW = m.Boss ? 40 : 24;
                 int barH = 3;
                 int bx = (int)pos.X - barW / 2;
-                int by = (int)pos.Y - radius - 8;
+                int by = (int)pos.Y - (m.Boss ? 32 : 26);
                 _sb.Draw(_blankTex, new Rectangle(bx, by, barW, barH),
                     new Color(40, 20, 20));
                 int fillW = m.MaxHp > 0 ? barW * m.Hp / m.MaxHp : 0;
@@ -163,11 +164,11 @@ public class GameRenderer
             }
         }
 
-        // Draw player
+        // Draw player — спрайт класса (PNG или процедурный)
         var ppos = new Vector2(player.X * Config.TileSize - _camX + Config.TileSize / 2,
                                 player.Y * Config.TileSize - _camY + Config.TileSize / 2);
-        DrawCircle(ppos, 18, Config.ColPlayer);
-        DrawChar('@', ppos, Color.White);
+        var pTex = SpriteStore.Get(_device, "player", player.ClassKey, Config.ColPlayer);
+        _sb.Draw(pTex, new Rectangle((int)ppos.X - 25, (int)ppos.Y - 29, 50, 52), Color.White);
     }
 
     /// <summary>
@@ -200,21 +201,18 @@ public class GameRenderer
             var pos = new Vector2(npc.X * Config.TileSize - _camX + Config.TileSize / 2,
                                    npc.Y * Config.TileSize - _camY + Config.TileSize / 2);
 
-            // NPC body — larger circle
-            int radius = 20;
-            DrawCircle(pos, radius, npc.Color);
+            // Спрайт NPC (PNG из assets/sprites/npc или процедурный)
+            _sb.Draw(SpriteStore.Get(_device, "npc", npc.NpcType ?? "default", npc.Color),
+                new Rectangle((int)pos.X - 26, (int)pos.Y - 30, 52, 54), Color.White);
 
             // Quest board — special marker
             if (npc.NpcType == "quest_board")
             {
                 // Draw "!" mark above
                 if (_font != null)
-                    _sb.DrawString(_font, "!", new Vector2(pos.X - 3, pos.Y - 30),
+                    _sb.DrawString(_font, "!", new Vector2(pos.X - 3, pos.Y - 42),
                         new Color(240, 200, 90));
             }
-
-            // Character letter
-            DrawChar(npc.Ch, pos, Color.White);
 
             // NPC name above (when close to player)
             int dist = Math.Max(Math.Abs(npc.X - game.Player.X),
@@ -223,7 +221,7 @@ public class GameRenderer
             {
                 var nameSize = _font.MeasureString(npc.Name);
                 _sb.DrawString(_font, npc.Name,
-                    new Vector2(pos.X - nameSize.X / 2, pos.Y - radius - 16),
+                    new Vector2(pos.X - nameSize.X / 2, pos.Y - 42),
                     Config.ColText);
             }
         }
@@ -349,11 +347,17 @@ public class GameRenderer
         {
             var rect = new Rectangle(hx + i * (Config.QuickbarSlotSize + Config.QuickbarGap),
                 hy, Config.QuickbarSlotSize, Config.QuickbarSlotSize);
-            _sb.Draw(_blankTex, rect, new Color(30, 26, 22));
-            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, 1), Config.ColDim);
-            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), Config.ColDim);
-
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, rect.Height), new Color(30, 26, 22));
+            // Внутренняя тень сверху (эффект «углубления»)
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, 3), new Color(0, 0, 0, 90));
             var itemKey = player.Quickbar[i];
+            // Рамка слота
+            var slotBorder = itemKey != null ? new Color(150, 126, 76) : new Color(64, 56, 46);
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, 1), slotBorder);
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), slotBorder);
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, 1, rect.Height), slotBorder);
+            _sb.Draw(_blankTex, new Rectangle(rect.X + rect.Width - 1, rect.Y, 1, rect.Height), slotBorder);
+
             if (itemKey != null)
             {
                 Color c = ItemData.DisplayColor(itemKey);
@@ -391,7 +395,42 @@ public class GameRenderer
     private static readonly string[] SkillKeysLabels =
         { "F1", "F2", "F3", "F4", "F6", "F7", "F8", "F10" };
 
-    private void DrawHud(Player player, GameController game)
+    /// <summary>Кнопки интерфейса HUD (как в python-версии UI): ярлык + режим.</summary>
+    public static readonly (string Label, string Mode)[] HudButtons =
+    {
+        ("Инвентарь (I)", ScreenMode.Inventory),
+        ("Статы (C)", ScreenMode.Stats),
+        ("Навыки (N)", ScreenMode.Skills),
+        ("Крафт (K)", ScreenMode.Craft),
+        ("Квесты (L)", ScreenMode.Quests),
+        ("Карта (M)", ScreenMode.Bigmap),
+        ("Пауза (Esc)", ScreenMode.Pause),
+    };
+
+    /// <summary>Прямоугольники кнопок из последнего кадра (для обработки кликов).</summary>
+    public IReadOnlyList<Rectangle> ButtonRects => _buttonRects;
+
+    private readonly List<Rectangle> _buttonRects = new();
+
+    /// <summary>Клик по кнопкам HUD (только нажатие, не удержание).</summary>
+    public bool HandleButtonClick(MouseState mouse, MouseState prevMouse, GameController game)
+    {
+        if (mouse.LeftButton != ButtonState.Pressed
+            || prevMouse.LeftButton == ButtonState.Pressed) return false;
+        for (int i = 0; i < _buttonRects.Count && i < HudButtons.Length; i++)
+        {
+            if (_buttonRects[i].Contains(mouse.X, mouse.Y))
+            {
+                var mode = HudButtons[i].Mode;
+                game.ScreenMode = game.ScreenMode == mode && mode != ScreenMode.Pause
+                    ? ScreenMode.Game : mode;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void DrawHud(Player player, GameController game, MouseState? mouse)
     {
         // HUD background
         _sb.Draw(_blankTex,
@@ -433,10 +472,13 @@ public class GameRenderer
         // Gold
         _sb.DrawString(_font, $"Золото: {player.Gold}", new Vector2(x, y), Config.ColGold);
 
-        // Equipment summary (right side)
+        // Equipment summary (right side) — на аккуратной панели
         int ex = AethelgardGame.ScreenW - 260;
         int ey = y - 60;
-        _sb.DrawString(_font, "Снаряжение:", new Vector2(ex, ey), Config.ColDim);
+        int eqW = 246, eqH = 100;
+        _sb.Draw(_blankTex, new Rectangle(ex - 8, ey - 6, eqW, eqH), new Color(12, 10, 8, 170));
+        _sb.Draw(_blankTex, new Rectangle(ex - 8, ey - 6, eqW, 2), new Color(140, 118, 70, 200));
+        _sb.DrawString(_font, "Снаряжение:", new Vector2(ex, ey), Config.ColGold);
         ey += 16;
         var eqSlots = new[] { ("W", player.Weapon), ("A", player.Armor),
             ("H", player.Head), ("L", player.Legs), ("B", player.Boots) };
@@ -451,15 +493,41 @@ public class GameRenderer
         if (game.ShowFps)
             _sb.DrawString(_font, $"FPS: {game.Fps:F0}", new Vector2(AethelgardGame.ScreenW - 80, 8), Config.ColDim);
 
-        // Controls hint — на тёмной подложке, чтобы читалось на любом фоне
-        var hintText = "WASD:шаг  Пробел:атака  F:лестница  E:добыча  I:инвентарь  K:крафт  C:статы  L:квесты  N:навыки  H:зелье  M:карта  B:большая карта  T:говорить  Esc:пауза";
-        var hintSize = _font.MeasureString(hintText);
-        _sb.Draw(_blankTex, new Rectangle(8, 4, (int)hintSize.X + 16, (int)hintSize.Y + 10),
-            new Color(10, 8, 6, 170));
-        _sb.DrawString(_font, hintText, new Vector2(16, 8), Config.ColDim);
+        // Controls hint — убран (просили); вместо него — кликабельные кнопки UI
+        DrawHudButtons(game, mouse);
 
         // Hotbar + skills panel
         DrawHotbar(game);
+    }
+
+    /// <summary>Ряд кликабельных кнопок интерфейса слева сверху (вместо подсказок).</summary>
+    private void DrawHudButtons(GameController game, MouseState? mouse)
+    {
+        if (_font == null) return;
+        _buttonRects.Clear();
+        int bx = 8, by = 4;
+        int h = 24;
+        for (int i = 0; i < HudButtons.Length; i++)
+        {
+            var label = HudButtons[i].Label;
+            var size = _font.MeasureString(label);
+            int w = (int)size.X + 14;
+            var rect = new Rectangle(bx, by, w, h);
+            bool hover = mouse.HasValue && rect.Contains(mouse.Value.X, mouse.Value.Y);
+            bool active = game.ScreenMode == HudButtons[i].Mode;
+
+            _sb.Draw(_blankTex, rect, active ? new Color(52, 43, 30)
+                            : hover ? new Color(42, 36, 28) : new Color(18, 16, 13, 235));
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Y, rect.Width, 1),
+                active || hover ? Config.ColGold : new Color(84, 72, 56));
+            _sb.Draw(_blankTex, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1),
+                new Color(30, 26, 20));
+            _sb.DrawString(_font, label, new Vector2(rect.X + 7, rect.Y + 5),
+                active ? Config.ColGold : hover ? new Color(230, 214, 180) : new Color(170, 158, 134));
+
+            _buttonRects.Add(rect);
+            bx += w + 4;
+        }
     }
 
     private void DrawBar(int x, int y, int w, int h, int value, int max, Color color)

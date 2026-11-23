@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <NoWarn>CS8618;CS8632;CS0169;CS0649;CS0219;CA1416</NoWarn>
     <LangVersion>latest</LangVersion>
     <AssemblyName>Aethelgard</AssemblyName>
@@ -15,13 +16,12 @@
 
   <ItemGroup>
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
+    <PackageReference Include="StbTrueTypeSharp" Version="1.26.13" />
   </ItemGroup>
 
-  <!-- System.Drawing for runtime font rendering (replaces MGCB content pipeline) -->
+  <!-- Шрифты DejaVu (свободная лицензия) копируются рядом со сборкой -->
   <ItemGroup>
-    <!-- RuntimeFont: рантайм-генерация шрифта. Работает на Windows;
-         на Linux сборка проходит, рендер шрифта деградирует в заглушку. -->
-    <PackageReference Include="System.Drawing.Common" Version="8.0.0" />
+    <None Include="Content/fonts/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Игровые данные перенесены из data/*.json в C#-классы (Data/*Defs.cs) -->

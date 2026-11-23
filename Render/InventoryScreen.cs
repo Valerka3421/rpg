@@ -123,9 +123,17 @@ public class InventoryScreen
 
         foreach (var (label, key, slot) in slots)
         {
+            bool hasItem = key != null;
             // Slot background
             _sb.Draw(Blank, new Rectangle(x, y, CellSize, CellSize),
-                new Color(30, 28, 22));
+                hasItem ? new Color(38, 34, 26) : new Color(30, 28, 22));
+
+            // Рамка слота: золотая, если предмет надет
+            var border = hasItem ? new Color(206, 166, 82) : new Color(50, 45, 38);
+            _sb.Draw(Blank, new Rectangle(x, y, CellSize, 1), border);
+            _sb.Draw(Blank, new Rectangle(x, y + CellSize - 1, CellSize, 1), border);
+            _sb.Draw(Blank, new Rectangle(x, y, 1, CellSize), border);
+            _sb.Draw(Blank, new Rectangle(x + CellSize - 1, y, 1, CellSize), border);
 
             // Item icon or empty
             if (key != null)
@@ -171,10 +179,14 @@ public class InventoryScreen
                 // Slot background
                 _sb.Draw(Blank, rect, new Color(30, 28, 22));
 
-                // Border
+                // Border (все четыре стороны)
                 _sb.Draw(Blank, new Rectangle(cx, cy, CellSize, 1),
                     new Color(50, 45, 38));
                 _sb.Draw(Blank, new Rectangle(cx, cy + CellSize - 1, CellSize, 1),
+                    new Color(50, 45, 38));
+                _sb.Draw(Blank, new Rectangle(cx, cy, 1, CellSize),
+                    new Color(50, 45, 38));
+                _sb.Draw(Blank, new Rectangle(cx + CellSize - 1, cy, 1, CellSize),
                     new Color(50, 45, 38));
 
                 if (idx < items.Count)
