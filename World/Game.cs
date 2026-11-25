@@ -95,15 +95,25 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         _menu = new MainMenuScreen(GraphicsDevice, _spriteBatch);
 
         // Generate fonts at runtime (no MGCB content pipeline needed).
-        // Обычный — для интерфейса, крупный — для заголовков и кнопок меню.
+        // Набор как в python render/theme.py:
+        // H1 = 40 bold, H2 = 22 bold, BODY = 18, SMALL = 14, TINY = 12.
+        var fontH1 = RuntimeFont.Create(GraphicsDevice, 40, bold: true);
+        var fontH2 = RuntimeFont.Create(GraphicsDevice, 22, bold: true);
         var font = RuntimeFont.Create(GraphicsDevice, 18);
-        var fontBig = RuntimeFont.Create(GraphicsDevice, 28);
+        var fontSmall = RuntimeFont.Create(GraphicsDevice, 14);
+        var fontTiny = RuntimeFont.Create(GraphicsDevice, 12);
+        if (fontH1 != null) Fonts.H1 = fontH1;
+        if (fontH2 != null) Fonts.H2 = fontH2;
+        if (font != null) Fonts.Body = font;
+        if (fontSmall != null) Fonts.Small = fontSmall;
+        if (fontTiny != null) Fonts.Tiny = fontTiny;
+        var fontBig = fontH1 ?? fontH2 ?? font;
         if (font != null)
         {
             _renderer.LoadFont(font);
             _inventory.LoadFont(font);
             _skills.LoadFont(font);
-            _classSelect.LoadFont(fontBig ?? font);
+            _classSelect.LoadFont(font);
             _shop.LoadFont(font);
             _quests.LoadFont(font);
             _dialogue.LoadFont(font);
@@ -144,11 +154,12 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     {
         _menu.GetSettings = () => _game.Settings;
 
-        _menu.OnStartNew = () =>
+        _menu.OnStartNew = slot =>
         {
-            _game.CurrentSlot = 1;
+            _game.CurrentSlot = slot;
             _game.PendingMpHost = false;
             _game.PendingMpFresh = false;
+            _classSelect.Selected = 0;   // python: class_selection = 0
             _game.ScreenMode = ScreenMode.ClassSelect;
         };
         _menu.OnSaveSlot = slot =>
@@ -286,8 +297,10 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     escConsumed = true;
                     break;
                 case ScreenMode.ClassSelect:
-                    // Назад в главное меню (python: Esc → меню)
+                    // Назад в главное меню + сброс слота (python menu_back).
+                    _game.CurrentSlot = 1;
                     _game.PendingMpHost = false;
+                    _game.PendingMpFresh = false;
                     _game.ScreenMode = ScreenMode.Menu;
                     _menu.OpenMain();
                     escConsumed = true;
@@ -390,7 +403,16 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _spriteBatch.Begin();
             var selected = _classSelect.Draw(keys, _prevKeys, mouse);
             _spriteBatch.End();
-            if (selected != null)
+            if (_classSelect.BackRequested)
+            {
+                // «Назад» — как python menu_back: сброс слота и в главное меню.
+                _game.CurrentSlot = 1;
+                _game.PendingMpHost = false;
+                _game.PendingMpFresh = false;
+                _game.ScreenMode = ScreenMode.Menu;
+                _menu.OpenMain();
+            }
+            else if (selected != null)
             {
                 if (_game.PendingMpHost)
                 {
@@ -412,6 +434,13 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         {
             _mpRenderer.Draw(_game);
         }
+        else if (mode == ScreenMode.Pause)
+        {
+            // Пауза — тот же экран, что и главное меню (python draw_main).
+            _spriteBatch.Begin();
+            _menu.DrawPause(_pause.Selected);
+            _spriteBatch.End();
+        }
         else
         {
             // Мир рисуется всегда (GameRenderer сам делает Begin/End),
@@ -421,20 +450,36 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _spriteBatch.Begin();
             switch (mode)
             {
-                case ScreenMode.Inventory: _inventory.Draw(_game.Player, mouse); break;
+                case ScreenMode.Inventory:
+                {
+                    var act = _inventory.Draw(_game.Player, mouse);
+                    if (act.Item != null) _game.UseInventoryItem(act.Item);
+                    if (act.Unequip != null) _game.UnequipInventorySlot(act.Unequip);
+                    if (act.PageDelta != 0) _game.ChangeInventoryPage(act.PageDelta);
+                    if (act.Close) _game.ScreenMode = ScreenMode.Game;
+                    break;
+                }
                 case ScreenMode.Skills:
                 {
                     var cmd = _skills.Draw(_game.Player, mouse);
                     _game.HandleSkillClick(cmd);
                     break;
                 }
-                case ScreenMode.Shop: _shop.Draw(_game); break;
+                case ScreenMode.Shop:
+                {
+                    var act = _shop.Draw(_game, mouse);
+                    if (act.BuyIndex >= 0) _game.BuyItem(act.BuyIndex);
+                    if (act.SellIndex >= 0) _game.SellItem(act.SellIndex);
+                    if (act.ToggleMode) _game.ToggleShopMode();
+                    if (act.Reroll) _game.RerollShop();
+                    if (act.Close) _game.ScreenMode = ScreenMode.Game;
+                    break;
+                }
                 case ScreenMode.Quests: _quests.Draw(_game); break;
                 case ScreenMode.Dialogue: _dialogue.Draw(_game); break;
                 case ScreenMode.Bigmap: _bigmap.Draw(_game); break;
                 case ScreenMode.Craft: _craft.Draw(_game, mouse); break;
                 case ScreenMode.Stats: _stats.Draw(_game, mouse); break;
-                case ScreenMode.Pause: _pause.Draw(_game); break;
             }
             // Dev console overlay (always on top)
             if (_game.Console.Open)

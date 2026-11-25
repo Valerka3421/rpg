@@ -345,6 +345,7 @@ public class GameCore
         public int PidA, PidB;
         public Dictionary<string, int> OfferA = new(), OfferB = new();
         public int GoldA, GoldB;
+        public bool AcceptedA, AcceptedB;   // фаза заявки (net/core.py:trade_accept)
         public bool ReadyA, ReadyB;
         public bool Done;
     }
@@ -353,13 +354,20 @@ public class GameCore
     {
         int target = msg.TradeTarget ?? -1;
         if (target < 0 || target == pid) return; // обмен с самим собой запрещён
+
+        // accept — подтверждение заявки вторым игроком (Y в net/view)
         if (msg.TradeAction == "accept")
         {
-            // accept — подтверждение заявки вторым игроком (Y в net/view)
-            if (_trades.TryGetValue(pid, out var acc))
-                AddEvent($"Игрок {pid} принял обмен (обоим: R — готов).");
+            if (_trades.TryGetValue(pid, out var acc)
+                && (acc.PidA == pid || acc.PidB == pid))
+            {
+                if (acc.PidA == pid) acc.AcceptedA = true;
+                if (acc.PidB == pid) acc.AcceptedB = true;
+                AddEvent("Обмен принят — выкладывайте предметы (R — подтвердить).");
+            }
             return;
         }
+
         if (Players.TryGetValue(target, out var partner))
         {
             int dist = Math.Max(Math.Abs(partner.X - player.X), Math.Abs(partner.Y - player.Y));
@@ -379,7 +387,7 @@ public class GameCore
         {
             case "request":
                 if (_trades.ContainsKey(pid) || _trades.ContainsKey(target)) return;
-                var s = new TradeSession { PidA = pid, PidB = target };
+                var s = new TradeSession { PidA = pid, PidB = target, AcceptedA = true };
                 _trades[pid] = s; _trades[target] = s;
                 AddEvent($"Игрок {pid} предлагает обмен игроку {target} (Y — принять)");
                 break;
@@ -387,10 +395,17 @@ public class GameCore
                 CancelTrade(pid, "trade cancelled");
                 break;
             case "ready":
-                if (_trades.TryGetValue(pid, out var st2)) { st2.ReadyA = st2.ReadyB = true; ExecuteIfReady(st2); }
+                // Подтверждение только своей стороны (net/core.py:trade_ready).
+                if (_trades.TryGetValue(pid, out var st2))
+                {
+                    if (st2.PidA == pid) st2.ReadyA = true;
+                    if (st2.PidB == pid) st2.ReadyB = true;
+                    ExecuteIfReady(st2);
+                }
                 break;
             case "add":
-                if (_trades.TryGetValue(pid, out var st3) && !string.IsNullOrEmpty(msg.TradeItemKey))
+                if (_trades.TryGetValue(pid, out var st3) && !string.IsNullOrEmpty(msg.TradeItemKey)
+                    && BothAccepted(st3))
                 {
                     int count = Math.Max(1, msg.TradeCount ?? 1);
                     var offer = pid == st3.PidA ? st3.OfferA : st3.OfferB;
@@ -399,14 +414,15 @@ public class GameCore
                 }
                 break;
             case "remove":
-                if (_trades.TryGetValue(pid, out var st4) && !string.IsNullOrEmpty(msg.TradeItemKey))
+                if (_trades.TryGetValue(pid, out var st4) && !string.IsNullOrEmpty(msg.TradeItemKey)
+                    && BothAccepted(st4))
                 {
                     var offer2 = pid == st4.PidA ? st4.OfferA : st4.OfferB;
                     offer2.Remove(msg.TradeItemKey);
                 }
                 break;
             case "gold":
-                if (_trades.TryGetValue(pid, out var st5))
+                if (_trades.TryGetValue(pid, out var st5) && BothAccepted(st5))
                 {
                     int gold = Math.Max(0, msg.TradeGold ?? 0);
                     if (player.Gold >= gold)
@@ -418,9 +434,11 @@ public class GameCore
         }
     }
 
+    private static bool BothAccepted(TradeSession s) => s.AcceptedA && s.AcceptedB;
+
     private void ExecuteIfReady(TradeSession s)
     {
-        if (!s.ReadyA || !s.ReadyB || s.Done) return;
+        if (!s.ReadyA || !s.ReadyB || s.Done || !BothAccepted(s)) return;
         if (!Players.TryGetValue(s.PidA, out var a) || !Players.TryGetValue(s.PidB, out var b))
             return;
         // Двойная проверка наличия перед исполнением (net/core.py:_trade_execute)
@@ -958,7 +976,27 @@ public class GameCore
         foreach (var c in ChatLog)
             snap.Chat.Add(new Snapshot.ChatEntry { Pid = c.Pid, Text = c.Text });
 
+        // Активная сессия обмена для участника (net/core.py:_trade_snapshot)
+        if (_trades.TryGetValue(forPid, out var tsn))
+            snap.Trade = TradeSnapshotFor(tsn);
+
         return snap;
+    }
+
+    private static TradeSnapshot TradeSnapshotFor(TradeSession s)
+    {
+        var t = new TradeSnapshot
+        {
+            Players = { s.PidA, s.PidB },
+            Gold = { [s.PidA.ToString()] = s.GoldA, [s.PidB.ToString()] = s.GoldB },
+        };
+        t.Offers[s.PidA.ToString()] = new Dictionary<string, int>(s.OfferA);
+        t.Offers[s.PidB.ToString()] = new Dictionary<string, int>(s.OfferB);
+        if (s.ReadyA) t.Ready.Add(s.PidA);
+        if (s.ReadyB) t.Ready.Add(s.PidB);
+        if (s.AcceptedA) t.Accepted.Add(s.PidA);
+        if (s.AcceptedB) t.Accepted.Add(s.PidB);
+        return t;
     }
 
     /// <summary>

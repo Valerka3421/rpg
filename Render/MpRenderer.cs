@@ -514,6 +514,59 @@ public class MpRenderer
                 break;
             }
 
+            case "trade":
+            {
+                // Окно обмена (parity render/screens_renderer/_trade.py)
+                var trade = snap.Trade;
+                if (trade == null) return;
+                title = "ОБМЕН (MP)";
+                int myPid = snap.MyPid;
+                int other = trade.Players.FirstOrDefault(p => p != myPid);
+                string otherName = snap.Players
+                    .FirstOrDefault(p => p.Pid == other)?.ClassName ?? $"Игрок {other}";
+                bool accepted = trade.Accepted.Contains(myPid);
+
+                if (!accepted)
+                {
+                    lines.Add($"{otherName} предлагает обмен");
+                    hints = "Y:принять  Esc:отказаться";
+                    break;
+                }
+
+                var myOffer = trade.Offers.GetValueOrDefault(myPid.ToString())
+                    ?? new Dictionary<string, int>();
+                var myKeys = myOffer.Keys.OrderBy(k => k).ToList();
+                if (game.MpTradeSel >= myKeys.Count)
+                    game.MpTradeSel = Math.Max(0, myKeys.Count - 1);
+                bool myReady = trade.Ready.Contains(myPid);
+                int myGold = trade.Gold.GetValueOrDefault(myPid.ToString());
+                lines.Add(myReady
+                    ? $"Вы выкладываете  [ГОТОВ]   Золото: {myGold}"
+                    : $"Вы выкладываете   Золото: {myGold}");
+                if (myKeys.Count == 0) lines.Add("  (пусто)");
+                for (int i = 0; i < myKeys.Count; i++)
+                    lines.Add($"  {(i == game.MpTradeSel ? ">" : " ")} "
+                              + $"{ItemData.DisplayName(myKeys[i])} ×{myOffer[myKeys[i]]}");
+
+                var otherOffer = trade.Offers.GetValueOrDefault(other.ToString())
+                    ?? new Dictionary<string, int>();
+                int otherGold = trade.Gold.GetValueOrDefault(other.ToString());
+                lines.Add("");
+                lines.Add(trade.Ready.Contains(other)
+                    ? $"{otherName}  [ГОТОВ]   Золото: {otherGold}"
+                    : $"{otherName}   Золото: {otherGold}");
+                if (otherOffer.Count == 0) lines.Add("  (пусто)");
+                foreach (var kv in otherOffer.OrderBy(kv => kv.Key))
+                    lines.Add($"  {ItemData.DisplayName(kv.Key)} ×{kv.Value}");
+
+                var inv = my.Inventory.Keys.OrderBy(k => k).ToList();
+                numbered = new List<string>();
+                for (int i = 0; i < 9 && i < inv.Count; i++)
+                    numbered.Add($"{i + 1}. {ItemData.DisplayName(inv[i])} ×{my.Inventory[inv[i]]}");
+                hints = "1–9:добавить  Q/E:выбор  X:убрать  C/V/B:золото +10/−10/+100  R:готов  Esc:отмена";
+                break;
+            }
+
             default:
                 return;
         }

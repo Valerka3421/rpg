@@ -347,8 +347,9 @@ public class PauseScreen : ModalScreenBase
         "Настройки", "Выйти в главное меню",
     };
 
+    // Пауза рисуется как главное меню (400×56 при y=200+i*80).
     private Rectangle ItemRect(int i) =>
-        new(_panel.X + 40, _panel.Y + 92 + i * 54, _panel.Width - 80, 46);
+        new((AethelgardGame.ScreenW - 400) / 2, 200 + i * 80, 400, 56);
 
     private bool Hovered(Rectangle r, MouseState mouse) =>
         mouse.X >= r.X && mouse.X < r.Right && mouse.Y >= r.Y && mouse.Y < r.Bottom;
@@ -356,12 +357,15 @@ public class PauseScreen : ModalScreenBase
     /// <summary>Обработка клавиатуры: возвращает индекс выбранного пункта или null.</summary>
     public int? HandleInput(KeyboardState keys, KeyboardState prevKeys)
     {
-        if (keys.IsKeyDown(Keys.Up) && !prevKeys.IsKeyDown(Keys.Up))
-            Selected = (Selected + Items.Length - 1) % Items.Length;
-        if (keys.IsKeyDown(Keys.Down) && !prevKeys.IsKeyDown(Keys.Down))
-            Selected = (Selected + 1) % Items.Length;
-        if (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter))
-            return Selected;
+        bool up = (keys.IsKeyDown(Keys.Up) && !prevKeys.IsKeyDown(Keys.Up))
+            || (keys.IsKeyDown(Keys.W) && !prevKeys.IsKeyDown(Keys.W));
+        bool down = (keys.IsKeyDown(Keys.Down) && !prevKeys.IsKeyDown(Keys.Down))
+            || (keys.IsKeyDown(Keys.S) && !prevKeys.IsKeyDown(Keys.S));
+        bool confirm = (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter))
+            || (keys.IsKeyDown(Keys.Space) && !prevKeys.IsKeyDown(Keys.Space));
+        if (up) Selected = (Selected + Items.Length - 1) % Items.Length;
+        if (down) Selected = (Selected + 1) % Items.Length;
+        if (confirm) return Selected;
         return null;
     }
 

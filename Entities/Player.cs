@@ -320,6 +320,34 @@ public class Player : Entity
 
     public int ItemCount(string key) => Inventory.GetValueOrDefault(key);
 
+    /// <summary>
+    /// Список (ключ, количество) с учётом лимита стака — parity
+    /// core/rules.py:inventory_stacks. Снаряжение показывается по 1,
+    /// остальное разбивается на стаки не больше Config.MaxStack.
+    /// </summary>
+    public List<(string Key, int Count)> InventoryStacks()
+    {
+        var entries = new List<(string, int)>();
+        foreach (var key in Inventory.Keys.OrderBy(k => k, StringComparer.Ordinal))
+        {
+            int count = Inventory.GetValueOrDefault(key);
+            if (count <= 0) continue;
+            var def = ItemData.Get(ItemData.ParseItemKey(key).Base);
+            if (def == null || !ItemData.IsStackable(def))
+            {
+                for (int i = 0; i < count; i++) entries.Add((key, 1));
+                continue;
+            }
+            while (count > Config.MaxStack)
+            {
+                entries.Add((key, Config.MaxStack));
+                count -= Config.MaxStack;
+            }
+            if (count > 0) entries.Add((key, count));
+        }
+        return entries;
+    }
+
     public bool EquipItem(string key)
     {
         var def = ItemData.Get(key);

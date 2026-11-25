@@ -81,12 +81,11 @@ public class DevConsole
     {
         if (_unlocked) { Open = true; return true; }
 
-        // If no password set, allow direct access (development mode)
+        // Python: консоль ОТКЛЮЧЕНА, пока не задан ETHELGARD_DEV_PASSWORD.
         if (PasswordHash == null || PasswordHash == "")
         {
-            _unlocked = true;
-            Open = true;
-            return true;
+            Error = "Консоль отключена: задайте ETHELGARD_DEV_PASSWORD";
+            return false;
         }
 
         // Check lockout
@@ -113,9 +112,8 @@ public class DevConsole
             // Check password
             if (PasswordHash == null || PasswordHash == "")
             {
-                _unlocked = true;
-                Open = true;
-                return "Консоль разблокирована.";
+                Open = false;
+                return "Консоль отключена: задайте ETHELGARD_DEV_PASSWORD";
             }
 
             if (PasswordHasher.Verify(Buffer, PasswordHash))
@@ -232,9 +230,10 @@ public class DevConsole
     private string CmdGold(string[] args, GameController game)
     {
         if (args.Length < 1 || !int.TryParse(args[0], out int gold))
-            return "Использование: gold <N>";
-        game.Player.Gold = gold;
-        return $"Золото установлено: {gold}";
+            return "Использование: gold <N>  (прибавляет N, можно отрицательное)";
+        // Python: gold <N> прибавляет N (в т.ч. отрицательное).
+        game.Player.Gold = Math.Max(0, game.Player.Gold + gold);
+        return $"Золото: {game.Player.Gold} (+{gold})";
     }
 
     private string CmdXp(string[] args, GameController game)

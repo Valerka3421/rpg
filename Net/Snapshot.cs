@@ -193,8 +193,21 @@ public sealed class Snapshot
     // ── Запрос обмена (для UI-попапа) ──
     public string? TradeEvent { get; set; }
 
+    /// <summary>Активная сессия обмена для участника (net/core.py:_trade_snapshot).</summary>
+    public TradeSnapshot? Trade { get; set; }
+
     // ── My player ID ──
     public int MyPid { get; set; }
+}
+
+/// <summary>Состояние окна обмена (parity net/core.py:_trade_snapshot).</summary>
+public sealed class TradeSnapshot
+{
+    public List<int> Players { get; set; } = new();
+    public Dictionary<string, Dictionary<string, int>> Offers { get; set; } = new();
+    public Dictionary<string, int> Gold { get; set; } = new();
+    public List<int> Ready { get; set; } = new();
+    public List<int> Accepted { get; set; } = new();
 }
 
 /// <summary>Точка на карте (X, Y) для сетевого протокола.</summary>

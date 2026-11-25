@@ -19,9 +19,9 @@ internal static class RecipeDefs
 
     public static readonly (string Key, string Name)[] CraftTabs = new[]
     {
-        ("all", "Все"),
-        ("blacksmith", "Кузнечное"),
+        ("all", "Все крафты"),
+        ("blacksmith", "Кузнечное дело"),
         ("alchemy", "Алхимия"),
-        ("magic_engineering", "Инженерия"),
+        ("magic_engineering", "Магическая инженерия"),
     };
 }

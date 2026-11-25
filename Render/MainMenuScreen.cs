@@ -27,6 +27,11 @@ public class MainMenuScreen
     private SpriteFont _font = null!;
     private SpriteFont _fontBig = null!;
     private Texture2D? _blank;
+    // Анимированный фон главного меню (render/menu_background.py).
+    private readonly MenuBackground _bg;
+    private readonly System.Diagnostics.Stopwatch _clock =
+        System.Diagnostics.Stopwatch.StartNew();
+    private int _mouseX = -1, _mouseY = -1;
 
     public enum Mode { Main, Saves, Settings, Controls, Credits, Multiplayer, MpJoin }
     public Mode CurrentMode = Mode.Main;
@@ -47,7 +52,7 @@ public class MainMenuScreen
     };
 
     // ── Колбэки, задаёт AethelgardGame ──
-    public Action? OnStartNew;             // «Начать игру» → выбор класса
+    public Action<int>? OnStartNew;        // «Начать игру» → выбор класса (слот)
     public Action<int>? OnSaveSlot;        // сохранить в слот 1-3
     public Action<int>? OnLoadSlot;        // загрузить слот 1-3
     public Action? OnResume;               // вернуться в игру (из паузы)
@@ -67,10 +72,15 @@ public class MainMenuScreen
     private static readonly string[] PauseItems =
         { "resume", "save", "load", "settings", "exit_to_menu" };
 
+    private static readonly string[] PauseLabels =
+        { "Вернуться в игру", "Сохранить игру", "Загрузить игру",
+          "Настройки", "Выйти в главное меню" };
+
     public MainMenuScreen(GraphicsDevice device, SpriteBatch sb)
     {
         _device = device;
         _sb = sb;
+        _bg = new MenuBackground(device);
     }
 
     public void LoadFont(SpriteFont font, SpriteFont fontBig)
@@ -78,6 +88,13 @@ public class MainMenuScreen
         _font = font;
         _fontBig = fontBig;
     }
+
+    // Набор шрифтов python theme.py с фолбэком на загруженные.
+    private SpriteFont F1 => Fonts.Ready ? Fonts.H1 : _fontBig;
+    private SpriteFont F2 => Fonts.Ready ? Fonts.H2 : _fontBig;
+    private SpriteFont FBody => _font;
+    private SpriteFont FSmall => Fonts.Ready ? Fonts.Small : _font;
+    private SpriteFont FTiny => Fonts.Ready ? Fonts.Tiny : _font;
 
     public void OpenMain()
     {
@@ -144,11 +161,22 @@ public class MainMenuScreen
         new((AethelgardGame.ScreenW - 700) / 2, 160 + i * 60, 700, 46);
 
     private Rectangle ClassStartRect(int i) =>
+        // Python: центр по вертикали — 2 кнопки → y=240, 3 кнопки → y=200.
         new((AethelgardGame.ScreenW - 460) / 2,
-            240 + (MpItems.Length == 2 ? 40 : 0) + i * 80, 460, 60);
+            (MpItems.Length == 2 ? 240 : 200) + i * 80, 460, 60);
 
     private Rectangle MpJoinRect() =>
         new((AethelgardGame.ScreenW - 460) / 2, 380, 460, 56);
+
+    // Общая кнопка «Назад» во всех подменю (menu_controller.BACK_RECT).
+    private static readonly Rectangle BackRect = new(34, 28, 52, 48);
+
+    // Мусорка у заполненного слота (menu_controller.slot_delete_rect).
+    private Rectangle SlotDeleteRect(int i)
+    {
+        var r = SavesRect(i);
+        return new Rectangle(r.X + r.Width - 32 - 10, r.Y + 10, 32, 32);
+    }
 
     // ─────────────────────────── INPUT ───────────────────────────
 
@@ -184,11 +212,10 @@ public class MainMenuScreen
                 else if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N)
                          && !SaveMode && !SaveSystem.SlotExists(SelectionSaves + 1))
                 {
-                    // Пустой слот — начать новую игру
-                    OnStartNew?.Invoke();
+                    // Пустой слот — начать новую игру именно в этом слоте.
+                    OnStartNew?.Invoke(SelectionSaves + 1);
                 }
-                else if (keys.IsKeyDown(Keys.D) && !prevKeys.IsKeyDown(Keys.D)
-                         && !SaveMode)
+                else if (keys.IsKeyDown(Keys.D) && !prevKeys.IsKeyDown(Keys.D))
                     SaveSystem.DeleteSlot(SelectionSaves + 1);
                 else if (back) Back();
                 break;
@@ -197,9 +224,11 @@ public class MainMenuScreen
             {
                 if (up) SelectionSettings = (SelectionSettings + 5) % 6;
                 else if (down) SelectionSettings = (SelectionSettings + 1) % 6;
-                else if (keys.IsKeyDown(Keys.Left) && !prevKeys.IsKeyDown(Keys.Left))
+                else if (keys.IsKeyDown(Keys.Left) && !prevKeys.IsKeyDown(Keys.Left)
+                         || keys.IsKeyDown(Keys.A) && !prevKeys.IsKeyDown(Keys.A))
                     AdjustSetting(-1);
                 else if (keys.IsKeyDown(Keys.Right) && !prevKeys.IsKeyDown(Keys.Right)
+                         || keys.IsKeyDown(Keys.D) && !prevKeys.IsKeyDown(Keys.D)
                          || confirm)
                     AdjustSetting(1);
                 else if (back)
@@ -210,6 +239,9 @@ public class MainMenuScreen
                 break;
             }
             case Mode.Controls:
+                // Python: Esc/Enter/Space → меню настроек (пункт «Управление»).
+                if (back || confirm) { CurrentMode = Mode.Settings; SelectionSettings = 5; }
+                break;
             case Mode.Credits:
                 if (back || confirm) Back();
                 break;
@@ -226,7 +258,10 @@ public class MainMenuScreen
             {
                 bool ctrl = keys.IsKeyDown(Keys.LeftControl)
                     || keys.IsKeyDown(Keys.RightControl);
-                if (keys.IsKeyDown(Keys.Back) && !prevKeys.IsKeyDown(Keys.Back))
+                // Ctrl+V — вставить адрес из буфера (menu_controller._paste_mp_ip).
+                if (ctrl && keys.IsKeyDown(Keys.V) && !prevKeys.IsKeyDown(Keys.V))
+                    PasteMpIp();
+                else if (keys.IsKeyDown(Keys.Back) && !prevKeys.IsKeyDown(Keys.Back))
                     MpIp = MpIp.Length > 0 ? MpIp[..^1] : MpIp;
                 else if (confirm) ConnectMp();
                 else if (back) CurrentMode = Mode.Multiplayer;
@@ -282,7 +317,7 @@ public class MainMenuScreen
         }
         switch (MainItems[Math.Min(Selection, MainItems.Length - 1)])
         {
-            case "start": OnStartNew?.Invoke(); break;
+            case "start": OnStartNew?.Invoke(1); break;
             case "load": OpenSaves(false); break;
             case "multiplayer":
                 MpSelection = 0;
@@ -322,6 +357,27 @@ public class MainMenuScreen
             port = hp;
         }
         OnMpJoin?.Invoke($"{host}:{port}");
+    }
+
+    /// <summary>
+    /// Вставить адрес из буфера обмена, отбросив лишние символы
+    /// (game/menu_controller.py:_paste_mp_ip). Допустимы только символы
+    /// IPv4 / имени хоста / порта; итоговая длина — не больше 40.
+    /// </summary>
+    private void PasteMpIp()
+    {
+        string text = ClipboardText.Read();
+        if (text.Length == 0) return;
+        var cleaned = new System.Text.StringBuilder();
+        foreach (char raw in text.Trim().ToLowerInvariant())
+        {
+            if (raw is >= 'a' and <= 'z' or >= '0' and <= '9'
+                or '.' or '-' or ':')
+                cleaned.Append(raw);
+        }
+        if (cleaned.Length == 0) return;
+        int room = Math.Max(0, 40 - MpIp.Length);
+        MpIp += cleaned.ToString(0, Math.Min(room, cleaned.Length));
     }
 
     private void SlotAction(int slot)
@@ -391,11 +447,56 @@ public class MainMenuScreen
     public void HandleMouse(MouseState mouse, MouseState prevMouse)
     {
         _lastMouse = mouse;
+        _mouseX = mouse.X; _mouseY = mouse.Y;
         bool click = mouse.LeftButton == ButtonState.Pressed
             && prevMouse.LeftButton != ButtonState.Pressed;
-        if (!click) return;
+
+        // Наведение меняет выбор — только при движении мыши
+        // (menu_controller.handle_mouse_motion).
+        if (!click)
+        {
+            if (mouse.X != prevMouse.X || mouse.Y != prevMouse.Y)
+                HoverSelect();
+            return;
+        }
 
         var pos = new Rectangle(mouse.X, mouse.Y, 1, 1);
+
+        // Общая кнопка «Назад» во всех подменю.
+        if (CurrentMode != Mode.Main && BackRect.Intersects(pos))
+        {
+            MenuBack();
+            return;
+        }
+
+        // Кликабельные стрелки ◄ ► в настройках.
+        if (CurrentMode == Mode.Settings)
+        {
+            foreach (var (row, dir, rect) in SettingsArrowRects())
+            {
+                if (rect.Intersects(pos))
+                {
+                    SelectionSettings = row;
+                    AdjustSetting(dir);
+                    return;
+                }
+            }
+        }
+
+        // Мусорка у заполненного слота.
+        if (CurrentMode == Mode.Saves)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                if (SaveSystem.SlotExists(i + 1) && SlotDeleteRect(i).Intersects(pos))
+                {
+                    SaveSystem.DeleteSlot(i + 1);
+                    if (SelectionSaves >= 3) SelectionSaves = 0;
+                    return;
+                }
+            }
+        }
+
         switch (CurrentMode)
         {
             case Mode.Main:
@@ -421,13 +522,13 @@ public class MainMenuScreen
                 }
                 break;
             case Mode.Settings:
+                // Клик по строке только выбирает (python menu_controller).
                 for (int i = 0; i < 6; i++)
                 {
                     if (SettingsRect(i).Intersects(pos))
                     {
                         SelectionSettings = i;
                         if (i == 5) CurrentMode = Mode.Controls;
-                        else AdjustSetting(1);
                         return;
                     }
                 }
@@ -449,13 +550,129 @@ public class MainMenuScreen
         }
     }
 
+    private void HoverSelect()
+    {
+        var pos = new Rectangle(_mouseX, _mouseY, 1, 1);
+        switch (CurrentMode)
+        {
+            case Mode.Main:
+                for (int i = 0; i < Items.Length; i++)
+                    if (MainButtonRect(i).Intersects(pos)) Selection = i;
+                break;
+            case Mode.Saves:
+                for (int i = 0; i < 3; i++)
+                    if (SavesRect(i).Intersects(pos)) SelectionSaves = i;
+                break;
+            case Mode.Settings:
+                for (int i = 0; i < 6; i++)
+                    if (SettingsRect(i).Intersects(pos)) SelectionSettings = i;
+                break;
+            case Mode.Multiplayer:
+                for (int i = 0; i < MpItems.Length; i++)
+                    if (ClassStartRect(i).Intersects(pos)) MpSelection = i;
+                break;
+        }
+    }
+
+    /// <summary>Кнопка «Назад»: возврат на уровень вверх (menu_controller.menu_back).</summary>
+    private void MenuBack()
+    {
+        switch (CurrentMode)
+        {
+            case Mode.Settings:
+                GetSettings?.Invoke().Save();
+                Back();
+                break;
+            case Mode.Controls:
+                CurrentMode = Mode.Settings;
+                SelectionSettings = 5;
+                break;
+            case Mode.MpJoin:
+                CurrentMode = Mode.Multiplayer;
+                break;
+            default:
+                Back();
+                break;
+        }
+    }
+
+    /// <summary>Кликабельные стрелки ◄ ► у значений настроек.</summary>
+    private IEnumerable<(int Row, int Dir, Rectangle Rect)> SettingsArrowRects()
+    {
+        var s = GetSettings?.Invoke();
+        if (s == null || _font == null) yield break;
+        string[] vals =
+        {
+            $"{s.Resolution[0]}×{s.Resolution[1]}",
+            s.Fullscreen ? "Вкл" : "Выкл",
+            $"{s.Volume} / 10",
+            s.ShowFps ? "Вкл" : "Выкл",
+            s.ShowMinimap ? "Вкл" : "Выкл",
+        };
+        for (int i = 0; i < 5; i++)
+        {
+            var r = SettingsRect(i);
+            int vc = r.X + r.Width - 100;
+            int vw = (int)F2.MeasureString(vals[i]).X;
+            int ay = r.Y + r.Height / 2;
+            int lb = vc - vw / 2 - 16;
+            int rb = vc + vw / 2 + 16;
+            // Зоны совпадают с нарисованными треугольниками.
+            yield return (i, -1, new Rectangle(lb - 12, ay - 10, 14, 20));
+            yield return (i, 1, new Rectangle(rb - 2, ay - 10, 14, 20));
+        }
+    }
+
     // ─────────────────────────── DRAW ───────────────────────────
+
+    /// <summary>
+    /// Меню паузы (python: screen_mode == 'menu' с from_game=True рисует
+    /// тот же draw_main). Использует выделение PauseScreen.
+    /// </summary>
+    public void DrawPause(int selection)
+    {
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
+        _bg.Draw(_sb, sw, sh, (float)_clock.Elapsed.TotalSeconds);
+        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(6, 5, 4, 70));
+        if (_font == null) return;
+
+        DrawTitle("ЭТЕЛЬГАРД");
+        int cx = sw / 2;
+        _sb.Draw(Blank, new Rectangle(cx - 220, 155, 440, 1), new Color(96, 78, 46));
+        _sb.Draw(Blank, new Rectangle(cx - 150, 158, 300, 1), new Color(176, 142, 82));
+        DrawSubtitle("Открытый мир · Подземелья · Дракон", 172, FSmall,
+            new Color(150, 140, 120));
+
+        for (int i = 0; i < PauseItems.Length; i++)
+        {
+            var rect = MainButtonRect(i);
+            bool sel = i == selection;
+            DrawButtonBg(rect, sel);
+            var color = sel ? new Color(238, 222, 188) : new Color(200, 190, 170);
+            var size = F2.MeasureString(PauseLabels[i]);
+            _sb.DrawString(F2, PauseLabels[i],
+                new Vector2(rect.X + (rect.Width - size.X) / 2,
+                            rect.Y + (rect.Height - size.Y) / 2), color);
+            if (sel) DrawArrow(rect.X - 22, rect.Y + rect.Height / 2);
+        }
+    }
 
     public void Draw(GameController game)
     {
         int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
-        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(14, 12, 10));
-        GradientBg();
+        if (CurrentMode == Mode.Main)
+        {
+            // Анимированный фон: полёт камеры над миром + угольки + виньетка
+            // (render/menu_background.py), поверх — затемняющий слой.
+            _bg.Draw(_sb, sw, sh, (float)_clock.Elapsed.TotalSeconds);
+            _sb.Draw(Blank, new Rectangle(0, 0, sw, sh),
+                new Color(6, 5, 4, 70));
+        }
+        else
+        {
+            _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(14, 12, 10));
+            GradientBg();
+        }
         if (_font == null || _fontBig == null) return;
 
         switch (CurrentMode)
@@ -468,6 +685,26 @@ public class MainMenuScreen
             case Mode.Multiplayer: DrawMultiplayer(); break;
             case Mode.MpJoin: DrawMpJoin(); break;
         }
+
+        // Единая кнопка «Назад» во всех подменю (menu_renderer.draw_back_button).
+        if (CurrentMode != Mode.Main) DrawBackButton();
+    }
+
+    private void DrawBackButton()
+    {
+        var rect = BackRect;
+        bool hover = rect.Contains(_mouseX, _mouseY);
+        DrawButtonBg(rect, hover);
+        var color = hover ? new Color(238, 222, 188) : new Color(200, 190, 170);
+        int cx = rect.X + rect.Width / 2, cy = rect.Y + rect.Height / 2;
+        int shaft = 10, head = 8;
+        // Вал стрелки влево
+        _sb.Draw(Blank, new Rectangle(cx - shaft / 2, cy - 1, shaft + head / 2, 3), color);
+        // Наконечник — три полоски убывающей высоты
+        int tip = cx - shaft / 2 - head;
+        _sb.Draw(Blank, new Rectangle(tip + head - 3, cy - 7, 3, 15), color);
+        _sb.Draw(Blank, new Rectangle(tip + head - 6, cy - 4, 3, 9), color);
+        _sb.Draw(Blank, new Rectangle(tip, cy - 1, 3, 3), color);
     }
 
     private void GradientBg()
@@ -486,25 +723,32 @@ public class MainMenuScreen
     private void DrawTitle(string title, int y = 100)
     {
         int cx = AethelgardGame.ScreenW / 2;
-        var size = _fontBig!.MeasureString(title);
-        _sb.DrawString(_fontBig, title,
+        var size = F1.MeasureString(title);
+        _sb.DrawString(F1, title,
             new Vector2(cx - size.X / 2 + 3, y + 3), new Color(0, 0, 0));
-        _sb.DrawString(_fontBig, title,
+        _sb.DrawString(F1, title,
             new Vector2(cx - size.X / 2, y), new Color(214, 178, 98));
     }
 
-    private void DrawSubtitle(string text, int y = 172)
+    private void DrawSubtitle(string text, int y = 172, SpriteFont? font = null,
+        Color? color = null)
     {
         int cx = AethelgardGame.ScreenW / 2;
-        var size = _font.MeasureString(text);
-        _sb.DrawString(_font, text,
-            new Vector2(cx - size.X / 2, y), new Color(130, 120, 105));
+        var f = font ?? FSmall;
+        var size = f.MeasureString(text);
+        _sb.DrawString(f, text,
+            new Vector2(cx - size.X / 2, y), color ?? new Color(150, 140, 120));
     }
 
     private void DrawMain()
     {
         DrawTitle("ЭТЕЛЬГАРД");
-        DrawSubtitle("Открытый мир · Подземелья · Дракон");
+        // Две линии-разделителя под заголовком (menu_renderer.draw_main).
+        int cx = AethelgardGame.ScreenW / 2;
+        _sb.Draw(Blank, new Rectangle(cx - 220, 155, 440, 1), new Color(96, 78, 46));
+        _sb.Draw(Blank, new Rectangle(cx - 150, 158, 300, 1), new Color(176, 142, 82));
+        DrawSubtitle("Открытый мир · Подземелья · Дракон", 172, FSmall,
+            new Color(150, 140, 120));
 
         var labels = Labels;
         for (int i = 0; i < labels.Length; i++)
@@ -513,17 +757,12 @@ public class MainMenuScreen
             bool sel = i == Selection;
             DrawButtonBg(rect, sel);
             var color = sel ? new Color(238, 222, 188) : new Color(200, 190, 170);
-            var size = _fontBig.MeasureString(labels[i]);
-            _sb.DrawString(_fontBig, labels[i],
+            var size = F2.MeasureString(labels[i]);
+            _sb.DrawString(F2, labels[i],
                 new Vector2(rect.X + (rect.Width - size.X) / 2,
                             rect.Y + (rect.Height - size.Y) / 2), color);
             if (sel)
                 DrawArrow(rect.X - 22, rect.Y + rect.Height / 2);
-        }
-
-        if (FromGame)
-        {
-            DrawHint("Esc — вернуться в игру", AethelgardGame.ScreenH - 40);
         }
     }
 
@@ -536,45 +775,83 @@ public class MainMenuScreen
 
     private void DrawButtonBg(Rectangle rect, bool selected)
     {
-        bool hover = !selected && Hovered(rect);
-
-        // Тень под кнопкой
-        _sb.Draw(Blank, new Rectangle(rect.X + 4, rect.Y + 5, rect.Width, rect.Height),
+        // Тень под кнопкой (base_renderer._button_parts: смещение ≈ +2).
+        _sb.Draw(Blank, new Rectangle(rect.X + 6, rect.Y + 8, rect.Width, rect.Height),
             new Color(0, 0, 0, 110));
 
-        // Фон
-        _sb.Draw(Blank, rect,
-            selected ? new Color(52, 43, 30)
-            : hover ? new Color(38, 32, 24)
-            : new Color(26, 22, 18));
+        // Вертикальный градиент: выбранная (96,76,44)→(56,44,25),
+        // обычная (44,39,31)→(24,21,17).
+        Color topC = selected ? new Color(96, 76, 44) : new Color(44, 39, 31);
+        Color botC = selected ? new Color(56, 44, 25) : new Color(24, 21, 17);
+        for (int i = 0; i < rect.Height; i++)
+        {
+            float t = rect.Height <= 1 ? 0 : (float)i / (rect.Height - 1);
+            var c = new Color(
+                (int)(topC.R * (1 - t) + botC.R * t),
+                (int)(topC.G * (1 - t) + botC.G * t),
+                (int)(topC.B * (1 - t) + botC.B * t));
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Y + i, rect.Width, 1), c);
+        }
 
         // Рамка по всему периметру
-        var border = selected ? new Color(206, 166, 82)
-            : hover ? new Color(130, 108, 66) : new Color(70, 58, 42);
+        var border = selected ? new Color(206, 166, 82) : new Color(72, 62, 46);
         _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 2), border);
         _sb.Draw(Blank, new Rectangle(rect.X, rect.Bottom - 2, rect.Width, 2), border);
         _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, 2, rect.Height), border);
         _sb.Draw(Blank, new Rectangle(rect.Right - 2, rect.Y, 2, rect.Height), border);
 
-        // Золотая полоса-акцент слева у выбранной кнопки
         if (selected)
-            _sb.Draw(Blank, new Rectangle(rect.X + 6, rect.Y + 8, 4, rect.Height - 16),
-                new Color(206, 166, 82, 200));
+        {
+            // Верхняя подсветка и внутренний золотой тинт.
+            _sb.Draw(Blank, new Rectangle(rect.X + 10, rect.Y + 1, rect.Width - 20, 1),
+                new Color(236, 206, 142));
+            _sb.Draw(Blank, new Rectangle(rect.X + 2, rect.Y + 2,
+                rect.Width - 4, rect.Height - 4), new Color(206, 166, 82, 24));
+        }
     }
 
     private void DrawArrow(int x, int y)
     {
-        _sb.Draw(Blank, new Rectangle(x, y - 7, 4, 14), new Color(206, 166, 82));
-        _sb.Draw(Blank, new Rectangle(x + 4, y - 4, 4, 8), new Color(206, 166, 82));
-        _sb.Draw(Blank, new Rectangle(x + 8, y - 1, 4, 2), new Color(206, 166, 82));
+        // Треугольник ► (polygon (ax,ay-7),(ax+12,ay),(ax,ay+7)).
+        var color = new Color(206, 166, 82);
+        for (int i = 0; i < 12; i++)
+        {
+            int h = (int)Math.Round(14.0 * (12 - i) / 12.0);
+            if (h <= 0) continue;
+            _sb.Draw(Blank, new Rectangle(x + i, y - h / 2, 1, h), color);
+        }
+    }
+
+    /// <summary>Треугольник ◄ с основанием в baseX (вершина левее).</summary>
+    private void DrawArrowLeft(int baseX, int y)
+    {
+        var color = new Color(176, 142, 82);
+        for (int i = 0; i < 10; i++)
+        {
+            int h = (int)Math.Round(14.0 * i / 9.0);
+            if (h <= 0) continue;
+            _sb.Draw(Blank, new Rectangle(baseX - 10 + i, y - h / 2, 1, h), color);
+        }
+    }
+
+    /// <summary>Треугольник ► с основанием в baseX (вершина правее).</summary>
+    private void DrawArrowRight(int baseX, int y)
+    {
+        var color = new Color(206, 166, 82);
+        for (int i = 0; i < 10; i++)
+        {
+            int h = (int)Math.Round(14.0 * (10 - i) / 10.0);
+            if (h <= 0) continue;
+            _sb.Draw(Blank, new Rectangle(baseX + i, y - h / 2, 1, h), color);
+        }
     }
 
     private void DrawHint(string text, int y)
     {
         int cx = AethelgardGame.ScreenW / 2;
-        var size = _font.MeasureString(text);
-        _sb.DrawString(_font, text, new Vector2(cx - size.X / 2, y),
-            new Color(110, 102, 90));
+        var size = FSmall.MeasureString(text);
+        _sb.DrawString(FSmall, text, new Vector2(cx - size.X / 2, y),
+            new Color(98, 90, 74));
     }
 
     private void DrawSaves(GameController game)
@@ -586,44 +863,127 @@ public class MainMenuScreen
             var rect = SavesRect(slot - 1);
             bool sel = slot - 1 == SelectionSaves;
             bool exists = SaveSystem.SlotExists(slot);
+            var info = exists ? SaveSystem.SlotInfoFull(slot) : null;
             DrawButtonBg(rect, sel);
             if (sel) DrawArrow(rect.X - 22, rect.Y + rect.Height / 2);
 
-            _sb.DrawString(_fontBig, $"Слот {slot}",
-                new Vector2(rect.X + 76, rect.Y + 14),
-                sel ? new Color(238, 222, 188) : new Color(200, 190, 170));
-
-            if (exists)
+            // ── Иконка класса 44×44 слева ──
+            int iconSize = 44;
+            int ix = rect.X + 16;
+            int iy = rect.Y + (rect.Height - iconSize) / 2;
+            if (info == null)
             {
-                var info = SaveSystem.SlotInfo(slot);
-                if (info.HasValue)
-                {
-                    _sb.DrawString(_font,
-                        $"{info.Value.Class}  Ур.{info.Value.Level}",
-                        new Vector2(rect.X + 76, rect.Y + 50), Config.ColGold);
-                    _sb.DrawString(_font,
-                        info.Value.Timestamp.ToString("dd.MM.yyyy HH:mm"),
-                        new Vector2(rect.X + rect.Width - 190, rect.Y + 16),
-                        new Color(120, 112, 100));
-                }
-                if (SaveMode)
-                    _sb.DrawString(_font, "клик перезапишет",
-                        new Vector2(rect.X + rect.Width - 190, rect.Y + 80),
-                        new Color(208, 158, 82));
+                DrawBox(new Rectangle(ix, iy, iconSize, iconSize),
+                    new Color(34, 29, 23), new Color(72, 62, 46));
+                var dash = F2.MeasureString("—");
+                _sb.DrawString(F2, "—",
+                    new Vector2(ix + (iconSize - dash.X) / 2, iy + (iconSize - dash.Y) / 2),
+                    new Color(98, 90, 74));
             }
             else
             {
-                _sb.DrawString(_font,
-                    SaveMode ? "Пусто — клик сохранит сюда"
-                             : "Пусто — начните новую игру (N)",
-                    new Vector2(rect.X + 76, rect.Y + 50), new Color(120, 112, 100));
+                var cls = ClassData.Get(info.ClassKey) ?? ClassData.Get("default");
+                var clsColor = cls?.Color ?? Color.White;
+                DrawBox(new Rectangle(ix, iy, iconSize, iconSize),
+                    new Color(30, 26, 21), clsColor);
+                // Портрет-заглушка: буква класса в цвете класса.
+                string letter = string.IsNullOrEmpty(info.Class) ? "?"
+                    : info.Class[..1].ToUpperInvariant();
+                var ls = F2.MeasureString(letter);
+                _sb.DrawString(F2, letter,
+                    new Vector2(ix + (iconSize - ls.X) / 2, iy + (iconSize - ls.Y) / 2),
+                    clsColor);
+            }
+
+            // ── Заголовок слота ──
+            var slotColor = sel ? new Color(238, 222, 188) : new Color(200, 190, 170);
+            _sb.DrawString(F2, $"Слот {slot}", new Vector2(rect.X + 76, rect.Y + 16),
+                slotColor);
+
+            if (info == null)
+            {
+                string hint = SaveMode ? "Пусто — клик сохранит сюда"
+                    : "Пусто — начните новую игру";
+                _sb.DrawString(FBody, hint, new Vector2(rect.X + 76, rect.Y + 54),
+                    new Color(98, 90, 74));
+            }
+            else
+            {
+                var cls = ClassData.Get(info.ClassKey) ?? ClassData.Get("default");
+                var clsColor = cls?.Color ?? Color.White;
+                string className = info.Class;
+                string modeName = info.WorldMode == "overworld"
+                    ? "Открытый мир" : $"Подземелье {info.Depth}";
+                var nameSize = FBody.MeasureString(className);
+                _sb.DrawString(FBody, className, new Vector2(rect.X + 76, rect.Y + 54),
+                    clsColor);
+                _sb.DrawString(FBody,
+                    $"   Ур.{info.Level}   ·   {modeName}   ·   ${info.Gold}",
+                    new Vector2(rect.X + 76 + nameSize.X, rect.Y + 54),
+                    new Color(222, 214, 198));
+
+                // Дата — справа от мусорки.
+                var delRect = SlotDeleteRect(slot - 1);
+                string date = info.Timestamp.ToString("dd.MM.yyyy HH:mm");
+                var dateSize = FSmall.MeasureString(date);
+                _sb.DrawString(FSmall, date,
+                    new Vector2(delRect.X - 10 - dateSize.X, rect.Y + 18),
+                    new Color(98, 90, 74));
+
+                if (SaveMode)
+                {
+                    var warn = "клик перезапишет";
+                    var ws = FTiny.MeasureString(warn);
+                    _sb.DrawString(FTiny, warn,
+                        new Vector2(rect.X + rect.Width - 20 - ws.X, rect.Bottom - 24),
+                        new Color(208, 158, 82));
+                }
+
+                // ── Мусорка — только у заполненного слота ──
+                DrawTrashBin(delRect);
             }
         }
+    }
 
-        DrawHint(SaveMode
-            ? "Enter/клик — сохранить · Esc — назад"
-            : "Enter/клик — загрузить · N — новая игра · D — удалить · Esc — назад",
-            AethelgardGame.ScreenH - 40);
+    /// <summary>Рамка/заливка простого прямоугольника (без скругления).</summary>
+    private void DrawBox(Rectangle r, Color fill, Color border)
+    {
+        _sb.Draw(Blank, r, fill);
+        _sb.Draw(Blank, new Rectangle(r.X, r.Y, r.Width, 2), border);
+        _sb.Draw(Blank, new Rectangle(r.X, r.Bottom - 2, r.Width, 2), border);
+        _sb.Draw(Blank, new Rectangle(r.X, r.Y, 2, r.Height), border);
+        _sb.Draw(Blank, new Rectangle(r.Right - 2, r.Y, 2, r.Height), border);
+    }
+
+    /// <summary>Красная корзина (menu_renderer._draw_trash_bin).</summary>
+    private void DrawTrashBin(Rectangle r)
+    {
+        DrawBox(r, new Color(60, 30, 30), new Color(180, 80, 80));
+        int cx = r.X + r.Width / 2;
+        float k = Math.Min(r.Width, r.Height) / 32f;
+        var red = new Color(240, 120, 120);
+        var darkRed = new Color(180, 80, 80);
+        int lidY = r.Y + (int)(7 * k);
+        _sb.Draw(Blank, new Rectangle(cx - (int)(8 * k), lidY,
+            (int)(16 * k), Math.Max(1, (int)(2 * k))), red);
+        // Крышка-дуга approximated as a small horizontal bar.
+        _sb.Draw(Blank, new Rectangle(cx - (int)(4 * k), lidY - (int)(4 * k),
+            (int)(8 * k), Math.Max(1, (int)(2 * k))), red);
+        int topY = lidY + (int)(3 * k);
+        int botY = r.Y + r.Height - (int)(6 * k);
+        for (int y = topY; y < botY; y++)
+        {
+            float t = (botY - topY) <= 0 ? 0 : (float)(y - topY) / (botY - topY);
+            int hw = (int)((7 - 2 * t) * k);
+            _sb.Draw(Blank, new Rectangle(cx - hw, y, hw * 2, 1), red);
+        }
+        for (int dx = -3; dx <= 3; dx += 3)
+        {
+            int x1 = cx + (int)(dx * k);
+            int x2 = cx + (int)(dx * k * 0.85);
+            for (int y = topY + (int)(3 * k); y < botY - (int)(3 * k); y++)
+                _sb.Draw(Blank, new Rectangle(x1, y, 1, 1), darkRed);
+        }
     }
 
     private void DrawSettings(GameController game)
@@ -647,20 +1007,30 @@ public class MainMenuScreen
             var rect = SettingsRect(i);
             bool sel = i == SelectionSettings;
             DrawButtonBg(rect, sel);
-            _sb.DrawString(_fontBig, rows[i][0],
-                new Vector2(rect.X + 28, rect.Y + 8),
+
+            // Подпись — H2, слева, по центру строки.
+            _sb.DrawString(F2, rows[i][0],
+                new Vector2(rect.X + 28, rect.Y + rect.Height / 2 - 11),
                 sel ? new Color(238, 222, 188) : new Color(200, 190, 170));
-            var valColor = sel ? new Color(206, 166, 82) : new Color(140, 132, 118);
-            _sb.DrawString(_fontBig, rows[i][1],
-                new Vector2(rect.X + rect.Width - 130, rect.Y + 8), valColor);
+
+            // Значение — H2, по центру зоны x+w-100.
+            int vc = rect.X + rect.Width - 100;
+            var val = rows[i][1];
+            var vs = F2.MeasureString(val);
+            var valColor = sel ? new Color(206, 166, 82) : new Color(150, 140, 120);
+            _sb.DrawString(F2, val,
+                new Vector2(vc - vs.X / 2, rect.Y + rect.Height / 2 - vs.Y / 2),
+                valColor);
+
             if (sel && i != 5)
             {
-                DrawArrow(rect.X + rect.Width - 200, rect.Y + rect.Height / 2);
+                int ay = rect.Y + rect.Height / 2;
+                int valLeft = vc - (int)vs.X / 2;
+                int valRight = vc + (int)vs.X / 2;
+                DrawArrowLeft(valLeft - 16, ay);
+                DrawArrowRight(valRight + 16, ay);
             }
         }
-
-        DrawHint("←/→ — изменить · Esc — назад (настройки сохраняются)",
-            AethelgardGame.ScreenH - 40);
     }
 
     private void DrawControls()
@@ -687,6 +1057,7 @@ public class MainMenuScreen
                 ("K", "Крафт ([ / ] — размер партии)"),
                 ("N", "Древо навыков"),
                 ("L", "Квесты (Enter — взять/сдать)"),
+                ("Tab", "Статистика забега"),
             }),
             ("Карта и бой", new[]
             {
@@ -699,6 +1070,10 @@ public class MainMenuScreen
             ("Прочее", new[]
             {
                 ("F5 / F9", "Сохранить / загрузить"),
+                ("PgUp/PgDn · [ ]", "Прокрутка журнала событий"),
+                ("Home / End", "Журнал в начало / в конец"),
+                ("Магазин", "1–9 — купить · S — продать"),
+                ("", "R — обновить ассортимент"),
                 ("F12 / `", "Консоль разработчика (по паролю)"),
                 ("Esc", "Меню / закрыть окно"),
             }),
@@ -711,16 +1086,16 @@ public class MainMenuScreen
             int y = 132;
             foreach (var (cat, rows) in columns[c])
             {
-                _sb.DrawString(_fontBig, cat, new Vector2(colXs[c], y),
+                _sb.DrawString(F2, cat, new Vector2(colXs[c], y),
                     new Color(214, 178, 98));
                 y += 32;
                 foreach (var (keyStr, desc) in rows)
                 {
                     if (keyStr.Length > 0)
-                        _sb.DrawString(_font, keyStr, new Vector2(colXs[c] + 20, y),
+                        _sb.DrawString(FBody, keyStr, new Vector2(colXs[c] + 20, y),
                             new Color(196, 176, 138));
-                    _sb.DrawString(_font, desc, new Vector2(colXs[c] + 200, y),
-                        new Color(214, 206, 192));
+                    _sb.DrawString(FBody, desc, new Vector2(colXs[c] + 200, y),
+                        new Color(222, 214, 198));
                     y += 26;
                 }
                 y += 10;
@@ -733,35 +1108,37 @@ public class MainMenuScreen
     private void DrawCredits()
     {
         DrawTitle("СОЗДАТЕЛИ", 56);
-        DrawSubtitle("Игра разработана командой EVA", 128);
+        DrawSubtitle("Игра разработана командой EVA", 128, FBody,
+            new Color(150, 140, 120));
 
         (string, string[])[] sections =
         {
-            ("Создатели", new[] { "Dodik", "Don't talk to people", "And don't write" }),
+            ("Создатели", new[] { "Dodik", "Don't talk to people", "And don’t write" }),
             ("Художник", new[] { "Лизабет еБатори" }),
         };
         int cx = AethelgardGame.ScreenW / 2;
         int y = 190;
         foreach (var (cat, names) in sections)
         {
-            var catSize = _fontBig.MeasureString(cat);
-            _sb.DrawString(_fontBig, cat, new Vector2(cx - catSize.X / 2, y),
+            var catSize = F2.MeasureString(cat);
+            _sb.DrawString(F2, cat, new Vector2(cx - catSize.X / 2, y),
                 new Color(214, 178, 98));
             y += 40;
             foreach (var name in names)
             {
-                var size = _font.MeasureString(name);
-                _sb.DrawString(_font, name, new Vector2(cx - size.X / 2, y),
-                    new Color(214, 206, 192));
+                var size = FBody.MeasureString(name);
+                _sb.DrawString(FBody, name, new Vector2(cx - size.X / 2, y),
+                    new Color(222, 214, 198));
                 y += 32;
             }
             y += 16;
         }
-        _sb.DrawString(_font, "Все права на изображения принадлежат ей",
-            new Vector2(cx - _font.MeasureString("Все права на изображения принадлежат ей").X / 2,
-                y + 8), new Color(120, 112, 100));
-        var verSize = _font.MeasureString("от 11.2026");
-        _sb.DrawString(_font, "от 11.2026",
+        const string rights = "Все права на изображения принадлежат ей";
+        _sb.DrawString(FSmall, rights,
+            new Vector2(cx - FSmall.MeasureString(rights).X / 2, y + 8),
+            new Color(98, 90, 74));
+        var verSize = FBody.MeasureString("от 11.2026");
+        _sb.DrawString(FBody, "от 11.2026",
             new Vector2(cx - verSize.X / 2, AethelgardGame.ScreenH - 84),
             new Color(206, 166, 82));
         DrawHint("Esc — назад", AethelgardGame.ScreenH - 40);
@@ -770,12 +1147,14 @@ public class MainMenuScreen
     private void DrawMultiplayer()
     {
         DrawTitle("МУЛЬТИПЛЕЕР");
-        DrawSubtitle("Играй с другом по локальной сети");
+        DrawSubtitle("Играй с другом по локальной сети", 160, FSmall,
+            new Color(150, 140, 120));
 
         if (HasMpSave())
-            DrawSubtitle("● Есть сохранение мультиплеера", 180);
+            DrawSubtitle("● Есть сохранение мультиплеера", 180, FTiny,
+                new Color(134, 190, 118));
         else
-            DrawSubtitle("Сохранения нет", 180);
+            DrawSubtitle("Сохранения нет", 180, FTiny, new Color(98, 90, 74));
 
         var labels = MpLabels;
         for (int i = 0; i < labels.Length; i++)
@@ -783,8 +1162,8 @@ public class MainMenuScreen
             var rect = ClassStartRect(i);
             bool sel = i == MpSelection;
             DrawButtonBg(rect, sel);
-            var size = _fontBig.MeasureString(labels[i]);
-            _sb.DrawString(_fontBig, labels[i],
+            var size = F2.MeasureString(labels[i]);
+            _sb.DrawString(F2, labels[i],
                 new Vector2(rect.X + (rect.Width - size.X) / 2,
                             rect.Y + (rect.Height - size.Y) / 2),
                 sel ? new Color(238, 222, 188) : new Color(200, 190, 170));
@@ -799,9 +1178,9 @@ public class MainMenuScreen
         DrawTitle("ПРИСОЕДИНИТЬСЯ");
         int cx = AethelgardGame.ScreenW / 2;
         var prompt = "Введи IP-адрес хоста:";
-        var pSize = _font.MeasureString(prompt);
-        _sb.DrawString(_font, prompt, new Vector2(cx - pSize.X / 2, 200),
-            new Color(214, 206, 192));
+        var pSize = FBody.MeasureString(prompt);
+        _sb.DrawString(FBody, prompt, new Vector2(cx - pSize.X / 2, 200),
+            new Color(222, 214, 198));
 
         var field = new Rectangle(cx - 230, 240, 460, 56);
         _sb.Draw(Blank, field, new Color(24, 21, 17));
@@ -816,22 +1195,23 @@ public class MainMenuScreen
 
         bool cursor = Environment.TickCount / 500 % 2 == 0;
         string text = MpIp + (cursor ? "_" : "");
-        var tSize = _fontBig.MeasureString(text);
-        _sb.DrawString(_fontBig, text,
+        var tSize = F2.MeasureString(text);
+        _sb.DrawString(F2, text,
             new Vector2(cx - tSize.X / 2, field.Y + field.Height / 2 - tSize.Y / 2),
             new Color(228, 220, 200));
 
-        DrawSubtitle("Например: localhost или 192.168.1.5", 316);
+        DrawSubtitle("Например: localhost или 192.168.1.5", 310, FSmall,
+            new Color(98, 90, 74));
 
         var btn = MpJoinRect();
         DrawButtonBg(btn, true);
-        var bSize = _fontBig.MeasureString("Подключиться");
-        _sb.DrawString(_fontBig, "Подключиться",
+        var bSize = F2.MeasureString("Подключиться");
+        _sb.DrawString(F2, "Подключиться",
             new Vector2(btn.X + (btn.Width - bSize.X) / 2,
                         btn.Y + (btn.Height - bSize.Y) / 2),
             new Color(238, 222, 188));
 
-        DrawHint("Enter — подключиться · Backspace — стереть · Esc — назад",
+        DrawHint("Enter — подключиться · Ctrl+V — вставить · Esc — назад",
             AethelgardGame.ScreenH - 40);
     }
 

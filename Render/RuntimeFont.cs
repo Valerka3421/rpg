@@ -29,6 +29,7 @@ public static class RuntimeFont
     public static readonly List<char> CharsetQuery = BuildCharset();
 
     private static byte[]? _cachedFontData;
+    private static byte[]? _cachedFontDataBold;
 
     private static List<char> BuildCharset()
     {
@@ -40,7 +41,7 @@ public static class RuntimeFont
         for (int i = 0x410; i <= 0x44F; i++) chars.Add((char)i);
         // Типографика и служебные знаки UI
         chars.AddRange(new[] { '«', '»', '—', '–', '…', '·', '№', '•',
-            '↑', '↓', '←', '→', '×', '§' });
+            '↑', '↓', '←', '→', '×', '§', '’' });
         // SpriteFont требует строго возрастающий порядок кодов
         return chars.Distinct().OrderBy(c => (int)c).ToList();
     }
@@ -71,22 +72,25 @@ public static class RuntimeFont
 
     private static byte[] GetFontData(bool bold)
     {
-        if (_cachedFontData != null) return _cachedFontData;
+        if (bold && _cachedFontDataBold != null) return _cachedFontDataBold;
+        if (!bold && _cachedFontData != null) return _cachedFontData;
         string? path = LocateFontFile(bold) ?? LocateFontFile(!bold)
             ?? throw new FileNotFoundException("Не найден ни один TTF-шрифт для RuntimeFont");
-        _cachedFontData = File.ReadAllBytes(path);
-        return _cachedFontData;
+        var bytes = File.ReadAllBytes(path);
+        if (bold) _cachedFontDataBold = bytes; else _cachedFontData = bytes;
+        return bytes;
     }
 
     /// <summary>
     /// Create a SpriteFont at runtime. Все глифы растеризуются stb_truetype
     /// на общий базлайн — ровная строка без «прыжков» по вертикали.
     /// </summary>
-    public static unsafe SpriteFont? Create(GraphicsDevice device, int fontSize = 14)
+    public static unsafe SpriteFont? Create(GraphicsDevice device, int fontSize = 14,
+        bool bold = false)
     {
         try
         {
-            var data = GetFontData(false);
+            var data = GetFontData(bold);
             var pixels = new Color[1]; // убедимся, что тип доступен до fixed
 
             fixed (byte* pData = data)

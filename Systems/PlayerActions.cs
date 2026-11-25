@@ -81,8 +81,19 @@ public static class ShopSystem
         message = "";
         if (index < 0 || index >= stock.Count) return false;
         var entry = stock[index];
-        var itemDef = ItemData.Get(entry.Key);
+        if (entry.Sold && !entry.Infinite)
+        {
+            message = "Уже продано.";
+            return false;
+        }
+        var itemDef = ItemData.Get(ItemData.ParseItemKey(entry.Key).Base);
         if (itemDef == null) return false;
+        if (ItemData.ParseItemKey(entry.Key).Base == "book_double"
+            && player.DoubleStrike)
+        {
+            message = "Двойной удар уже изучен.";
+            return false;
+        }
         if (player.Gold < entry.Price)
         {
             message = "Недостаточно золота!";
@@ -91,6 +102,7 @@ public static class ShopSystem
 
         player.Gold -= entry.Price;
         player.AddItem(entry.Key, 1);
+        if (!entry.Infinite) entry.Sold = true;
         message = $"Куплено: {itemDef.Name} за {entry.Price} золота";
         return true;
     }
@@ -98,7 +110,8 @@ public static class ShopSystem
     public static bool Sell(Player player, int index, out string message)
     {
         message = "";
-        var items = player.Inventory.ToList();
+        // parity rules.inventory_stacks: снаряжение по 1, стаки по MAX_STACK
+        var items = player.InventoryStacks();
         if (index < 0 || index >= items.Count) return false;
 
         var (key, _) = items[index];

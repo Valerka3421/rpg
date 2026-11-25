@@ -780,7 +780,7 @@ public class GameController
     private void AssignQuickbarFromInventory(int slot)
     {
         int pageStart = CurrentPage * Config.InventoryPageSize;
-        var items = Player.Inventory.ToList();
+        var items = Player.InventoryStacks();
         int idx = pageStart + slot;
         if (idx >= items.Count) return;
         Player.AssignQuickbar(slot, items[idx].Key);
@@ -836,7 +836,7 @@ public class GameController
         if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
             ShopPage = Math.Max(0, ShopPage - 1);
         if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-            ShopPage++;
+            ShopPage = Math.Min(ShopPagesCount() - 1, ShopPage + 1);
 
         // R: reroll — только у торговца подземелья (городские лавки фиксированы)
         if (keys.IsKeyDown(Keys.R) && !prevKeys.IsKeyDown(Keys.R))
@@ -870,7 +870,24 @@ public class GameController
         }
         Player.Gold -= price;
         map.MerchantStock = RecipeData.MakeShopStock(Math.Max(1, Depth));
+        ShopPage = 0;
         ShowMessage($"Ассортимент обновлён (-{price} золота)");
+    }
+
+    /// <summary>Переключение покупка/продажа (кнопка режима в магазине).</summary>
+    public void ToggleShopMode()
+    {
+        ShopSubMode = ShopSubMode == "buy" ? "sell" : "buy";
+        ShopPage = 0;
+    }
+
+    /// <summary>Число страниц магазина — parity ShopController.pages_count.</summary>
+    public int ShopPagesCount()
+    {
+        int n = ShopSubMode == "buy"
+            ? CurrentShopStock().Count
+            : Player.InventoryStacks().Count;
+        return Math.Max(1, (n + Config.ShopPageSize - 1) / Config.ShopPageSize);
     }
 
     /// <summary>Сток текущего магазина (городской NPC или торговец подземелья).</summary>
@@ -980,12 +997,42 @@ public class GameController
     private void UseItemByIndex(int index)
     {
         int pageStart = CurrentPage * Config.InventoryPageSize;
-        var items = Player.Inventory.ToList();
+        var items = Player.InventoryStacks();
         int idx = pageStart + index;
         if (idx >= items.Count) return;
+        UseItemByKey(items[idx].Key);
+    }
 
-        var (key, _) = items[idx];
-        var def = ItemData.Get(key);
+    /// <summary>Клик по предмету в инвентаре (game/_input.py: use_item(key)).</summary>
+    public void UseInventoryItem(string key)
+    {
+        UseItemByKey(key);
+        CurrentPage = Math.Min(CurrentPage, InventoryPagesCount() - 1);
+    }
+
+    /// <summary>Клик по ячейке экипировки — снять предмет.</summary>
+    public void UnequipInventorySlot(string slot)
+    {
+        if (Player.UnequipSlot(slot))
+            ShowMessage("Предмет снят.");
+    }
+
+    public void ChangeInventoryPage(int delta)
+    {
+        if (delta < 0) CurrentPage = Math.Max(0, CurrentPage - 1);
+        else if (delta > 0)
+            CurrentPage = Math.Min(InventoryPagesCount() - 1, CurrentPage + 1);
+    }
+
+    public int InventoryPagesCount()
+    {
+        int n = Player.InventoryStacks().Count;
+        return Math.Max(1, (n + Config.InventoryPageSize - 1) / Config.InventoryPageSize);
+    }
+
+    private void UseItemByKey(string key)
+    {
+        var def = ItemData.Get(ItemData.ParseItemKey(key).Base);
         if (def == null) return;
 
         switch (def.Kind)
@@ -1821,6 +1868,7 @@ public class GameController
     public int MpShopPage = 0;      // магазин: страница по 9
     public bool MpShopSell = false; // магазин: режим продажи
     public bool MpSkillCast = false;// навыки: false — учить (1–7), true — кастовать (1–8)
+    public int MpTradeSel = 0;      // обмен: выбранный предмет моего предложения
 
     /// <summary>
     /// Handle input in multiplayer mode — send to server.
@@ -1884,6 +1932,17 @@ public class GameController
         }
 
         if (snap == null || my == null) return;
+
+        // Окно обмена открывается и закрывается снапшотом
+        // (net/view.py:_apply_trade).
+        if (snap.Trade != null && snap.Trade.Players.Contains(snap.MyPid))
+        {
+            if (MpPanel == "") { MpPanel = Screens.Trade; MpTradeSel = 0; }
+        }
+        else if (MpPanel == Screens.Trade)
+        {
+            MpPanel = "";
+        }
 
         // ── Панели (экраны MP дублируют SP-экраны) ──
         if (MpPanel != "")
@@ -1971,6 +2030,20 @@ public class GameController
                 if (d < bestDist) { bestDist = d; bestPid = p.Pid; }
             }
             if (bestPid >= 0) MpClient.SendDuelRequest(bestPid);
+        }
+
+        // Обмен (G — соседняя с Z клавиша; в python обмен вызывается кликом
+        // по игроку): предложение обмена ближайшему игроку в клетке рядом.
+        if (keys.IsKeyDown(Keys.G) && !prevKeys.IsKeyDown(Keys.G))
+        {
+            int bestPid = -1, bestDist = int.MaxValue;
+            foreach (var p in snap.Players)
+            {
+                if (p.Pid == snap.MyPid) continue;
+                int d = Math.Max(Math.Abs(p.X - my.X), Math.Abs(p.Y - my.Y));
+                if (d < bestDist) { bestDist = d; bestPid = p.Pid; }
+            }
+            if (bestPid >= 0 && bestDist <= 1) MpClient.SendTrade(bestPid, "request");
         }
 
         // Повышение класса (P — как в сингле)
@@ -2165,6 +2238,72 @@ public class GameController
                     int idx = MpShopPage * Config.ShopPageSize + i;
                     if (MpShopSell) MpClient!.SendSell(idx);
                     else MpClient!.SendBuy(idx);
+                }
+                break;
+            }
+
+            case Screens.Trade:
+            {
+                var trade = snap.Trade;
+                if (trade == null) { MpPanel = ""; return; }
+                int myPid = snap.MyPid;
+                int other = trade.Players.FirstOrDefault(p => p != myPid);
+                if (other <= 0) { MpPanel = ""; return; }
+                bool accepted = trade.Accepted.Contains(myPid);
+
+                // Esc — отмена (decline до подтверждения, cancel после)
+                if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
+                {
+                    MpClient!.SendTrade(other, accepted ? "cancel" : "decline");
+                    MpPanel = "";
+                    return;
+                }
+
+                // Y — принять заявку
+                if (!accepted && keys.IsKeyDown(Keys.Y) && !prevKeys.IsKeyDown(Keys.Y))
+                { MpClient!.SendTrade(other, "accept"); return; }
+
+                if (!accepted) return;
+
+                var myOffer = trade.Offers.GetValueOrDefault(myPid.ToString())
+                    ?? new Dictionary<string, int>();
+                var myKeys = myOffer.Keys.OrderBy(k => k).ToList();
+                if (MpTradeSel >= myKeys.Count) MpTradeSel = Math.Max(0, myKeys.Count - 1);
+
+                // R — подтвердить (net/core.py:trade_ready)
+                if (keys.IsKeyDown(Keys.R) && !prevKeys.IsKeyDown(Keys.R))
+                { MpClient!.SendTrade(other, "ready"); return; }
+
+                // Q/E — выбор предмета моего предложения
+                if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
+                    MpTradeSel = Math.Max(0, MpTradeSel - 1);
+                if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
+                    MpTradeSel = Math.Min(myKeys.Count - 1, MpTradeSel + 1);
+
+                // X — убрать выбранный предмет из предложения
+                if (keys.IsKeyDown(Keys.X) && !prevKeys.IsKeyDown(Keys.X)
+                    && myKeys.Count > 0 && MpTradeSel < myKeys.Count)
+                { MpClient!.SendTrade(other, "remove", myKeys[MpTradeSel]); return; }
+
+                // Золото: C +10 · V −10 · B +100 (в python — кнопки в окне)
+                int myGold = trade.Gold.GetValueOrDefault(myPid.ToString());
+                if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C)
+                    && myGold + 10 <= my.Gold)
+                    MpClient!.SendTrade(other, "gold", null, 1, myGold + 10);
+                if (keys.IsKeyDown(Keys.V) && !prevKeys.IsKeyDown(Keys.V)
+                    && myGold - 10 >= 0)
+                    MpClient!.SendTrade(other, "gold", null, 1, myGold - 10);
+                if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B)
+                    && myGold + 100 <= my.Gold)
+                    MpClient!.SendTrade(other, "gold", null, 1, myGold + 100);
+
+                // 1–9 — добавить предмет из инвентаря (×1)
+                var inv = my.Inventory.Keys.OrderBy(k => k).ToList();
+                for (int i = 0; i < 9 && i < inv.Count; i++)
+                {
+                    var key = Keys.D1 + i;
+                    if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
+                    { MpClient!.SendTrade(other, "add", inv[i]); return; }
                 }
                 break;
             }

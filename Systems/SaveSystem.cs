@@ -358,6 +358,19 @@ public static class SaveSystem
         return (data.Player.Level, data.Player.ClassName, data.Timestamp);
     }
 
+    /// <summary>Подробная инфа слота для меню (parity core/save.py:save_slot_info).</summary>
+    public sealed record SlotInfoEx(int Level, string ClassKey, string Class,
+        DateTime Timestamp, string WorldMode, int Depth, int Gold);
+
+    public static SlotInfoEx? SlotInfoFull(int slot)
+    {
+        var data = Load(slot);
+        if (data == null) return null;
+        return new SlotInfoEx(data.Player.Level, data.Player.ClassKey,
+            data.Player.ClassName, data.Timestamp, data.World.Mode,
+            data.World.Depth, data.Player.Gold);
+    }
+
     /// <summary>
     /// Delete a save slot.
     /// </summary>
