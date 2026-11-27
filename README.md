@@ -62,7 +62,7 @@ dotnet run --project Aethelgard.csproj
 dotnet test Aethelgard.sln -c Release
 ```
 
-22 xUnit-теста проверяют сохранения и `FloorData`, сетевой протокол и HMAC,
+37 xUnit-тестов (включая валидатор ссылочной целостности данных) проверяют сохранения и `FloorData`, сетевой протокол и HMAC,
 PBKDF2-пароли, эффекты классов/узлов, детерминизм генерации мира и общую
 симуляцию SP/MP (создание персонажа, бой, магазин, статы, навыки).
 GitHub Actions (`.github/workflows/ci.yml`) собирает решение с

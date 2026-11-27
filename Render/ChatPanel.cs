@@ -80,11 +80,11 @@ public static class ChatPanel
         // ── Сообщения выбранной вкладки ──
         var list = game.ChatViewTab switch
         {
-            1 => game.Chat.For(GameChat.Tab.Combat),
-            2 => game.Chat.For(GameChat.Tab.Items),
-            3 => game.Chat.For(GameChat.Tab.Social),
-            4 => game.Chat.For(GameChat.Tab.Xp),
-            _ => game.Chat.All,
+            1 => game.Chat.TabSafe(GameChat.Tab.Combat),
+            2 => game.Chat.TabSafe(GameChat.Tab.Items),
+            3 => game.Chat.TabSafe(GameChat.Tab.Social),
+            4 => game.Chat.TabSafe(GameChat.Tab.Xp),
+            _ => game.Chat.AllSafe,
         };
         int visible = ListRect.Height / LineH;
         int maxScroll = Math.Max(0, list.Count - visible);

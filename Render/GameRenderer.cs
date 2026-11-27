@@ -33,6 +33,7 @@ public class GameRenderer
     /// </summary>
     public void Draw(GameController game, MouseState? mouse = null)
     {
+        _tiles.DrainDisposals();   // dispose выброшенных текстур до Begin
         var d = game.CurrentMap;
         var player = game.Player;
 
@@ -128,22 +129,24 @@ public class GameRenderer
         }
     }
 
+    private readonly List<(int Y, Entity M, Player? P)> _drawList = new();
+
     private void DrawEntities(Dungeon d, Player player)
     {
         // Y-sort: сущности рисуются по возрастанию Y, а не игрок всегда
         // поверх — раньше монстр выше игрока перекрывался им, что выдавало
-        // «дешёвый» top-down в бою. Кортежи вместо замыканий — без аллокаций
-        // делегатов на каждый кадр.
-        var drawList = new List<(int Y, Entity M, Player? P)>();
+        // «дешёвый» top-down в бою. Кортежи вместо замыканий, список
+        // переиспользуется между кадрами (без аллокаций на каждый кадр).
+        _drawList.Clear();
         foreach (var m in d.Monsters)
         {
             if (!m.Alive) continue;
             if (!IsVisible(m.X, m.Y)) continue;
-            drawList.Add((m.Y, m, null));
+            _drawList.Add((m.Y, m, null));
         }
-        drawList.Add((player.Y, null!, player));
-        drawList.Sort((a, b) => a.Y.CompareTo(b.Y));
-        foreach (var (_, m, p) in drawList)
+        _drawList.Add((player.Y, null!, player));
+        _drawList.Sort((a, b) => a.Y.CompareTo(b.Y));
+        foreach (var (_, m, p) in _drawList)
         {
             if (p == null) DrawMonster(m);
             else DrawPlayer(p);
@@ -614,6 +617,11 @@ public class GameRenderer
             {
                 _blank = new Texture2D(_device, 1, 1);
                 _blank.SetData(new[] { Color.White });
+                GpuReset.Register(_device, () =>
+                {
+                    try { _blank?.Dispose(); } catch { }
+                    _blank = null;
+                });
             }
             return _blank;
         }

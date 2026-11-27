@@ -225,7 +225,11 @@ public class DevConsole
     {
         if (args.Length < 1) return "Использование: give <предмет> [N]";
         string key = args[0];
-        int count = args.Length > 1 && int.TryParse(args[1], out var n) ? n : 1;
+        // Клампы: отрицательное N раньше создавало записи с отрицательным
+        // количеством в инвентаре (и попадало в сейв)
+        int count = args.Length > 1 && int.TryParse(args[1], out var n)
+            ? Math.Clamp(n, 1, 999) : 1;
+        if (ItemData.Get(key) == null) return $"Неизвестный предмет: {key}";
         game.Player.AddItem(key, count);
         return $"Выдано: {ItemData.DisplayName(key)} ×{count}";
     }

@@ -48,6 +48,11 @@ public class BigmapScreen
             {
                 _blank = new Texture2D(_device, 1, 1);
                 _blank.SetData(new[] { Color.White });
+                GpuReset.Register(_device, () =>
+                {
+                    try { _blank?.Dispose(); } catch { }
+                    _blank = null;
+                });
             }
             return _blank;
         }

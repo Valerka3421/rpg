@@ -48,7 +48,8 @@ public class TileRenderer : IDisposable
         }
     }
 
-    /// <summary>Очистить кэш процедурных текстур.</summary>
+    /// <summary>Очистить кэш процедурных текстур (DeviceReset — рисование
+    /// не идёт, dispose безопасен сразу).</summary>
     public void ClearCache()
     {
         foreach (var tex in _cache.Values)
@@ -63,6 +64,22 @@ public class TileRenderer : IDisposable
     {
         _instances.Remove(this);
         ClearCache();
+    }
+
+    // «Кладбище» выброшенных текстур: Dispose посреди открытого SpriteBatch
+    // (Deferred) рисовал по удалённому GPU-ресурсу — старейший тайл обычно
+    // уже в очереди этого кадра. Освобождаем только в начале следующего кадра.
+    private readonly List<Texture2D> _graveyard = new();
+
+    /// <summary>Вызывается рендерами в начале Draw (до SpriteBatch.Begin).</summary>
+    public void DrainDisposals()
+    {
+        if (_graveyard.Count == 0) return;
+        foreach (var tex in _graveyard)
+        {
+            try { tex.Dispose(); } catch { }
+        }
+        _graveyard.Clear();
     }
 
     /// <summary>
@@ -85,9 +102,7 @@ public class TileRenderer : IDisposable
             var oldest = _insertOrder.Last!.Value;
             _insertOrder.RemoveLast();
             if (_cache.Remove(oldest, out var stale))
-            {
-                try { stale.Dispose(); } catch { }
-            }
+                _graveyard.Add(stale);   // dispose отложен до следующего кадра
         }
 
         tex = GenerateTile(kind, variant, band / 20f);

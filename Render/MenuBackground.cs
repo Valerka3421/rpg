@@ -28,6 +28,17 @@ public class MenuBackground
         _device = device;
         _blank = new Texture2D(device, 1, 1);
         _blank.SetData(new[] { Color.White });
+        // DeviceReset инвалидирует _terrain/_vignette/_blank: раньше кэш
+        // считался валидным (_terrain != null) и меню рисовало мусор
+        GpuReset.Register(device, () =>
+        {
+            try { _terrain?.Dispose(); } catch { }
+            try { _vignette?.Dispose(); } catch { }
+            _terrain = null;
+            _vignette = null;
+            _builtSw = 0;
+            _builtSh = 0;
+        });
     }
 
     public void Draw(SpriteBatch sb, int sw, int sh, float t)
@@ -178,6 +189,13 @@ public class MenuBackground
                     (int)(d.B * (1 - a) + 6 * a));
             }
         }
+
+        // Пересоздание при смене разрешения: освобождаем прежние текстуры
+        // (раньше ~1920×1480 утекали на каждую смену разрешения)
+        try { _terrain?.Dispose(); } catch { }
+        try { _vignette?.Dispose(); } catch { }
+        _terrain = null;
+        _vignette = null;
 
         _terrain = new Texture2D(_device, _w, _h, false, SurfaceFormat.Color);
         _terrain.SetData(px);

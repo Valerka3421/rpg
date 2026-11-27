@@ -283,6 +283,12 @@ public static class SaveSystem
             foreach (var (_, map) in game.GetLocationCache().OrderBy(kv => kv.Key))
                 data.Floors.Add(FloorToData(0, map));
 
+            // Оверворлд (деревня): раньше не сохранялся вовсе — лут, сундуки,
+            // убитые монстры и добытые ресурсы на поверхности сбрасывались
+            // при каждой загрузке. Depth 0 + пустой LocationKey = оверворлд
+            // (локации тоже пишутся с depth 0, но с заполненным ключом).
+            data.Floors.Add(FloorToData(0, game.Overworld));
+
             string path = SlotPath(slot);
             string json = Serialize(data);
             // Атомарная запись: .tmp + replace; прежний файл остаётся в .bak —
@@ -461,8 +467,13 @@ public static class SaveSystem
             foreach (var fd in data.Floors)
             {
                 var floor = FloorFromData(fd);
-                if (floor != null)
-                    game.SetFloorCache(fd.Depth, floor, fd.LocationKey);
+                if (floor == null) continue;
+                // Depth 0 + пустой LocationKey — сохранённый оверворлд:
+                // подменяем свежесгенерированное поле, иначе лут/сундуки/
+                // ресурсы поверхности терялись при каждой загрузке
+                if (fd.Depth == 0 && string.IsNullOrEmpty(fd.LocationKey))
+                    game.Overworld = floor;
+                game.SetFloorCache(fd.Depth, floor, fd.LocationKey);
             }
 
             // Restore world mode/depth/location

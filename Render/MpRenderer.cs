@@ -41,6 +41,7 @@ public class MpRenderer
     public void Draw(GameController game)
     {
         _game = game;
+        _tiles.DrainDisposals();   // dispose выброшенных текстур до Begin
         var snap = game.MpSnapshot;
         if (snap == null || _font == null)
         {
@@ -73,11 +74,19 @@ public class MpRenderer
             return;
         }
 
-        // Camera: игрок по центру (кроме краёв карты)
+        // Camera: по интерполированной позиции своего игрока — иначе камера
+        // прыгает по снапшоту, а спрайт доезжает лерпом (визуальный разъезд)
         int worldW = AethelgardGame.ScreenW;
         int worldH = AethelgardGame.ScreenH - Config.HudHeight;
-        _camX = myState.X * Config.TileSize + Config.TileSize / 2 - worldW / 2;
-        _camY = myState.Y * Config.TileSize + Config.TileSize / 2 - worldH / 2;
+        float alpha = Math.Clamp(_game.MpSinceSnapshot / Net.GameServer.SnapshotInterval, 0f, 1f);
+        float myXi = myState.X, myYi = myState.Y;
+        if (_game.MpPrevPlayerPos.TryGetValue(myState.Pid, out var myPrev))
+        {
+            myXi = MathHelper.Lerp(myPrev.X, myState.X, alpha);
+            myYi = MathHelper.Lerp(myPrev.Y, myState.Y, alpha);
+        }
+        _camX = (int)(myXi * Config.TileSize + Config.TileSize / 2 - worldW / 2);
+        _camY = (int)(myYi * Config.TileSize + Config.TileSize / 2 - worldH / 2);
         _camX = Math.Max(0, Math.Min(_camX, Math.Max(0, snap.MapW * Config.TileSize - worldW)));
         _camY = Math.Max(0, Math.Min(_camY, Math.Max(0, snap.MapH * Config.TileSize - worldH)));
 
@@ -129,7 +138,7 @@ public class MpRenderer
     /// </summary>
     private static string KindFor(Snapshot snap, int x, int y)
     {
-        int t = x < 0 || x >= snap.MapW || y < 0 || y >= snap.Tiles.Count
+        int t = x < 0 || x >= snap.MapW || y < 0 || snap.Tiles == null || y >= snap.Tiles.Count
             ? (int)Tile.Wall
             : (snap.Tiles[y].Length > x ? snap.Tiles[y][x] - '0' : (int)Tile.Wall);
         switch ((Tile)t)
@@ -146,7 +155,7 @@ public class MpRenderer
 
     private void DrawTiles(Snapshot snap, Snapshot.PlayerState myState)
     {
-        if (snap.Tiles.Count == 0)
+        if (snap.Tiles == null || snap.Tiles.Count == 0)
         {
             // Старый сервер без тайлов — fallback: пол
             DrawTilesFallback(snap, myState);
@@ -174,7 +183,10 @@ public class MpRenderer
                                       y * Config.TileSize - _camY);
                 _sb.Draw(tex, pos, Color.White);
 
-                // Замок/сундук — цветная метка поверх земли (как в миникарте SP)
+                // Замок/сундук — цветная метка поверх земли (как в миникарте SP).
+                // Проверка длины строки: «короткий» снапшот (старая/битая
+                // версия сервера) раньше ронял клиента IndexOutOfRange
+                if (x >= snap.Tiles[y].Length) continue;
                 int tile = snap.Tiles[y][x] - '0';
                 Color? mark = ((Tile)tile) switch
                 {
@@ -280,7 +292,7 @@ public class MpRenderer
     {
         // Интерполяция между предыдущим и текущим снапшотом (20 Гц сервер):
         // без неё координаты «прыгали» на клетку при каждом обновлении.
-        float alpha = Math.Clamp(_game.MpSinceSnapshot / 0.05f, 0f, 1f);
+        float alpha = Math.Clamp(_game.MpSinceSnapshot / Net.GameServer.SnapshotInterval, 0f, 1f);
         foreach (var p in snap.Players)
         {
             Vector2 pos;
@@ -427,18 +439,19 @@ public class MpRenderer
         int chatY = AethelgardGame.ScreenH - Config.HudHeight - 200;
         int chatW = 400;
 
-        // События мира (боевой лог) — 3 последние над чатом
-        var events = snap.Events.TakeLast(3).ToList();
-        for (int i = 0; i < events.Count; i++)
-            _sb.DrawString(_font, events[i],
-                new Vector2(chatX, chatY - (events.Count - i) * 18), Config.ColDim);
+        // События мира (боевой лог) — 3 последние над чатом.
+        // Индексный обход вместо TakeLast().ToList(): без аллокаций в кадре
+        int evCount = Math.Min(3, snap.Events.Count);
+        for (int i = 0; i < evCount; i++)
+            _sb.DrawString(_font, snap.Events[snap.Events.Count - evCount + i],
+                new Vector2(chatX, chatY - (evCount - i) * 18), Config.ColDim);
 
         // Chat log (last 8 messages)
-        var recent = game.ChatLog.TakeLast(8).ToList();
-        for (int i = 0; i < recent.Count; i++)
+        int chatCount = Math.Min(8, game.ChatLog.Count);
+        for (int i = 0; i < chatCount; i++)
         {
-            _sb.DrawString(_font, recent[i], new Vector2(chatX, chatY + i * 18),
-                Config.ColText);
+            _sb.DrawString(_font, game.ChatLog[game.ChatLog.Count - chatCount + i],
+                new Vector2(chatX, chatY + i * 18), Config.ColText);
         }
 
         if (game.ChatActive)
@@ -655,8 +668,8 @@ public class MpRenderer
         int cy = y + 34;
         foreach (var line in all)
         {
-            _sb.DrawString(_font!, line, new Vector2(x + 12, cy),
-                numbered != null && numbered.Contains(line) ? Config.ColText : Config.ColText);
+            // Мёртвый тернарник (обе ветки ColText) и O(n²) Contains убраны
+            _sb.DrawString(_font!, line, new Vector2(x + 12, cy), Config.ColText);
             cy += lineH;
         }
         _sb.DrawString(_font!, hints, new Vector2(x + 12, y + h - 26), Config.ColDim);
@@ -697,6 +710,11 @@ public class MpRenderer
             {
                 _blank = new Texture2D(_device, 1, 1);
                 _blank.SetData(new[] { Color.White });
+                GpuReset.Register(_device, () =>
+                {
+                    try { _blank?.Dispose(); } catch { }
+                    _blank = null;
+                });
             }
             return _blank;
         }

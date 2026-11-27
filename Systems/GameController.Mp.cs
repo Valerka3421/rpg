@@ -15,7 +15,9 @@ public partial class GameController
         MpClient = client;
         IsMultiplayer = true;
         ScreenMode = Screens.MpGame;
-        Player = new Player(string.IsNullOrEmpty(classKey) ? "warrior" : classKey);
+        // Через фабрику, как на сервере: раньше локальная копия создавалась
+        // мимо CharacterFactory и не имела стартового набора/экипировки
+        Player = CharacterFactory.Create(string.IsNullOrEmpty(classKey) ? "warrior" : classKey);
     }
 
     /// <summary>
@@ -86,6 +88,10 @@ public partial class GameController
         ChatActive = false;
         _seenMpChat.Clear();
         _seenMpEvents.Clear();
+        // Интерполяция: без сброса повторный вход в MP лерпил от позиций
+        // прошлой сессии
+        MpPrevPlayerPos.Clear();
+        MpSinceSnapshot = 0f;
     }
 
     /// <summary>Синхронизирует видимые настройки (FPS, мини-карта, звук).</summary>
@@ -646,11 +652,17 @@ public partial class GameController
         var snap = MpClient.GetSnapshot();
         if (snap != null && !ReferenceEquals(snap, MpSnapshot))
         {
-            // Новый снапшот: запоминаем прошлые позиции игроков для интерполяции
+            // Новый снапшот: запоминаем прошлые позиции игроков для интерполяции.
+            // Дальние скачки (телепорт/смена этажа/респавн) не лерпятся —
+            // иначе спрайт «проносится дугой» через всю карту за 50 мс.
             MpPrevPlayerPos.Clear();
             if (MpSnapshot != null)
                 foreach (var p in MpSnapshot.Players)
-                    MpPrevPlayerPos[p.Pid] = (p.X, p.Y);
+                {
+                    var cur = snap.Players.FirstOrDefault(q => q.Pid == p.Pid);
+                    if (cur != null && Math.Abs(cur.X - p.X) + Math.Abs(cur.Y - p.Y) <= 3)
+                        MpPrevPlayerPos[p.Pid] = (p.X, p.Y);
+                }
             MpSinceSnapshot = 0f;
             MpSnapshot = snap;
         }

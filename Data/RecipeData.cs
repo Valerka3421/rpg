@@ -124,13 +124,28 @@ public static partial class RecipeData
 
         string wk = weaponPool[rng.Next(weaponPool.Length)];
         string ak = armorPool[rng.Next(armorPool.Length)];
-        int wr = ItemData.RollRarity();
-        int ar = ItemData.RollRarity();
+        // Редкость из сидированного rng, а не ItemData.RollRarity() (Random.Shared):
+        // генерация стока должна быть детерминированной при фиксированном seed
+        int wr = RollRaritySeeded(rng);
+        int ar = RollRaritySeeded(rng);
         Add(ItemData.MakeLootKey(wk, wr), 15 * tier + wr * 10);
         Add(ItemData.MakeLootKey(ak, ar), 12 * tier + ar * 10);
         Add(headPool[0], 8 * tier);
         Add(legsPool[rng.Next(legsPool.Length)], 8 * tier);
         Add(bootsPool[rng.Next(bootsPool.Length)], 6 * tier);
         return stock;
+    }
+
+    /// <summary>RollRarity для сидированной генерации (те же шансы, что в ItemData).</summary>
+    private static int RollRaritySeeded(Random rng)
+    {
+        double r = rng.NextDouble();
+        double c = 0;
+        foreach (var (level, chance) in ItemData.RarityChances)
+        {
+            c += chance;
+            if (r < c) return level;
+        }
+        return 0;
     }
 }

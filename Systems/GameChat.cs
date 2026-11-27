@@ -23,12 +23,46 @@ public class GameChat
 
     private readonly List<Entry>[] _tabs = { new(), new(), new(), new() };
     private readonly List<Entry> _all = new();
+    // Хост-игра пишет в журнал и из серверного потока (Rules/MonsterAI в
+    // UpdateLoop), пока UI-поток читает списки в рендере — нужен общий лок
+    private readonly object _lock = new();
 
     /// <summary>Глобальный журнал (правила боя/предметов пишут сюда).</summary>
     public static GameChat Instance { get; set; } = new();
 
     public IReadOnlyList<Entry> All => _all;
     public IReadOnlyList<Entry> For(Tab tab) => _tabs[(int)tab];
+
+    // ── Потокобезопасное чтение для рендера ──
+    // Живые списки мутируются под _lock из серверного потока; рендер получает
+    // кэшированные копии, обновляемые только при смене версии (без аллокаций
+    // в кадрах без новых сообщений).
+    public int Version { get; private set; }
+    private List<Entry>? _allCache; private int _allCacheVer = -1;
+    private readonly List<Entry>?[] _tabCache = new List<Entry>?[4];
+    private readonly int[] _tabCacheVer = { -1, -1, -1, -1 };
+
+    public IReadOnlyList<Entry> AllSafe
+    {
+        get
+        {
+            lock (_lock)
+            {
+                if (_allCacheVer != Version) { _allCache = _all.ToList(); _allCacheVer = Version; }
+                return _allCache!;
+            }
+        }
+    }
+
+    public IReadOnlyList<Entry> TabSafe(Tab tab)
+    {
+        lock (_lock)
+        {
+            int i = (int)tab;
+            if (_tabCacheVer[i] != Version) { _tabCache[i] = _tabs[i].ToList(); _tabCacheVer[i] = Version; }
+            return _tabCache[i]!;
+        }
+    }
 
     /// <summary>
     /// Добавить сообщение: в общий журнал «Всё» и в перечисленные вкладки.
@@ -37,11 +71,14 @@ public class GameChat
         bool combat = false, bool items = false, bool social = false, bool xp = false)
     {
         var e = new Entry(text, color, DateTime.Now);
-        if (combat) Push(_tabs[(int)Tab.Combat], e);
-        if (items) Push(_tabs[(int)Tab.Items], e);
-        if (social) Push(_tabs[(int)Tab.Social], e);
-        if (xp) Push(_tabs[(int)Tab.Xp], e);
-        Push(_all, e);
+        lock (_lock)
+        {
+            if (combat) Push(_tabs[(int)Tab.Combat], e);
+            if (items) Push(_tabs[(int)Tab.Items], e);
+            if (social) Push(_tabs[(int)Tab.Social], e);
+            if (xp) Push(_tabs[(int)Tab.Xp], e);
+            Push(_all, e);
+        }
     }
 
     // ── Хелперы для типовых событий ──
@@ -61,5 +98,6 @@ public class GameChat
         list.Add(e);
         if (list.Count > MaxMessages)
             list.RemoveRange(0, list.Count - MaxMessages);
+        Instance.Version++;
     }
 }

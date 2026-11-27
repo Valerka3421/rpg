@@ -99,11 +99,18 @@ public class AudioSystem : IDisposable
 
         if (data != null)
         {
-            try
+            // SubmitBuffer под общим _lock: он вызывается и из аудио-потока
+            // (OnBufferNeeded), и из Play() любого потока (хост дёргает звук
+            // из серверного UpdateLoop) — параллельные SubmitBuffer не
+            // потокобезопасны
+            lock (_lock)
             {
-                _instance.SubmitBuffer(data, 0, data.Length);
+                try
+                {
+                    _instance.SubmitBuffer(data, 0, data.Length);
+                }
+                catch { }
             }
-            catch { }
         }
     }
 
@@ -437,6 +444,13 @@ public class AudioSystem : IDisposable
 
     public void Dispose()
     {
-        _instance?.Dispose();
+        // Под _lock: OnBufferNeeded может быть в PlayNext с _instance,
+        // который уже диспоузнут (ObjectDisposedException вне try)
+        lock (_lock)
+        {
+            _enabled = false;
+            _instance?.Dispose();
+            _instance = null;
+        }
     }
 }

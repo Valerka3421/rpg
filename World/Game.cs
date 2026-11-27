@@ -341,6 +341,15 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             switch (mode)
             {
                 case ScreenMode.MpGame:
+                    // Сначала контекстные действия (закрыть попап обмена/дуэли,
+                    // ввод чата) — раньше ESC в любой момент рвал соединение,
+                    // и подсказка «Esc — отмена» была мёртвой
+                    if (_game.MpPopupPid.HasValue || _game.ChatActive)
+                    {
+                        _game.HandleInput(keys, _prevKeys, dt);
+                        escConsumed = true;
+                        break;
+                    }
                     // Отключиться и вернуться в главное меню
                     _game.StopMultiplayer();
                     _game.ScreenMode = ScreenMode.Menu;

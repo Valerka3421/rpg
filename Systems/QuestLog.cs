@@ -130,8 +130,14 @@ public class QuestLog
     private void Complete(string qKey)
     {
         if (!Active.TryGetValue(qKey, out var state)) return;
-        Active.Remove(qKey);
-        if (!state.Generated) Completed.Add(qKey);
+        if (!state.Generated)
+        {
+            Active.Remove(qKey);
+            Completed.Add(qKey);
+        }
+        // Generated-квест остаётся в Active с Progress==Count: награда
+        // выдаётся через TurnInGenerated у доски. Раньше квест удалялся
+        // из Active и его награда была принципиально недостижима.
     }
 
     private static QuestData.Def GeneratedDef(QuestState s) => new()

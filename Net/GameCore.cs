@@ -117,6 +117,25 @@ public class GameCore
         return player;
     }
 
+    /// <summary>
+    /// Вернуть выпавшего игрока при реконнекте (по токену клиента) с теми же
+    /// статами. Позиция — в деревню (карта могла смениться, пока его не было).
+    /// </summary>
+    public void ReattachPlayer(int pid, Player player)
+    {
+        Players[pid] = player;
+        player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
+        player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
+        if (_worldMode != "overworld")
+        {
+            _worldMode = "overworld";
+            _currentLocation = null;
+            Dungeon = Overworld;
+            Depth = 0;
+        }
+        AddEvent($"Игрок {pid} вернулся в отряд ({player.ClassName})");
+    }
+
     public void RemovePlayer(int pid)
     {
         CancelTrade(pid, "opponent left");
@@ -124,7 +143,12 @@ public class GameCore
         Players.Remove(pid);
         // Кулдаун снимается только ушедшему игроку: раньше Clear() сбрасывал
         // кулдауны атак всех оставшихся.
-        if (gone != null) _lastAttack.Remove(gone);
+        if (gone != null)
+        {
+            _lastAttack.Remove(gone);
+            _lastStairs.Remove(gone);
+            _deathTimes.Remove(gone);
+        }
         AddEvent($"Игрок {pid} покинул игру");
     }
 
@@ -333,16 +357,8 @@ public class GameCore
         if (msg.TradeTarget.HasValue && !string.IsNullOrEmpty(msg.TradeAction))
             HandleTrade(pid, player, msg);
 
-        if (msg.ChatText != null)
-        {
-            // Санитизация чата: сжатие пробелов + обрезка 120 символов
-            string clean = Config.SanitizeChat(msg.ChatText);
-            if (clean.Length > 0)
-            {
-                ChatLog.Add((pid, clean));
-                if (ChatLog.Count > 20) ChatLog.RemoveAt(0);
-            }
-        }
+        // Чат обрабатывается сервером в ветке msg.Type == "chat" (Server.cs),
+        // сюда "input" с ChatText не доходит — ветка удалена как мёртвая.
     }
 
     // ── Trade sessions ──
@@ -562,14 +578,31 @@ public class GameCore
         var monster = CurrentMap.MonsterAt(nx, ny);
         if (monster != null && !monster.IsNpc)
         {
+            // Тот же серверный кулдаун, что у Space-атаки: иначе атака
+            // «шагом в монстра» обходит его (rate-limit 240 cmd/s =
+            // 240 атак в секунду — DPS-эксплойт)
+            var now = DateTime.UtcNow;
+            if (_lastAttack.TryGetValue(player, out var lastAtk)
+                && (now - lastAtk).TotalSeconds < Config.PlayerAttackCooldown)
+                return;
+            _lastAttack[player] = now;
+
             var outcome = CombatSystem.Attack(player, monster);
             if (outcome.Killed) KillMonster(player, monster);
             return;
         }
 
         var tile = CurrentMap.Tiles[ny][nx];
-        if (tile == Tile.Wall || tile == Tile.LockedDoor || tile == Tile.Chest)
+        if (tile == Tile.Wall || tile == Tile.Chest)
             return;
+        // Запертая дверь: открывается ключом босса (parity с SP
+        // Rules.TryUnlockDoor) — раньше в MP она была непроходима вовсе,
+        // а лестница вниз боссовых этажей лежит за ней в казне
+        if (tile == Tile.LockedDoor)
+        {
+            Rules.TryUnlockDoor(player, CurrentMap, nx, ny);
+            return;
+        }
 
         // Check for other players
         foreach (var other in Players.Values)
@@ -625,6 +658,13 @@ public class GameCore
         }
         if (tile == Tile.Stairs)
         {
+            // Кулдаун лестниц: спам F на лестнице раньше мотал отряд по
+            // этажам (каждый input — Depth++).
+            if (_lastStairs.TryGetValue(player, out var lastStairs)
+                && (DateTime.UtcNow - lastStairs).TotalSeconds < StairsCooldownSeconds)
+                return;
+            _lastStairs[player] = DateTime.UtcNow;
+
             if (_worldMode == "overworld")
             {
                 _worldMode = "dungeon";
@@ -639,26 +679,33 @@ public class GameCore
                 Dungeon = GetOrGenerateFloor(Depth);
                 AddEvent($"Отряд спустился на этаж {Depth}");
             }
-            PlacePlayerAtEntry(player);
+            // Групповой переход: весь отряд переезжает на точку входа.
+            // Раньше переносился только нажавший — остальные оставались
+            // со старыми координатами на новой карте (в стене/вне пола).
+            RespawnPlayersNear(EntryPointOf(Dungeon));
             Quests.UpdateReach(Depth);
         }
         else if (tile == Tile.UpStairs && _worldMode == "dungeon")
         {
+            if (_lastStairs.TryGetValue(player, out var lastUp)
+                && (DateTime.UtcNow - lastUp).TotalSeconds < StairsCooldownSeconds)
+                return;
+            _lastStairs[player] = DateTime.UtcNow;
+
             if (Depth <= 1)
             {
                 _worldMode = "overworld";
                 _currentLocation = null;
                 Dungeon = Overworld;
                 Depth = 0;
-                player.X = Aethelgard.World.Overworld.DungeonPos.Item1;
-                player.Y = Aethelgard.World.Overworld.DungeonPos.Item2;
+                RespawnPlayersNear(Aethelgard.World.Overworld.DungeonPos);
                 AddEvent("Отряд вернулся на поверхность");
             }
             else
             {
                 Depth--;
                 Dungeon = GetOrGenerateFloor(Depth);
-                PlacePlayerAtEntry(player);
+                RespawnPlayersNear(EntryPointOf(Dungeon));
             }
         }
         else if (tile == Tile.Exit && _worldMode == "dungeon")
@@ -667,8 +714,7 @@ public class GameCore
             _currentLocation = null;
             Dungeon = Overworld;
             Depth = 0;
-            player.X = Aethelgard.World.Overworld.DungeonPos.Item1;
-            player.Y = Aethelgard.World.Overworld.DungeonPos.Item2;
+            RespawnPlayersNear(Aethelgard.World.Overworld.DungeonPos);
             AddEvent("Отряд вернулся на поверхность");
         }
     }
@@ -678,7 +724,7 @@ public class GameCore
     {
         var pos = (player.X, player.Y);
         if (!CurrentMap.Transitions.TryGetValue(pos, out var transition)) return;
-        var (to, _) = transition;
+        var (to, entry) = transition;
 
         if (to == "village" || to == "overworld")
         {
@@ -696,7 +742,9 @@ public class GameCore
         }
         _currentLocation = map;
         _worldMode = "overworld";
-        RespawnPlayersNear((1, map.H / 2));
+        // Точка входа из перехода вместо хардкода (1, H/2)
+        var (ex, ey) = entry;
+        RespawnPlayersNear((Math.Clamp(ex, 1, map.W - 2), Math.Clamp(ey, 1, map.H - 2)));
         AddEvent($"Отряд вошёл в: {Locations.All[to].Name}");
     }
 
@@ -737,19 +785,28 @@ public class GameCore
 
     private void PlacePlayerAtEntry(Player player)
     {
-        for (int y = 0; y < Dungeon.H; y++)
-            for (int x = 0; x < Dungeon.W; x++)
+        var (ex, ey) = EntryPointOf(Dungeon);
+        player.X = ex;
+        player.Y = ey;
+    }
+
+    private const double StairsCooldownSeconds = 1.5;
+    private readonly Dictionary<Player, DateTime> _lastStairs = new();
+
+    private const double RespawnDelaySeconds = 3.0;
+    private readonly Dictionary<Player, DateTime> _deathTimes = new();
+
+    /// <summary>Точка входа этажа (лестница вверх/выход), или центр карты.</summary>
+    private (int X, int Y) EntryPointOf(Dungeon d)
+    {
+        for (int y = 0; y < d.H; y++)
+            for (int x = 0; x < d.W; x++)
             {
-                var t = Dungeon.Tiles[y][x];
+                var t = d.Tiles[y][x];
                 if (t == Tile.Exit || t == Tile.UpStairs)
-                {
-                    player.X = x;
-                    player.Y = y;
-                    return;
-                }
+                    return (x, y);
             }
-        player.X = Dungeon.W / 2;
-        player.Y = Dungeon.H / 2;
+        return (d.W / 2, d.H / 2);
     }
 
     /// <summary>
@@ -775,7 +832,7 @@ public class GameCore
         _statusAccum += dt;
         if (_statusAccum >= Config.StatusTickInterval)
         {
-            _statusAccum = 0;
+            _statusAccum -= Config.StatusTickInterval;
             foreach (var p in Players.Values) p.TickStatuses();
             foreach (var m in CurrentMap.Monsters) m.TickStatuses();
         }
@@ -784,7 +841,7 @@ public class GameCore
         _regenTimer += dt;
         if (_regenTimer >= Config.RegenTickInterval)
         {
-            _regenTimer = 0;
+            _regenTimer -= Config.RegenTickInterval;
             foreach (var p in Players.Values)
             {
                 if (!p.Alive) continue;
@@ -795,16 +852,33 @@ public class GameCore
             }
         }
 
-        // Respawn dead players with full HP (test_net.py: respawn)
+        // Respawn dead players: задержка и перенос в деревню.
+        // Раньше смерть отрабатывала как мгновенный полный хил на следующем
+        // тике (~16 мс) — «суицид-хил» в толпе монстром без последствий.
         foreach (var p in Players.Values)
         {
-            if (!p.Alive)
+            if (p.Alive) continue;
+            if (!_deathTimes.TryGetValue(p, out var died))
             {
-                p.Hp = p.MaxHp;
-                p.Mana = p.MaxMana;
-                p.Statuses.Clear();
-                AddEvent("Игрок возрождён");
+                _deathTimes[p] = DateTime.UtcNow;
+                continue;
             }
+            if ((DateTime.UtcNow - died).TotalSeconds < RespawnDelaySeconds)
+                continue;
+            _deathTimes.Remove(p);
+            p.Hp = p.MaxHp;
+            p.Mana = p.MaxMana;
+            p.Statuses.Clear();
+            // Респавн в деревне, а не на месте смерти посреди монстров
+            if (_worldMode != "overworld" || _currentLocation != null)
+            {
+                _worldMode = "overworld";
+                _currentLocation = null;
+                Dungeon = Overworld;
+                Depth = 0;
+            }
+            RespawnPlayersNear(Aethelgard.World.Overworld.VillageCenter);
+            AddEvent($"Игрок {p.Name} возрождён в деревне");
         }
 
         // Harvest regrow
@@ -1124,6 +1198,13 @@ public class GameCore
                     ["skill_nodes"] = p.LearnedNodes.ToList(),
                     ["skill_points"] = p.SkillPoints,
                     ["blueprints"] = p.Blueprints.ToList(),
+                    // Раньше терялись при «Продолжить игру» в MP
+                    ["free_points"] = p.FreePoints,
+                    ["class_changes"] = p.ClassChanges,
+                    ["craft_levels"] = p.CraftLevels,
+                    ["craft_xp"] = p.CraftXp,
+                    ["hotbar"] = p.Quickbar.ToList(),
+                    ["statuses"] = p.Statuses,
                 };
             }
 
@@ -1425,6 +1506,35 @@ public class GameCore
             {
                 var bps = JsonSerializer.Deserialize<List<string>>(bpEl.GetRawText());
                 if (bps != null) player.Blueprints = new HashSet<string>(bps);
+            }
+            // Раньше терялись при загрузке MP-мира
+            if (s.TryGetValue("free_points", out var fp))
+                player.FreePoints = int.Parse(fp?.ToString() ?? "0");
+            if (s.TryGetValue("class_changes", out var cc))
+                player.ClassChanges = Math.Clamp(int.Parse(cc?.ToString() ?? "0"), 0, 4);
+            if (s.TryGetValue("craft_levels", out var cl) && cl is JsonElement clEl)
+            {
+                var d = JsonSerializer.Deserialize<Dictionary<string, int>>(clEl.GetRawText());
+                if (d != null) player.CraftLevels = d.Where(kv =>
+                    kv.Key is "blacksmith" or "alchemy" or "magic_engineering")
+                    .ToDictionary(kv => kv.Key, kv => Math.Clamp(kv.Value, 1, 25));
+            }
+            if (s.TryGetValue("craft_xp", out var cx) && cx is JsonElement cxEl)
+            {
+                var d = JsonSerializer.Deserialize<Dictionary<string, int>>(cxEl.GetRawText());
+                if (d != null) player.CraftXp = d;
+            }
+            if (s.TryGetValue("hotbar", out var hb) && hb is JsonElement hbEl)
+            {
+                var list = JsonSerializer.Deserialize<List<string?>>(hbEl.GetRawText());
+                if (list != null)
+                    for (int i = 0; i < player.Quickbar.Length && i < list.Count; i++)
+                        player.Quickbar[i] = list[i];
+            }
+            if (s.TryGetValue("statuses", out var st2) && st2 is JsonElement stEl)
+            {
+                var d = JsonSerializer.Deserialize<Dictionary<string, int>>(stEl.GetRawText());
+                if (d != null) player.Statuses = d;
             }
             player.Recalc();
         }

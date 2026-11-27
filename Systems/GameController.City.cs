@@ -171,7 +171,8 @@ public partial class GameController
         if (Quests.AcceptGenerated(q))
         {
             generated.RemoveAt(genIdx);
-            QuestsDone++;
+            // QuestsDone — счётчик выполненных, а не принятых: раньше
+            // статистика забега росла при каждом принятии
             ShowMessage($"Принято задание: {q.Name}");
         }
     }

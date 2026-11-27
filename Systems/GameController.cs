@@ -1053,14 +1053,26 @@ public partial class GameController
         }
         _currentLocation = map;
         MarkVisited(to);
+        EnterLocationAt(map, entry);
+        ShowMessage($"Вы вошли в: {Locations.All[to].Name}.");
+    }
+
+    /// <summary>
+    /// Разместить игрока у точки входа локации. Раньше entry из перехода
+    /// выбрасывался и вход хардкодился в (1, H/2), хотя TransitionSave
+    /// честно сериализовал и восстанавливал EntryX/EntryY.
+    /// </summary>
+    private void EnterLocationAt(Dungeon map, (int X, int Y)? entry)
+    {
         // Вход — у врат локации (врата в первый столбец, вход справа от них)
-        var (entryX, entryY) = (1, map.H / 2);
+        var (entryX, entryY) = entry ?? (1, map.H / 2);
+        entryX = Math.Clamp(entryX, 1, map.W - 2);
+        entryY = Math.Clamp(entryY, 1, map.H - 2);
         if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
             CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
         Player.X = entryX;
         Player.Y = entryY;
         CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
-        ShowMessage($"Вы вошли в: {Locations.All[to].Name}.");
     }
 
     /// <summary>
@@ -1261,12 +1273,7 @@ public partial class GameController
         }
         _currentLocation = map;
         MarkVisited(key);
-        var (entryX, entryY) = (1, map.H / 2);
-        if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
-            CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
-        Player.X = entryX;
-        Player.Y = entryY;
-        CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
+        EnterLocationAt(map, null);
         ShowMessage($"Вы вошли в: {Locations.All[key].Name}.");
         return true;
     }

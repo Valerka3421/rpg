@@ -99,6 +99,9 @@ public class GameClient
         try
         {
             host = ValidateHost(host);
+            // Повторный Connect на том же объекте: глушим старое соединение,
+            // чтобы не плодить параллельные RecvLoop/PingLoop
+            if (_tcp != null) Disconnect();
             _tcp = new TcpClient();
             _tcp.Connect(host, port);
             _stream = _tcp.GetStream();
@@ -117,7 +120,7 @@ public class GameClient
             };
             SendMsg(hello);
 
-            // Start receiving
+            // Start receiving (старые потоки остановлены Disconnect'ом выше)
             _recvThread = new Thread(RecvLoop) { IsBackground = true };
             _recvThread.Start();
             _pingThread = new Thread(PingLoop) { IsBackground = true };

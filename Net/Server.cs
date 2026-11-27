@@ -38,6 +38,9 @@ public class GameServer
     // Ревизия карты, известная каждому клиенту (дельта-снапшоты: тайлы
     // включаются в снапшот только при устаревшей ревизии)
     private readonly Dictionary<int, int> _clientMapRev = new();
+    // Реконнект: токен клиента → выпавший персонаж (внутри жизни сервера)
+    private readonly Dictionary<string, Player> _retiredPlayers = new();
+    private readonly Dictionary<int, string> _pidTokens = new();
     private readonly object _lock = new();
 
     public GameCore Core { get; } = new();
@@ -111,6 +114,11 @@ public class GameServer
             try
             {
                 var client = _listener!.AcceptTcpClient();
+                // Таймаут отправки: раньше медленный/полуоткрытый клиент
+                // блокировал Write под общим _sendLock — снапшоты вставали
+                // у всех, симуляция фризилась навсегда.
+                client.SendTimeout = 5000;
+                client.NoDelay = true;
                 var pid = _nextPid++;
                 lock (_lock)
                 {
@@ -230,9 +238,16 @@ public class GameServer
                     }
                     lastSeq = msg.Seq;
                     // Клиент сообщает свою ревизию карты — использём её при
-                    // сборке следующего снапшота (дельта-снапшоты)
+                    // сборке следующего снапшота (дельта-снапшоты).
+                    // Запись под _lock: словарь читается в SendSnapshots, а
+                    // HandleClient работает в N параллельных потоках.
                     if (msg.MapRev.HasValue)
-                        _clientMapRev[pid] = msg.MapRev.Value;
+                    {
+                        lock (_lock)
+                        {
+                            _clientMapRev[pid] = msg.MapRev.Value;
+                        }
+                    }
 
                     if (msg.Type == "hello")
                     {
@@ -249,14 +264,19 @@ public class GameServer
                             });
                             break;
                         }
-                        // MaxPlayers: пятый клиент получает error
+                        // MaxPlayers: пятый клиент получает error.
+                        // SendMsg — вне lock: сетевая запись под _lock вместе
+                        // с _sendLock могла остановить UpdateLoop при медленном
+                        // клиенте (взаимная вложенность блокировок).
+                        bool serverFull;
                         lock (_lock)
                         {
-                            if (Core.Players.Count >= MaxPlayers)
-                            {
-                                SendMsg(stream, new ServerMsg { Type = "error", Msg = "server full" });
-                                break;
-                            }
+                            serverFull = Core.Players.Count >= MaxPlayers;
+                        }
+                        if (serverFull)
+                        {
+                            SendMsg(stream, new ServerMsg { Type = "error", Msg = "server full" });
+                            break;
                         }
                         string classKey = msg.Class ?? "warrior";
                         // Пароль сервера — PBKDF2-хеш + constant-time проверка.
@@ -274,7 +294,22 @@ public class GameServer
                         }
                         lock (_lock)
                         {
-                            Core.AddPlayer(pid, classKey);
+                            // Реконнект по токену клиента: если игрок с этим
+                            // токеном выпал (обрыв/краш клиента), возвращаем
+                            // его персонажа с сохранёнными статами. Раньше
+                            // каждый реконнект получал свежего персонажа.
+                            Player? reattach = null;
+                            if (!string.IsNullOrEmpty(msg.Token)
+                                && _retiredPlayers.Remove(msg.Token, out var retired))
+                            {
+                                reattach = retired;
+                            }
+                            if (reattach != null)
+                                Core.ReattachPlayer(pid, reattach);
+                            else
+                                Core.AddPlayer(pid, classKey);
+                            if (!string.IsNullOrEmpty(msg.Token))
+                                _pidTokens[pid] = msg.Token;
                             _authenticated[pid] = true;
                         }
                         helloDone = true;
@@ -292,7 +327,14 @@ public class GameServer
                         lock (_lock)
                         {
                             string clean = Config.SanitizeChat(msg.ChatText ?? "");
-                            if (clean.Length > 0) Core.ChatLog.Add((pid, clean));
+                            if (clean.Length > 0)
+                            {
+                                Core.ChatLog.Add((pid, clean));
+                                // Cap: ChatLog копируется в каждый снапшот —
+                                // без обрезки он рос бесконечно
+                                if (Core.ChatLog.Count > 20)
+                                    Core.ChatLog.RemoveRange(0, Core.ChatLog.Count - 20);
+                            }
                         }
                     }
                     else if (msg.Type == "save_world")
@@ -331,6 +373,14 @@ public class GameServer
         {
             lock (_lock)
             {
+                // Персонаж выпавшего игрока сохраняется под его токеном —
+                // при реконнекте вернём его с теми же статами
+                if (_pidTokens.TryGetValue(pid, out var tok))
+                {
+                    if (Core.Players.TryGetValue(pid, out var retired))
+                        _retiredPlayers[tok] = retired;
+                    _pidTokens.Remove(pid);
+                }
                 Core.RemovePlayer(pid);
                 _clients.Remove(pid);
                 _sessionKeys.Remove(pid);
@@ -378,7 +428,7 @@ public class GameServer
             snapshotTimer += dt;
             if (snapshotTimer >= SnapshotInterval)
             {
-                snapshotTimer = 0;
+                snapshotTimer -= SnapshotInterval;
                 SendSnapshots();
             }
 
