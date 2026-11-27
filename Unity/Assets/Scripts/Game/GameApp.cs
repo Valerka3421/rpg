@@ -23,7 +23,9 @@ namespace Aethelgard
         private GameController _game = null!;
         private WorldView _world = null!;
         private Hud _hud = null!;
+        private MenuUi _menu = null!;
         private Camera _camera = null!;
+        private bool _worldStarted;
 
         private float _diag;
         private KeyboardState _prevKeys;
@@ -46,15 +48,23 @@ namespace Aethelgard
             {
                 Audio = new AudioSystem(),
             };
-            _game.NewGame("warrior");
-            Debug.Log($"[Aethelgard] NewGame ok: mode={_game.WorldMode}, map={_game.CurrentMap.W}x{_game.CurrentMap.H}, player=({_game.Player.X},{_game.Player.Y}), explored={_game.CurrentMap.Explored.Count}");
+            // MVP: сразу главное меню (MonoGame-флоу через MainMenuScreen
+            // подключается по мере порта экранов).
+            _game.ScreenMode = Screens.Menu;
 
             var go = new GameObject("WorldView");
             _world = go.AddComponent<WorldView>();
             _world.Init(_game);
 
             _hud = Hud.Create(_game);
-            Debug.Log("[Aethelgard] world+hud built, canvas=" + (_hud.GetComponentInChildren<Canvas>() != null));
+            _menu = MenuUi.Create(_game);
+            _menu.OnClassPicked = classKey =>
+            {
+                _game.NewGame(classKey);
+                _worldStarted = true;
+                Debug.Log($"[Aethelgard] NewGame({classKey}) ok: map={_game.CurrentMap.W}x{_game.CurrentMap.H}, player=({_game.Player.X},{_game.Player.Y})");
+            };
+            Debug.Log("[Aethelgard] boot ok, menu shown");
 
             Mouse.Provider = () =>
             {
@@ -72,6 +82,20 @@ namespace Aethelgard
         private void Update()
         {
             float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+
+            // Экранный флоу: меню управляется uGUI-кнопками, игровой цикл —
+            // только когда класс выбран (ScreenMode == Game).
+            if (!_worldStarted)
+            {
+                if (_game.ScreenMode == Screens.ClassSelect) _menu.ShowClassSelect();
+                else if (_game.ScreenMode == Screens.Menu) _menu.ShowMain();
+                // Esc в выборе класса — назад в меню; Enter — подтвердить
+                if (_game.ScreenMode == Screens.ClassSelect && Input.GetKeyDown(KeyCode.Escape))
+                    _game.ScreenMode = Screens.Menu;
+                if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                    _menu.Confirm();
+                return;
+            }
 
             // Единый масштаб (дизайн 1080 в высоту): мышь и мышиные клики
             // GameController считает в этих координатах.
