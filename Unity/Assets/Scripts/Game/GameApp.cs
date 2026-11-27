@@ -25,6 +25,7 @@ namespace Aethelgard
         private Hud _hud = null!;
         private Camera _camera = null!;
 
+        private float _diag;
         private KeyboardState _prevKeys;
         private KeyboardState _keys;
         private static readonly Dictionary<KeyCode, Keys> KeyMap = BuildKeyMap();
@@ -53,7 +54,7 @@ namespace Aethelgard
             _world.Init(_game);
 
             _hud = Hud.Create(_game);
-            Debug.Log("[Aethelgard] world+hud built");
+            Debug.Log("[Aethelgard] world+hud built, canvas=" + (_hud.GetComponentInChildren<Canvas>() != null));
 
             Mouse.Provider = () =>
             {
@@ -85,6 +86,8 @@ namespace Aethelgard
             _world.Refresh();
             _hud.Refresh();
             UpdateCamera();
+            _diag += dt;
+            if (_diag >= 3f) { _diag = 0f; Debug.Log($"[Aethelgard] cam={_camera.transform.position} ortho={_camera.orthographicSize} player=({_game.Player.X},{_game.Player.Y}) tiles={_world.TileCount} ents={_world.EntityCount}"); }
         }
 
         private void UpdateCamera()
@@ -170,53 +173,33 @@ namespace Aethelgard
 
             _glyphAtlas = Resources.Load<Texture2D>("GlyphAtlas/atlas")!;
             var manifest = Resources.Load<TextAsset>("GlyphAtlas/glyph_manifest")!;
+            Debug.Log($"[Aethelgard] glyphAtlas={_glyphAtlas != null} manifest={manifest != null}");
             ParseManifest(manifest.text);
+            Debug.Log($"[Aethelgard] glyphs parsed={_glyphIndex!.Count} cols={_glyphCols} rows={_glyphRows}");
         }
 
         private void ParseManifest(string json)
         {
-            // Минимальный парсер манифеста {"cell":64,"cols":16,"rows":7,
-            // "glyphs":{"!":{"col":0,"row":0}, ...}} — без зависимости от
-            // Newtonsoft. Ключи — одиночные символы в кавычках.
+            // Манифест {"cell":64,"cols":16,"rows":7,"glyphs":{"!":{"col":0,"row":0},...}}.
+            // Парсим regex'ом — JSON может быть с отступами.
             _glyphIndex = new Dictionary<string, Vector2Int>();
-            foreach (var line in json.Split('\n'))
-            {
-                var t = line.Trim();
-                if (t.StartsWith("\"cols\"")) _glyphCols = ParseInt(t);
-                else if (t.StartsWith("\"rows\"")) _glyphRows = ParseInt(t);
-                else if (t.StartsWith("\"cell\"")) { /* клетка = PPU спрайта */ }
-                else if (t.Length > 4 && t[0] == '"' && t.Contains("\"col\""))
-                {
-                    var key = ParseStringKey(t);
-                    var col = NumAfter(t, "\"col\":");
-                    var row = NumAfter(t, "\"row\":");
-                    if (key != null) _glyphIndex[key] = new Vector2Int(col, row);
-                }
-            }
+            _glyphCols = RegexInt(json, "\"cols\"");
+            _glyphRows = RegexInt(json, "\"rows\"");
+            var re = new System.Text.RegularExpressions.Regex(
+                "\"(?<k>(?:[^\"\\\\]|\\\\.)*)\":\\s*\\{\\s*\"col\":\\s*(?<c>\\d+),\\s*\"row\":\\s*(?<r>\\d+)");
+            foreach (System.Text.RegularExpressions.Match m in re.Matches(json))
+                _glyphIndex[Unescape(m.Groups["k"].Value)] =
+                    new Vector2Int(int.Parse(m.Groups["c"].Value), int.Parse(m.Groups["r"].Value));
         }
 
-        private static int ParseInt(string line)
+        private static int RegexInt(string s, string key)
         {
-            var digits = new string(line.SkipWhile(c => !char.IsDigit(c) && c != '-').TakeWhile(c => char.IsDigit(c) || c == '-').ToArray());
-            return int.Parse(digits);
+            var m = System.Text.RegularExpressions.Regex.Match(s, key + @"\s*:\s*(\d+)");
+            return m.Success ? int.Parse(m.Groups[1].Value) : 0;
         }
 
-        private static string? ParseStringKey(string line)
-        {
-            int q1 = line.IndexOf('"');
-            int q2 = line.IndexOf('"', q1 + 1);
-            if (q1 < 0 || q2 < 0) return null;
-            var key = line.Substring(q1 + 1, q2 - q1 - 1);
-            // экранированные кавычки/бэкслеши в JSON (\", \\) -> реальные символы
-            return key.Replace("\\\"", "\"").Replace("\\\\", "\\");
-        }
-
-        private static int NumAfter(string line, string marker)
-        {
-            int i = line.IndexOf(marker);
-            if (i < 0) return 0;
-            return ParseInt(line[(i + marker.Length)..]);
-        }
+        private static string Unescape(string s) =>
+            s == "\"\\\"" ? "\"" : s == "\\\\" ? "\\" : s;
 
         private SpriteRenderer GlyphSprite(char ch, UColor color, Transform parent)
         {
@@ -324,6 +307,9 @@ namespace Aethelgard
             => new(x * Config.TileSize + Config.TileSize / 2f,
                    (map.H - 1 - y) * Config.TileSize + Config.TileSize / 2f, 0f);
 
+        public int TileCount => _tileMap.Count;
+        public int EntityCount => _entityPool.Count;
+
         private void RefreshEntities(Dungeon map)
         {
             int needed = 0;
@@ -360,10 +346,10 @@ namespace Aethelgard
         {
             if (_glyphIndex != null && _glyphIndex.TryGetValue(ch.ToString(), out var cell))
             {
-                float w = 1f / _glyphCols;
-                float h = 1f / _glyphRows;
+                // Rect — в ПИКСЕЛЯХ текстуры (не UV), PPU=1 → глиф 64 юнита
+                const int cellPx = 64;
                 sr.sprite = Sprite.Create(_glyphAtlas,
-                    new Rect(cell.x * w, 1f - (cell.y + 1) * h, w, h),
+                    new Rect(cell.x * cellPx, (_glyphRows - 1 - cell.y) * cellPx, cellPx, cellPx),
                     new Vector2(0.5f, 0.5f), 1f);
             }
         }
@@ -407,11 +393,11 @@ namespace Aethelgard
             _canvas.gameObject.AddComponent<UnityEngine.UI.GraphicRaycaster>();
             _canvas.transform.SetParent(transform, false);
 
-            _hpFill = Bar(_canvas.transform, new Vector2(30, 1010), new Vector2(420, 26), new UColor(0.78f, 0.18f, 0.16f));
-            _mpFill = Bar(_canvas.transform, new Vector2(30, 970), new Vector2(420, 26), new UColor(0.22f, 0.45f, 0.85f));
-            _xpFill = Bar(_canvas.transform, new Vector2(30, 930), new Vector2(420, 18), new UColor(0.85f, 0.72f, 0.2f));
-            _info = Label(_canvas.transform, new Vector2(30, 942), 22, UColor.white);
-            _message = Label(_canvas.transform, new Vector2(30, 40), 26, new UColor(1f, 0.95f, 0.75f));
+            _hpFill = Bar(_canvas.transform, new Vector2(30, 70), new Vector2(420, 26), new UColor(0.78f, 0.18f, 0.16f));
+            _mpFill = Bar(_canvas.transform, new Vector2(30, 110), new Vector2(420, 26), new UColor(0.22f, 0.45f, 0.85f));
+            _xpFill = Bar(_canvas.transform, new Vector2(30, 150), new Vector2(420, 18), new UColor(0.85f, 0.72f, 0.2f));
+            _info = Label(_canvas.transform, new Vector2(30, 180), 22, UColor.white);
+            _message = Label(_canvas.transform, new Vector2(30, 20), 26, new UColor(1f, 0.95f, 0.75f));
         }
 
         private RectTransform Bar(Transform parent, Vector2 pos, Vector2 size, UColor color)
@@ -421,7 +407,7 @@ namespace Aethelgard
             var bg = bgGo.AddComponent<UnityEngine.UI.Image>();
             bg.color = new UColor(0f, 0f, 0f, 0.55f);
             var rt = bg.rectTransform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
             rt.anchoredPosition = pos;
             rt.sizeDelta = size;
 
@@ -448,7 +434,7 @@ namespace Aethelgard
             text.color = color;
             text.alignment = TextAnchor.MiddleLeft;
             var rt = text.rectTransform;
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 1f);
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0f, 0f);
             rt.anchoredPosition = pos;
             rt.sizeDelta = new Vector2(900, size + 10);
             return text;

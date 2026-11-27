@@ -11,7 +11,9 @@ using UnityEngine;
 
 namespace Microsoft.Xna.Framework
 {
-    /// <summary>Заменитель MonoGame Color для Unity-сборки ядра.</summary>
+    /// <summary>Заменитель MonoGame Color для Unity-сборки ядра.
+    /// Семантика как в MonoGame: каналы хранятся в диапазоне 0..255
+    /// (int/byte-конструктор — 0..255, float-конструктор — 0..1, как в MG).</summary>
     public struct Color
     {
         public float R;
@@ -21,25 +23,21 @@ namespace Microsoft.Xna.Framework
 
         public Color(int r, int g, int b, int a = 255)
         {
-            R = r / 255f;
-            G = g / 255f;
-            B = b / 255f;
-            A = a / 255f;
+            R = r; G = g; B = b; A = a;
         }
 
         public Color(float r, float g, float b, float a = 1f)
         {
-            R = r;
-            G = g;
-            B = b;
-            A = a;
+            R = r * 255f; G = g * 255f; B = b * 255f; A = a * 255f;
         }
 
         public static readonly Color White = new(255, 255, 255);
-        public static readonly Color Transparent = new(0f, 0f, 0f, 0f);
+        public static readonly Color Transparent = new(0, 0, 0, 0);
 
-        public static implicit operator UnityEngine.Color(Color c) => new(c.R, c.G, c.B, c.A);
-        public static implicit operator Color(UnityEngine.Color c) => new(c.r, c.g, c.b, c.a);
+        public static implicit operator UnityEngine.Color(Color c) =>
+            new(c.R / 255f, c.G / 255f, c.B / 255f, c.A / 255f);
+        public static implicit operator Color(UnityEngine.Color c) =>
+            new(c.r * 255f, c.g * 255f, c.b * 255f, c.a * 255f);
     }
 
     /// <summary>Минимальный Rectangle (используется PixelCanvas/TileArt).</summary>
