@@ -24,6 +24,7 @@ public class MpRenderer
     private Texture2D? _blank;
 
     private int _camX, _camY;
+    private Systems.GameController _game = null!;
 
     public MpRenderer(GraphicsDevice device, SpriteBatch sb)
     {
@@ -39,6 +40,7 @@ public class MpRenderer
     /// </summary>
     public void Draw(GameController game)
     {
+        _game = game;
         var snap = game.MpSnapshot;
         if (snap == null || _font == null)
         {
@@ -97,6 +99,28 @@ public class MpRenderer
 
         // Панель (инвентарь/статы/навыки/квесты/магазин)
         DrawPanel(game, snap, myState);
+
+        // Попап «Обмен / Дуэль» (net/view.py player_popup)
+        if (game.MpPopupPid.HasValue && _font != null && game.MpPanel == "")
+        {
+            string label = $"Игрок {game.MpPopupName} (PID {game.MpPopupPid.Value})";
+            string hint = "1 — Обмен · 2 — Дуэль · Esc — отмена";
+            var ls = _font.MeasureString(label);
+            var hs = _font.MeasureString(hint);
+            int w = (int)MathF.Max(ls.X, hs.X) + 28;
+            var rect = new Rectangle(
+                (AethelgardGame.ScreenW - w) / 2,
+                AethelgardGame.ScreenH - Config.HudHeight - 96, w, 58);
+            _sb.Draw(Blank, rect, new Color(20, 17, 14, 240));
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 2), new Color(206, 166, 82));
+            _sb.Draw(Blank, new Rectangle(rect.X, rect.Bottom - 2, rect.Width, 2), new Color(206, 166, 82));
+            _sb.DrawString(_font, label,
+                new Vector2(rect.X + (rect.Width - ls.X) / 2, rect.Y + 8),
+                new Color(238, 222, 188));
+            _sb.DrawString(_font, hint,
+                new Vector2(rect.X + (rect.Width - hs.X) / 2, rect.Y + 30),
+                new Color(200, 190, 170));
+        }
     }
 
     /// <summary>
@@ -254,10 +278,24 @@ public class MpRenderer
 
     private void DrawPlayers(Snapshot snap, Snapshot.PlayerState myState)
     {
+        // Интерполяция между предыдущим и текущим снапшотом (20 Гц сервер):
+        // без неё координаты «прыгали» на клетку при каждом обновлении.
+        float alpha = Math.Clamp(_game.MpSinceSnapshot / 0.05f, 0f, 1f);
         foreach (var p in snap.Players)
         {
-            var pos = new Vector2(p.X * Config.TileSize - _camX + Config.TileSize / 2,
+            Vector2 pos;
+            if (_game.MpPrevPlayerPos.TryGetValue(p.Pid, out var prev)
+                && (prev.X != p.X || prev.Y != p.Y))
+            {
+                pos = new Vector2(
+                    MathHelper.Lerp(prev.X, p.X, alpha) * Config.TileSize - _camX + Config.TileSize / 2,
+                    MathHelper.Lerp(prev.Y, p.Y, alpha) * Config.TileSize - _camY + Config.TileSize / 2);
+            }
+            else
+            {
+                pos = new Vector2(p.X * Config.TileSize - _camX + Config.TileSize / 2,
                                    p.Y * Config.TileSize - _camY + Config.TileSize / 2);
+            }
             bool isMe = p.Pid == snap.MyPid;
             int radius = isMe ? 20 : 18;
             DrawCircle(pos, radius, p.Color);
@@ -291,6 +329,18 @@ public class MpRenderer
 
     private void DrawHud(Snapshot snap, Snapshot.PlayerState myState, GameController game)
     {
+        // Журнал с вкладками над HUD (Всё/Бой/Предметы/Общение/Опыт)
+        if (_font != null)
+        {
+            var raw = Mouse.GetState();
+            var scaled = new MouseState(
+                (int)(raw.X * AethelgardGame.MouseScaleX),
+                (int)(raw.Y * AethelgardGame.MouseScaleY),
+                raw.ScrollWheelValue, raw.LeftButton, raw.MiddleButton,
+                raw.RightButton, raw.XButton1, raw.XButton2);
+            ChatPanel.Draw(_sb, _font, game, Blank, scaled);
+        }
+
         _sb.Draw(Blank,
             new Rectangle(0, AethelgardGame.ScreenH - Config.HudHeight, AethelgardGame.ScreenW, Config.HudHeight),
             new Color(18, 16, 14, 220));

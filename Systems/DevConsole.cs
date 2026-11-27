@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
@@ -46,7 +47,7 @@ public class DevConsole
 
     private bool _unlocked = false;
     private int _attempts = 0;
-    private DateTime _lockedUntil = DateTime.MinValue;
+    private long _lockedUntilTicks = -1;   // Stopwatch-тики (не зависят от перевода часов)
     private static readonly string? PasswordHash = LoadPasswordHash();
 
     /// <summary>
@@ -89,9 +90,11 @@ public class DevConsole
         }
 
         // Check lockout
-        if (DateTime.Now < _lockedUntil)
+        if (Stopwatch.GetTimestamp() < _lockedUntilTicks)
         {
-            Error = $"Консоль заблокирована до {_lockedUntil:HH:mm:ss}";
+            double secs = (_lockedUntilTicks - Stopwatch.GetTimestamp())
+                / (double)Stopwatch.Frequency;
+            Error = $"Консоль заблокирована ещё {secs:F0} с";
             return false;
         }
 
@@ -130,7 +133,7 @@ public class DevConsole
                 Buffer = "";
                 if (_attempts >= 3)
                 {
-                    _lockedUntil = DateTime.Now.AddSeconds(30);
+                    _lockedUntilTicks = Stopwatch.GetTimestamp() + (long)(30 * Stopwatch.Frequency);
                     Open = false;
                     return "Слишком много попыток. Блокировка на 30 секунд.";
                 }
@@ -169,7 +172,7 @@ public class DevConsole
                 "xp" => CmdXp(args, game),
                 "level" => CmdLevel(args, game),
                 "heal" => CmdHeal(game),
-                "god" => CmdGod(),
+                "god" => CmdGod(game),
                 "stat" => CmdStat(args, game),
                 "skill" => CmdSkill(args, game),
                 "tp" => CmdTp(args, game),
@@ -260,9 +263,12 @@ public class DevConsole
         return "Полное лечение выполнено.";
     }
 
-    private string CmdGod()
+    private string CmdGod(GameController game)
     {
         GodMode = !GodMode;
+        // Флаг должен проверяться боевыми правилами, иначе команда ничего
+        // не делает: Player.GodModeStat читает Rules.ResolveAttack.
+        game.Player.GodModeStat = GodMode;
         return $"Режим бога: {(GodMode ? "ВКЛ" : "ВЫКЛ")}";
     }
 

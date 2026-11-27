@@ -33,10 +33,19 @@ public class GameClient
     public bool Connected => _running && _tcp?.Connected == true;
 
     private byte[]? _sessionKey;
+    private const int MaxMsgSize = Config.MaxMsgSize;
+    private int _seq;                       // monotonic counter пакетов
+    private Thread? _pingThread;
     private readonly object _snapLock = new();
     private readonly object _sendLock = new();
     private readonly StringBuilder _lineBuf = new();
     private readonly Decoder _decoder = Encoding.UTF8.GetDecoder();
+
+    // Дельта-снапшоты: клиент сообщает серверу свою ревизию карты, а снапшоты
+    // без тайлов reuse'ят кэш предыдущего (раньше каждый снапшот 20 Гц таскал
+    // всю карту — десятки КБ × 20/с × игроки)
+    private int _mapRev = -1;
+    private List<string>? _tilesCache;
 
     /// <summary>
     /// Токен игрока: ~/.ethelgard_player_id, при создании chmod 0600
@@ -94,6 +103,9 @@ public class GameClient
             _tcp.Connect(host, port);
             _stream = _tcp.GetStream();
             _running = true;
+            _seq = 0;
+            _sessionKey = null;
+            _lineBuf.Clear();
 
             // Send hello with persistent player token
             var hello = new ClientMsg
@@ -108,6 +120,8 @@ public class GameClient
             // Start receiving
             _recvThread = new Thread(RecvLoop) { IsBackground = true };
             _recvThread.Start();
+            _pingThread = new Thread(PingLoop) { IsBackground = true };
+            _pingThread.Start();
 
             return true;
         }
@@ -254,6 +268,14 @@ public class GameClient
                 // UTF-8 (кириллица) может разорваться между чтениями.
                 _lineBuf.Append(chars, 0, _decoder.GetChars(buf, 0, read, chars, 0));
 
+                // Сломанный/враждебный сервер шлёт мусор без \n → лимит буфера
+                if (_lineBuf.Length > MaxMsgSize * 4)
+                {
+                    ErrorMessage = "Сервер шлёт некорректные данные — отключение";
+                    _running = false;
+                    break;
+                }
+
                 while (true)
                 {
                     string data = _lineBuf.ToString();
@@ -269,6 +291,12 @@ public class GameClient
                         var snap = Protocol.Deserialize<Snapshot>(line);
                         if (snap != null && snap.Players.Count > 0)
                         {
+                            // Дельта-снапшот: без тайлов reuse'им кэш предыдущего
+                            if (snap.Tiles != null)
+                                _tilesCache = snap.Tiles;
+                            else
+                                snap.Tiles = _tilesCache;
+                            _mapRev = snap.MapRev;
                             lock (_snapLock)
                             {
                                 LatestSnapshot = snap;
@@ -320,7 +348,10 @@ public class GameClient
         {
             try
             {
-                // HMAC-подпись сессионным ключом (после hello)
+                // Monotonic counter (anti-replay) + HMAC-подпись сессионным
+                // ключом. hello — единственное неподписанное сообщение.
+                msg.MapRev ??= _mapRev;   // дельта-снапшоты: ревизия карты в каждом пакете
+                msg.Seq = ++_seq;
                 if (_sessionKey != null && msg.Type != "hello")
                     msg.Sig = Protocol.Sign(Protocol.SignedPayload(msg), _sessionKey);
 
@@ -329,6 +360,17 @@ public class GameClient
                 _stream.Write(bytes, 0, bytes.Length);
             }
             catch { }
+        }
+    }
+
+    /// <summary>Keepalive: сервер рвёт молчащие соединения (таймаут чтения),
+    /// поэтому клиент периодически шлёт подписанный ping.</summary>
+    private void PingLoop()
+    {
+        while (_running)
+        {
+            Thread.Sleep(15000);
+            if (_running && _sessionKey != null) SendMsg(new ClientMsg { Type = "ping" });
         }
     }
 }

@@ -17,7 +17,7 @@ namespace Aethelgard.World;
 ///   game + модальные экраны          — инвентарь/навыки/магазин/...
 ///   mp_game                          — мультиплеер (из меню «Мультиплеер»)
 ///
-/// Отрисовка идёт в render target 1280×720 и масштабируется под выбранное
+/// Отрисовка идёт в render target 1920×1080 и масштабируется под выбранное
 /// разрешение окна (настройка «Разрешение» в меню).
 /// </summary>
 public class AethelgardGame : Microsoft.Xna.Framework.Game
@@ -47,6 +47,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     private MouseState _prevMouse;
     private float _fps;
     private float _fpsTimer;
+    private int _fpsFrames;
 
     public const int ScreenW = 1920;
     public const int ScreenH = 1080;
@@ -68,6 +69,25 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         Content.RootDirectory = "Content";
         IsMouseVisible = true;
         TargetElapsedTime = TimeSpan.FromMilliseconds(1000.0 / 60.0);
+        IsFixedTimeStep = true;
+
+        // Символьный ввод с учётом раскладки (рус/англ): событие окна даёт
+        // готовые символы, независимо от физической клавиши.
+        Window.TextInput += OnTextInput;
+    }
+
+    private void OnTextInput(object? sender, TextInputEventArgs e)
+    {
+        if (_game != null && !char.IsControl(e.Character))
+            _game.TextInput.Enqueue(e.Character);
+    }
+
+    protected override void OnExiting(object sender, EventArgs args)
+    {
+        // Освобождаем аудио: без этого DynamicSoundEffectInstance не
+        // возвращает ресурсы устройства до завершения процесса.
+        _game.Audio?.Dispose();
+        base.OnExiting(sender, args);
     }
 
     protected override void Initialize()
@@ -100,6 +120,17 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         var fontH1 = RuntimeFont.Create(GraphicsDevice, 40, bold: true);
         var fontH2 = RuntimeFont.Create(GraphicsDevice, 22, bold: true);
         var font = RuntimeFont.Create(GraphicsDevice, 18);
+        if (fontH1 == null || font == null)
+        {
+            // Понятная ошибка вместо NRE на первом кадре: шрифты DejaVu Sans
+            // идут в комплекте (Content/fonts) — их отсутствие значит, что
+            // поставка сломана (файлы не попали в билд).
+            throw new InvalidOperationException(
+                "Не удалось создать шрифты. Ожидались Content/fonts/DejaVuSans.ttf " +
+                "и DejaVuSans-Bold.ttf (проверьте, что папка Content/fonts попала в сборку), " +
+                "либо установленный в системе шрифт (Segoe UI/Arial). " +
+                "Подробности — в логе (RuntimeFont failed).");
+        }
         var fontSmall = RuntimeFont.Create(GraphicsDevice, 14);
         var fontTiny = RuntimeFont.Create(GraphicsDevice, 12);
         if (fontH1 != null) Fonts.H1 = fontH1;
@@ -179,9 +210,16 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             var data = SaveSystem.Load(slot);
             if (data != null)
             {
-                SaveSystem.ApplyLoad(_game, data);
-                _game.ScreenMode = ScreenMode.Game;
+                if (SaveSystem.ApplyLoad(_game, data))
+                {
+                    _game.ScreenMode = ScreenMode.Game;
+                    return;
+                }
+                // Применить не удалось — показываем реальную причину
+                _game.ShowMessage($"Ошибка загрузки: {SaveSystem.LastError}");
             }
+            else if (SaveSystem.SlotExists(slot))
+                _game.ShowMessage($"Ошибка загрузки: {SaveSystem.LastError}");
             else
                 _game.ShowMessage($"Слот {slot} пуст");
         };
@@ -233,7 +271,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     /// <summary>
     /// Мышь приходит в координатах клиентской области окна (логических,
     /// как их отдаёт SDL/MonoGame), а весь UI размечен в дизайн-координатах
-    /// 1280×720 (render target растягивается на всё окно). Пересчитываем.
+    /// 1920×1080 (render target растягивается на всё окно). Пересчитываем.
     /// Важно: используем Window.ClientBounds, а не GraphicsDevice.Viewport —
     /// при масштабировании Windows (125%/150%) viewport измеряется в
     /// физических пикселях и мышь «не точь в точь» попадает по UI.
@@ -243,26 +281,39 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         int vw, vh;
         try { vw = Window.ClientBounds.Width; vh = Window.ClientBounds.Height; }
         catch { return m; }
-        if (vw <= 0 || vh <= 0 || (vw == ScreenW && vh == ScreenH)) return m;
+        if (vw <= 0 || vh <= 0 || (vw == ScreenW && vh == ScreenH))
+        {
+            MouseScaleX = MouseScaleY = 1;
+            return m;
+        }
+        MouseScaleX = (float)ScreenW / vw;
+        MouseScaleY = (float)ScreenH / vh;
         return new MouseState(
-            (int)MathF.Round(m.X * (float)ScreenW / vw),
-            (int)MathF.Round(m.Y * (float)ScreenH / vh),
+            (int)MathF.Round(m.X * MouseScaleX),
+            (int)MathF.Round(m.Y * MouseScaleY),
             m.ScrollWheelValue,
             m.LeftButton, m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
     }
+
+    /// <summary>Текущий масштаб мыши (для Mouse.GetState() вне Game.Update).</summary>
+    public static float MouseScaleX = 1f, MouseScaleY = 1f;
 
     protected override void Update(GameTime gameTime)
     {
         var keys = Keyboard.GetState();
         var mouse = ScaleMouse(Mouse.GetState());
-        float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+        // Кламп dt: при лаге/зависании таймеры (реген, статусы, ИИ) не должны
+        // прыгать на секунды за один тик.
+        float dt = MathF.Min((float)gameTime.ElapsedGameTime.TotalSeconds, 0.1f);
 
-        // FPS
+        // FPS — усреднённый за окно (мгновенный 1/dt дёргается на лагах)
         _fpsTimer += dt;
+        _fpsFrames++;
         if (_fpsTimer >= 0.5f)
         {
-            _fps = 1f / dt;
+            _fps = _fpsFrames / _fpsTimer;
             _fpsTimer = 0;
+            _fpsFrames = 0;
         }
         _game.Fps = _fps;
 
@@ -360,6 +411,13 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             }
             else if (choice == 4) _menu.OnExitToMenu?.Invoke();
         }
+        else if (mode == ScreenMode.Bigmap)
+        {
+            // Экран карты сам обрабатывает ввод (Tab/стрелки/Enter);
+            // игровое движение при открытой карте отключено.
+            if (_bigmap.HandleInput(keys, _prevKeys, _game))
+                _game.ScreenMode = ScreenMode.Game;
+        }
         else
         {
             _inventory.CurrentPage = _game.CurrentPage;
@@ -385,7 +443,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     {
         if (_target == null) return;
 
-        // Вся отрисовка — в render target 1280×720
+        // Вся отрисовка — в render target 1920×1080
         GraphicsDevice.SetRenderTarget(_target);
         GraphicsDevice.Clear(new Color(12, 12, 18));
 

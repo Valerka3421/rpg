@@ -13,14 +13,56 @@ namespace Aethelgard.Render;
 /// принципиально: генерация через RenderTarget2D во время активного
 /// SpriteBatch сбрасывала текущую цель рендера и ломала кадр.
 /// </summary>
-public class TileRenderer
+public class TileRenderer : IDisposable
 {
     private readonly GraphicsDevice _device;
     private readonly Dictionary<string, Texture2D> _cache = new();
+    // Порядок вставки ключей для выброса: раньше при переполнении кэш
+    // сбрасывался ЦЕЛИКОМ, и движение игрока (меняющее световые полосы
+    // соседних тайлов) вызывало массовые регенерации текстур в кадр — фризы.
+    // Выброс старейших по вставке — O(1) амортизированно на кадр.
+    private readonly LinkedList<string> _insertOrder = new();
+
+    // После DeviceReset (переключение fullscreen, смена разрешения, потеря
+    // контекста) все созданные текстуры становятся недействительными — кэш
+    // нужно очистить, иначе рисуются «инвалидные» текстуры.
+    private static readonly List<TileRenderer> _instances = new();
+    private static bool _hooked;
 
     public TileRenderer(GraphicsDevice device)
     {
         _device = device;
+        if (!_hooked)
+        {
+            _hooked = true;
+            device.DeviceResetting += OnDeviceResetting;
+        }
+        _instances.Add(this);
+    }
+
+    private static void OnDeviceResetting(object? sender, EventArgs e)
+    {
+        foreach (var t in _instances)
+        {
+            t.ClearCache();
+        }
+    }
+
+    /// <summary>Очистить кэш процедурных текстур.</summary>
+    public void ClearCache()
+    {
+        foreach (var tex in _cache.Values)
+        {
+            try { tex.Dispose(); } catch { }
+        }
+        _cache.Clear();
+        _insertOrder.Clear();
+    }
+
+    public void Dispose()
+    {
+        _instances.Remove(this);
+        ClearCache();
     }
 
     /// <summary>
@@ -35,8 +77,22 @@ public class TileRenderer
         if (_cache.TryGetValue(key, out var tex))
             return tex;
 
+        // Мягкий лимит: выбрасываем только старейшие по вставке записи,
+        // а не весь кэш — пере-генерация одной текстуры дешевле,
+        // чем полный сброс при каждом переполнении.
+        while (_cache.Count > 2000 && _insertOrder.Count > 0)
+        {
+            var oldest = _insertOrder.Last!.Value;
+            _insertOrder.RemoveLast();
+            if (_cache.Remove(oldest, out var stale))
+            {
+                try { stale.Dispose(); } catch { }
+            }
+        }
+
         tex = GenerateTile(kind, variant, band / 20f);
         _cache[key] = tex;
+        _insertOrder.AddFirst(key);
         return tex;
     }
 

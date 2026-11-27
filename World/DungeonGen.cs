@@ -19,7 +19,7 @@ namespace Aethelgard.World;
 public static class DungeonGen
 {
     /// <summary>Отдельный генератор для дропа — не влияет на карту.</summary>
-    private static readonly Random DropRng = new();
+    private static Random DropRng => Random.Shared;   // потокобезопасно
 
     /// <summary>
     /// Generate a dungeon floor.
@@ -274,11 +274,24 @@ public static class DungeonGen
             (floorCells[i], floorCells[j]) = (floorCells[j], floorCells[i]);
         }
 
+        // Взвешенный выбор: свежие для глубины монстры вероятнее «устаревших»
+        // (раньше на 20-м этаже крысы спавнились наравне с драконами).
+        // Выбор через сидированный rng — детерминизм генерации сохранён.
+        var weights = new double[pool.Length];
+        double weightTotal = 0;
+        for (int i = 0; i < pool.Length; i++)
+        {
+            int minDepth = MonsterData.Get(pool[i])?.MinDepth ?? 1;
+            int age = Math.Max(0, depth - minDepth);
+            weights[i] = age <= 2 ? 1.0 : Math.Pow(0.5, age - 2);
+            weightTotal += weights[i];
+        }
+
         int spawned = 0;
         foreach (var (x, y) in floorCells)
         {
             if (spawned >= monsterCount) break;
-            string key = pool[rng.Next(pool.Length)];
+            string key = pool[PickWeighted(rng, weights, weightTotal)];
             var m = MonsterData.CreateEntity(key, depth);
             m.X = x; m.Y = y;
             d.Monsters.Add(m);
@@ -286,6 +299,18 @@ public static class DungeonGen
         }
 
         Rules.InitActionTimers(d.Monsters);
+    }
+
+    /// <summary>Индекс по кумулятивным весам (детерминированно при данном rng).</summary>
+    private static int PickWeighted(Random rng, double[] weights, double total)
+    {
+        double r = rng.NextDouble() * total;
+        for (int i = 0; i < weights.Length; i++)
+        {
+            r -= weights[i];
+            if (r <= 0) return i;
+        }
+        return weights.Length - 1;
     }
 
     private static void PlaceChests(Dungeon d, int depth, List<Room> rooms, Random rng)

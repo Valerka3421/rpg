@@ -35,6 +35,9 @@ public class GameServer
     private readonly Dictionary<int, TcpClient> _clients = new();
     private readonly Dictionary<int, byte[]> _sessionKeys = new();
     private readonly Dictionary<int, bool> _authenticated = new();
+    // Ревизия карты, известная каждому клиенту (дельта-снапшоты: тайлы
+    // включаются в снапшот только при устаревшей ревизии)
+    private readonly Dictionary<int, int> _clientMapRev = new();
     private readonly object _lock = new();
 
     public GameCore Core { get; } = new();
@@ -53,8 +56,9 @@ public class GameServer
                 : PasswordHasher.Hash(value);
     }
 
-    // Saved players by token and IP (net/server.py:86-102)
-    private readonly Dictionary<string, string> _savedPlayers = new();
+    // Saved players by token and IP (net/server.py:86-102) — мёртвый код
+    // удалён: восстановление идёт через Core.SavedPlayers по PID слота,
+    // эта таблица никогда не читалась.
 
     public void Start(int port = DefaultPort)
     {
@@ -127,7 +131,6 @@ public class GameServer
 
     private void HandleClient(int pid, TcpClient client)
     {
-        var remoteIp = (client.Client.RemoteEndPoint as IPEndPoint)?.Address?.ToString() ?? "";
         try
         {
             var stream = client.GetStream();
@@ -139,6 +142,9 @@ public class GameServer
             // Простой rate limit: не более 240 команд в секунду с одного клиента.
             var rateWindow = DateTime.UtcNow;
             int rateCount = 0;
+            bool flooded = false;
+            bool helloDone = false;
+            int lastSeq = 0;
 
             // Session key for HMAC message signing (os.urandom(32))
             var sessionKey = RandomNumberGenerator.GetBytes(32);
@@ -154,9 +160,22 @@ public class GameServer
             };
             SendMsg(stream, welcome);
 
+            // Таймауты чтения: до hello — 10 с (иначе 4 зависших сокета
+            // занимают все слоты), после hello — 60 с (клиент пингует
+            // каждые 15 с, любое сообщение сбрасывает таймер).
+            client.ReceiveTimeout = 10000;
+
             while (_running && client.Connected)
             {
-                int read = stream.Read(buf, 0, buf.Length);
+                int read;
+                try
+                {
+                    read = stream.Read(buf, 0, buf.Length);
+                }
+                catch (IOException)
+                {
+                    break;   // таймаут чтения или разрыв — слот освобождается
+                }
                 if (read == 0) break;
 
                 lineBuf.Append(chars, 0, decoder.GetChars(buf, 0, read, chars, 0));
@@ -181,10 +200,13 @@ public class GameServer
                     string line = data[..nl];
                     lineBuf.Remove(0, nl + 1);
 
-                    if (line.Length > MaxMsgSize) break;
+                    if (line.Length > MaxMsgSize) { flooded = true; break; }
 
                     if (++rateCount > 240)
-                        break;  // flood — рвём соединение
+                    {
+                        flooded = true;   // flood — действительно рвём соединение
+                        break;
+                    }
 
                     ClientMsg? msg = null;
                     try
@@ -194,20 +216,30 @@ public class GameServer
                     catch { /* invalid JSON — не роняет сервер */ }
                     if (msg == null || string.IsNullOrEmpty(msg.Type)) continue;
 
-                    // HMAC-подпись: проверяем только для аутентифицированных
-                    // после hello. Payload — тот же объект без Sig, а не
-                    // строковая хирургия исходного JSON.
-                    lock (_lock)
+                    // До hello допускается только hello. После hello — только
+                    // подписанные (HMAC) сообщения с монотонным Seq: читер,
+                    // не шлющий Sig, больше не проходит, replay невозможен.
+                    if (!helloDone)
                     {
-                        if (_authenticated.GetValueOrDefault(pid) && msg.Sig != null)
-                        {
-                            if (!VerifyHmac(pid, msg))
-                                break; // подделка — разрыв
-                        }
+                        if (msg.Type != "hello") { flooded = true; break; }
                     }
+                    else if (msg.Sig == null || !VerifyHmac(pid, msg)
+                             || msg.Seq != lastSeq + 1)
+                    {
+                        break;  // подделка / нет подписи / replay — разрыв
+                    }
+                    lastSeq = msg.Seq;
+                    // Клиент сообщает свою ревизию карты — использём её при
+                    // сборке следующего снапшота (дельта-снапшоты)
+                    if (msg.MapRev.HasValue)
+                        _clientMapRev[pid] = msg.MapRev.Value;
 
                     if (msg.Type == "hello")
                     {
+                        // Повторный hello после аутентификации игнорируется:
+                        // раньше он выполнял ветку заново и AddPlayer
+                        // перезаписывал персонажа новым с полным HP.
+                        if (helloDone) continue;
                         if (msg.ProtocolVersion != Protocol.Version)
                         {
                             SendMsg(stream, new ServerMsg
@@ -245,9 +277,8 @@ public class GameServer
                             Core.AddPlayer(pid, classKey);
                             _authenticated[pid] = true;
                         }
-                        // Remember player by token+IP
-                        if (!string.IsNullOrEmpty(msg.Token))
-                            _savedPlayers[$"{msg.Token}|{remoteIp}"] = classKey;
+                        helloDone = true;
+                        client.ReceiveTimeout = 60000;   // дальше пингует клиент
                     }
                     else if (msg.Type == "input")
                     {
@@ -266,17 +297,33 @@ public class GameServer
                     }
                     else if (msg.Type == "save_world")
                     {
+                        // Сохранять мир может только хост (первый клиент).
+                        // Данные собираются под lock, но записываются на диск
+                        // вне блокировки — иначе запись замораживает симуляцию.
+                        if (pid != 1)
+                        {
+                            SendMsg(stream, new ServerMsg
+                            {
+                                Type = "error",
+                                Msg = "save_world доступен только хосту"
+                            });
+                            break;
+                        }
+                        Dictionary<string, object?>[] saveData;
                         lock (_lock)
                         {
-                            Core.SaveWorld();
+                            saveData = Core.BuildSaveWorldData();
                         }
+                        Core.WriteSaveWorldData(saveData);
                     }
                     else if (msg.Type == "disconnect")
                     {
                         break;
                     }
-                    // мусорные пакеты без известного типа молча игнорируются
+                    // "ping" и мусорные пакеты без известного типа молча игнорируются
                 }
+
+                if (flooded) break;   // rate-limit / oversized line — разрыв
             }
         }
         catch { }
@@ -288,6 +335,7 @@ public class GameServer
                 _clients.Remove(pid);
                 _sessionKeys.Remove(pid);
                 _authenticated.Remove(pid);
+                _clientMapRev.Remove(pid);
             }
             try { client.Close(); } catch { }
         }
@@ -338,6 +386,11 @@ public class GameServer
         }
     }
 
+    // Общий send-lock: раньше UpdateLoop и HandleClient писали в один
+    // NetworkStream из разных потоков без синхронизации — записи могли
+    // интерливиться и клиент получал склеенный/разорванный JSON.
+    private readonly object _sendLock = new();
+
     private void SendSnapshots()
     {
         // Собираем DTO под lock (читаем живое состояние), но сериализуем
@@ -348,7 +401,13 @@ public class GameServer
             foreach (var (pid, client) in _clients)
             {
                 if (!client.Connected) continue;
-                try { snapshots.Add((client, Core.BuildSnapshot(pid))); }
+                try
+                {
+                    // Дельта-снапшот: карта включается только если клиент
+                    // отстал по ревизии
+                    int rev = _clientMapRev.GetValueOrDefault(pid, -1);
+                    snapshots.Add((client, Core.BuildSnapshot(pid, rev)));
+                }
                 catch { }
             }
         }
@@ -359,7 +418,10 @@ public class GameServer
             {
                 var json = Protocol.Serialize(snap) + "\n";
                 var bytes = Encoding.UTF8.GetBytes(json);
-                client.GetStream().Write(bytes, 0, bytes.Length);
+                lock (_sendLock)
+                {
+                    client.GetStream().Write(bytes, 0, bytes.Length);
+                }
             }
             catch { }
         }
@@ -371,7 +433,10 @@ public class GameServer
         {
             var json = Protocol.Serialize(msg) + "\n";
             var bytes = Encoding.UTF8.GetBytes(json);
-            stream.Write(bytes, 0, bytes.Length);
+            lock (_sendLock)
+            {
+                stream.Write(bytes, 0, bytes.Length);
+            }
         }
         catch { }
     }

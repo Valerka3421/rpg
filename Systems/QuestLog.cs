@@ -31,6 +31,17 @@ public class QuestLog
     /// <summary>Сгенерированные квесты доски (генератор доски: до 3 активных).</summary>
     public List<QuestData.Def> GeneratedBoard = new();
 
+    /// <summary>Полный сброс журнала для новой партии.</summary>
+    public void Reset()
+    {
+        Available.Clear();
+        Active.Clear();
+        Completed.Clear();
+        TurnedIn.Clear();
+        GeneratedBoard.Clear();
+        PopulateBoard();
+    }
+
     public void AddAvailable(IEnumerable<string> keys)
     {
         foreach (var k in keys)
@@ -71,6 +82,8 @@ public class QuestLog
         {
             var q = QuestData.Get(qKey) ?? (Active[qKey].Generated ? GeneratedDef(Active[qKey]) : null);
             if (q == null || q.Type != "kill") continue;
+            // Target квеста — это ровно один глиф монстра ('r', 'G', 'A'),
+            // поэтому сравнение по первому символу здесь уже точное.
             if (q.Target.Length == 0 || q.Target[0] != monsterCh) continue;
             var state = Active[qKey];
             state.Progress++;

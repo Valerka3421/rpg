@@ -1,8 +1,9 @@
 namespace Aethelgard.Entities.Monsters;
 
 /// <summary>
-/// Вампир — отравляет цель (poison), глубокие этажи. Все данные вида перенесены из data/monsters.json
-/// прямо в класс (архитектура «Пример»: данные живут в классе).
+/// Вампир — высасывает жизнь (вампиризм: лечится на 50% нанесённого урона),
+/// глубокие этажи. Раньше по переносу из data/monsters.json имел Ability
+/// «poison» и травил вместо вампиризма.
 /// </summary>
 public class Vampire : Monster
 {
@@ -24,7 +25,7 @@ public class Vampire : Monster
             Xp = 100,
             Color = new Microsoft.Xna.Framework.Color(180,50,80),
             MinDepth = 8,
-            Ability = "poison",
+            Ability = "vampire",
             Boss = false,
             BossDepth = 0,
             OverworldOnly = false,

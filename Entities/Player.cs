@@ -306,8 +306,13 @@ public class Player : Entity
     }
 
     // ── Инвентарь ──
-    public void AddItem(string key, int count = 1) =>
+    public void AddItem(string key, int count = 1, bool log = true)
+    {
         Inventory[key] = Inventory.GetValueOrDefault(key) + count;
+        if (log)
+            GameChat.Instance.Item(
+                $"Получено: {ItemData.DisplayName(key)} ×{count}");
+    }
 
     public bool RemoveItem(string key, int count = 1)
     {
@@ -348,10 +353,19 @@ public class Player : Entity
         return entries;
     }
 
-    public bool EquipItem(string key)
+    /// <summary>
+    /// Надеть предмет. Принимает полный ключ (с "+N"): раньше в слот попадал
+    /// базовый ключ — заточка тихо терялась при надевании через UseItem.
+    /// </summary>
+    public bool EquipItem(string fullKey)
     {
-        var def = ItemData.Get(key);
+        // "#N" — служебный суффикс виртуального стека, в слот экипировки он не попадает
+        int hash = fullKey.IndexOf('#');
+        if (hash >= 0) fullKey = fullKey[..hash];
+        var (baseKey, _) = ItemData.ParseItemKey(fullKey);
+        var def = ItemData.Get(baseKey);
         if (def == null) return false;
+        string key = fullKey;
         string? slot = def.Kind switch
         {
             ItemData.ItemType.Weapon => "weapon",
@@ -435,7 +449,7 @@ public class Player : Entity
         if (def.Kind is ItemData.ItemType.Weapon or ItemData.ItemType.Armor
                      or ItemData.ItemType.Helmet or ItemData.ItemType.Leggings
                      or ItemData.ItemType.Boots)
-            return EquipItem(baseKey ?? fullKey);
+                return EquipItem(fullKey);
 
         // Чертёж — не расходуется, открывает рецепт
         if (def.Kind == ItemData.ItemType.Blueprint)
@@ -549,7 +563,9 @@ public class Player : Entity
     public void GainXp(int amount)
     {
         if (amount <= 0) return;
-        Xp += (int)(amount * (1.0 + XpPct));
+        int gained = (int)(amount * (1.0 + XpPct));
+        Xp += gained;
+        GameChat.Instance.Xp($"Получено {gained} опыта");
         int guard = 0;
         while (Xp >= XpNext && guard++ < Config.XpLevelGuard)
         {
@@ -561,6 +577,8 @@ public class Player : Entity
             Recalc();
             Hp = MaxHp;
             Mana = MaxMana;
+            GameChat.Instance.Level(
+                $"Новый уровень {Level}! (+5 очков характеристик, +1 очко навыков)");
         }
     }
 }

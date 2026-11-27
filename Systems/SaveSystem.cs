@@ -108,6 +108,7 @@ public static class SaveSystem
         public string Mode { get; set; } = "overworld";
         public int Depth { get; set; }
         public string? Location { get; set; }
+        public List<string> VisitedLocations { get; set; } = new();
     }
 
     public sealed class QuestDataSave
@@ -250,6 +251,7 @@ public static class SaveSystem
                     Mode = game.WorldMode,
                     Depth = game.Depth,
                     Location = game.CurrentMap.LocationKey,
+                    VisitedLocations = game.VisitedLocations.ToList(),
                 },
                 Quests = new QuestDataSave
                 {
@@ -283,10 +285,17 @@ public static class SaveSystem
 
             string path = SlotPath(slot);
             string json = Serialize(data);
-            // Атомарная запись: .tmp + replace
+            // Атомарная запись: .tmp + replace; прежний файл остаётся в .bak —
+            // сбой в момент replace не теряет сейв безвозвратно.
             string tmp = path + ".tmp";
+            string bak = path + ".bak";
             File.WriteAllText(tmp, json);
-            if (File.Exists(path)) File.Replace(tmp, path, null);
+            if (File.Exists(path))
+            {
+                try { File.Copy(path, bak, overwrite: true); }
+                catch { /* .bak — лучшее усилие, не мешает сохранению */ }
+                File.Replace(tmp, path, null);
+            }
             else File.Move(tmp, path);
             LastError = null;
             return true;
@@ -399,10 +408,22 @@ public static class SaveSystem
     {
         try
         {
+            // Битый/подделанный сейв не должен крашить игру или ломать мир:
+            // сначала приводим данные к допустимым значениям.
+            if (data.Player == null || data.World == null || data.Quests == null)
+            {
+                LastError = "Load: damaged save (missing sections)";
+                return false;
+            }
+            SanitizePlayerData(data.Player);
+
             // Restore player
             var p = game.Player;
             var pd = data.Player;
-            p.X = pd.X; p.Y = pd.Y;
+            // Позиция запоминается здесь: SetWorldMode ниже вызывает
+            // PlacePlayerAtEntry и перезаписывает координаты на точку входа,
+            // поэтому восстановление позиции делаем ПОСЛЕ переключения мира.
+            int savedX = pd.X, savedY = pd.Y;
             p.Hp = pd.Hp; p.MaxHp = pd.MaxHp;
             p.Mana = pd.Mana; p.MaxMana = pd.MaxMana;
             p.Level = pd.Level; p.Xp = pd.Xp;
@@ -432,6 +453,9 @@ public static class SaveSystem
             p.CraftXp = new Dictionary<string, int>(pd.CraftXp);
             p.Statuses = new Dictionary<string, int>(pd.Statuses);
             p.Recalc();
+            // HP/мана не больше пересчитанных максимумов и не меньше нуля
+            p.Hp = Math.Clamp(p.Hp, 0, Math.Max(1, p.MaxHp));
+            p.Mana = Math.Clamp(p.Mana, 0, Math.Max(1, p.MaxMana));
 
             // Restore floor cache
             foreach (var fd in data.Floors)
@@ -444,11 +468,28 @@ public static class SaveSystem
             // Restore world mode/depth/location
             if (data.World.Mode == "dungeon" && data.World.Depth > 0)
             {
-                game.SetWorldMode("dungeon", data.World.Depth);
+                game.SetWorldMode("dungeon",
+                    Math.Clamp(data.World.Depth, 1, Config.MaxDepth));
             }
             else if (!string.IsNullOrEmpty(data.World.Location))
             {
                 game.SetWorldMode("overworld", 0, data.World.Location);
+            }
+
+            // Restore visited locations (village — всегда)
+            game.VisitedLocations.Clear();
+            game.MarkVisited("village");
+            foreach (var key in data.World.VisitedLocations)
+                game.MarkVisited(key);
+
+            // Позиция — восстановить сохранённую, а не точку входа этажа
+            // (SetWorldMode выше вызвал PlacePlayerAtEntry). Кламп внутрь карты
+            // и фолбэк на стену/границу — остаётся точка входа.
+            int cx = Math.Clamp(savedX, 1, Math.Max(1, game.CurrentMap.W - 2));
+            int cy = Math.Clamp(savedY, 1, Math.Max(1, game.CurrentMap.H - 2));
+            if (game.CurrentMap.IsWalkable(cx, cy))
+            {
+                p.X = cx; p.Y = cy;
             }
 
             // Restore quests (полное состояние, включая generated)
@@ -475,10 +516,96 @@ public static class SaveSystem
 
             return true;
         }
-        catch
+        catch (Exception ex)
         {
+            // Раньше причина загрузки молча глоталась — невозможно было
+            // понять, почему «продолжить» не сработал.
+            LastError = $"Load: {ex.Message}";
             return false;
         }
+    }
+
+    /// <summary>
+    /// Привести данные игрока из (возможно битого или подделанного) сейва
+    /// к допустимым значениям: клампы чисел, whitelist ключей предметов,
+    /// известный класс, непустые коллекции.
+    /// </summary>
+    private static void SanitizePlayerData(PlayerData pd)
+    {
+        pd.Level = Math.Clamp(pd.Level, 1, 200);
+        pd.Gold = Math.Max(0, pd.Gold);
+        pd.MaxHp = Math.Max(1, pd.MaxHp);
+        pd.Hp = Math.Clamp(pd.Hp, 0, pd.MaxHp);
+        pd.MaxMana = Math.Max(0, pd.MaxMana);
+        pd.Mana = Math.Clamp(pd.Mana, 0, pd.MaxMana);
+        pd.Xp = Math.Max(0, pd.Xp);
+        pd.FreePoints = Math.Clamp(pd.FreePoints, 0, 10000);
+        pd.SkillPoints = Math.Clamp(pd.SkillPoints, 0, 10000);
+        pd.Str = Math.Max(0, pd.Str); pd.Agi = Math.Max(0, pd.Agi);
+        pd.Vit = Math.Max(0, pd.Vit); pd.Luk = Math.Max(0, pd.Luk);
+        pd.DfStat = Math.Max(0, pd.DfStat); pd.IntStat = Math.Max(0, pd.IntStat);
+        pd.ClassChanges = Math.Clamp(pd.ClassChanges, 0, 4);
+        pd.ClassTier = Math.Clamp(pd.ClassTier, 1, 3);
+        pd.StepCounter = Math.Max(0, pd.StepCounter);
+        if (!ClassData.All.ContainsKey(pd.ClassKey))
+        {
+            pd.ClassKey = "warrior";
+            pd.ClassName = ClassData.Data("warrior").Name;
+        }
+        if (pd.Inventory == null) pd.Inventory = new Dictionary<string, int>();
+        if (pd.Hotbar == null) pd.Hotbar = new List<string?>();
+        if (pd.LearnedNodes == null) pd.LearnedNodes = new List<string>();
+        if (pd.Blueprints == null) pd.Blueprints = new List<string>();
+        if (pd.CraftLevels == null) pd.CraftLevels = new Dictionary<string, int>();
+        if (pd.CraftXp == null) pd.CraftXp = new Dictionary<string, int>();
+        if (pd.Statuses == null) pd.Statuses = new Dictionary<string, int>();
+
+        // Инвентарь: только известные предметы (включая заточку "key+N"),
+        // счётчики 1..999. Раньше whitelist был по сырому ключу и молча
+        // вычищал crafted "+N" предметы при каждой загрузке.
+        static bool KnownItemKey(string? key)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+            if (ItemData.All.ContainsKey(key)) return true;
+            var (baseKey, _) = ItemData.ParseItemKey(key);
+            return baseKey != null && baseKey != key && ItemData.All.ContainsKey(baseKey);
+        }
+        var clean = new Dictionary<string, int>();
+        foreach (var (key, count) in pd.Inventory)
+        {
+            if (!KnownItemKey(key)) continue;
+            clean[key] = Math.Clamp(count, 0, 999);
+        }
+        pd.Inventory = clean;
+        if (pd.Inventory.Count == 0)
+        {
+            pd.Inventory["potion_s"] = 2;   // минимум, чтобы игрок не был заблокирован
+        }
+
+        // Экипировка: только существующие предметы
+        string? FixSlot(string? key) => KnownItemKey(key) ? key : null;
+        pd.Weapon = FixSlot(pd.Weapon);
+        pd.Armor = FixSlot(pd.Armor);
+        pd.Head = FixSlot(pd.Head ?? pd.Helmet);
+        pd.Legs = FixSlot(pd.Legs ?? pd.Leggings);
+        pd.Boots = FixSlot(pd.Boots);
+
+        // Хотбар: ссылки только на предметы инвентаря или null
+        // (раньше проверялось лишь существование предмета — хотбар мог
+        // ссылаться на предмет, которого в инвентаре нет)
+        for (int i = 0; i < pd.Hotbar.Count; i++)
+        {
+            var hb = pd.Hotbar[i];
+            if (hb != null && (!KnownItemKey(hb) || !pd.Inventory.ContainsKey(hb)))
+                pd.Hotbar[i] = null;
+        }
+
+        // Крафт-ветки: только 3 известных, уровень 1..25
+        var cl = new Dictionary<string, int>();
+        foreach (var (k, v) in pd.CraftLevels)
+            if (k is "blacksmith" or "alchemy" or "magic_engineering")
+                cl[k] = Math.Clamp(v, 1, 25);
+        pd.CraftLevels = cl;
     }
 
     private static PlayerData PlayerToData(Player p)

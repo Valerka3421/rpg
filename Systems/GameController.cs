@@ -12,7 +12,7 @@ namespace Aethelgard.Systems;
 ///
 /// Modes: "overworld" (surface), "dungeon" (underground), "inventory" (modal).
 /// </summary>
-public class GameController
+public partial class GameController
 {
     public Dungeon Overworld;
     public Dungeon Dungeon;
@@ -107,6 +107,11 @@ public class GameController
     private Dungeon? _currentLocation;
     public string CurrentLocation => _currentLocation?.LocationKey ?? "village";
 
+    /// <summary>Посещённые локации (для быстрого перехода на большой карте).</summary>
+    public HashSet<string> VisitedLocations { get; } = new() { "village" };
+
+    public void MarkVisited(string key) => VisitedLocations.Add(key);
+
     // Dialogue
     public string? DialogueText;
     public string? DialogueNpc;
@@ -150,9 +155,20 @@ public class GameController
         Depth = 0;
         ScreenMode = Screens.Game;
         RunStart = DateTime.Now;
+        // Полный сброс состояния забега: новая партия не продолжается
+        // поверх старой (квесты, статистика, кулдауны, эффекты).
+        Quests.Reset();
         KillsTotal = 0; BossKills = 0; PotionsUsed = 0;
         GoldEarned = 0; ItemsCrafted = 0; QuestsDone = 0;
         KillsByCh.Clear();
+        Victory = false;
+        Projectiles.Clear();
+        _moveCooldown = 0;
+        DungeonMerchant = null;
+        DungeonShopMode = false;
+        MinigameActive = false;
+        MinigameItem = null;
+        CraftPage = 0; CraftTab = 0; CraftQty = 1;
         _floorCache.Clear();
 
         // Initialize craft levels
@@ -201,6 +217,43 @@ public class GameController
             return;
         }
 
+        // ── Журнал с вкладками: ввод сообщения (Y, работает и в одиночной игре) ──
+        if (ChatInputOpen)
+        {
+            HandleChatInput(keys, prevKeys);
+            return;
+        }
+
+        // Клавиши журнала: Y — написать, PgUp/PgDn/Home/End — прокрутка
+        if (keys.IsKeyDown(Keys.Y) && !prevKeys.IsKeyDown(Keys.Y))
+        {
+            ChatInputOpen = true;
+            ChatLogInput = "";
+            return;
+        }
+        if (keys.IsKeyDown(Keys.PageUp) && !prevKeys.IsKeyDown(Keys.PageUp))
+            ChatScroll += 3;
+        if (keys.IsKeyDown(Keys.PageDown) && !prevKeys.IsKeyDown(Keys.PageDown))
+            ChatScroll = Math.Max(0, ChatScroll - 3);
+        if (keys.IsKeyDown(Keys.Home) && !prevKeys.IsKeyDown(Keys.Home))
+            // не int.MaxValue: PageUp += 3 вызывал переполнение в отрицательное
+            ChatScroll = int.MaxValue / 2;
+        if (keys.IsKeyDown(Keys.End) && !prevKeys.IsKeyDown(Keys.End))
+            ChatScroll = 0;
+        // Клик по вкладкам журнала (мышь в координатах дизайна 1920×1080)
+        var chatMouse = ScaledMouse();
+        if (chatMouse.LeftButton == ButtonState.Pressed)
+        {
+            for (int i = 0; i < ChatPanel.TabNames.Length; i++)
+            {
+                if (ChatPanel.TabRect(i).Contains(chatMouse.X, chatMouse.Y))
+                {
+                    ChatViewTab = i;
+                    ChatScroll = 0;
+                }
+            }
+        }
+
         // Dev console (F12 or `) — запрещена в мультиплеере
         if (!IsMultiplayer && keys.IsKeyDown(Keys.F12) && !prevKeys.IsKeyDown(Keys.F12))
         {
@@ -233,9 +286,13 @@ public class GameController
             var data = SaveSystem.Load(CurrentSlot);
             if (data != null)
             {
-                SaveSystem.ApplyLoad(this, data);
-                ShowMessage($"Загружено из слота {CurrentSlot}");
-                Audio?.Play("pickup");
+                // Результат раньше игнорировался: «Загружено» показывалось
+                // даже при отказе ApplyLoad на битых данных.
+                bool ok = SaveSystem.ApplyLoad(this, data);
+                ShowMessage(ok
+                    ? $"Загружено из слота {CurrentSlot}"
+                    : $"Ошибка загрузки: {SaveSystem.LastError}");
+                if (ok) Audio?.Play("pickup");
             }
             else
                 ShowMessage($"Слот {CurrentSlot} пуст");
@@ -422,6 +479,7 @@ public class GameController
                 if (itemKey != null && Player.UseItem(itemKey, CurrentMap))
                 {
                     ShowMessage($"Использовано: {ItemData.DisplayName(itemKey)}");
+                    GameChat.Instance.Item($"Использовано: {ItemData.DisplayName(itemKey)}");
                     if (itemKey.StartsWith("potion")) PotionsUsed++;
                 }
             }
@@ -441,51 +499,6 @@ public class GameController
     }
 
     // ── Craft screen input ──
-
-    private void HandleCraftInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        if (MinigameActive)
-        {
-            // Space — остановить индикатор точности
-            if (keys.IsKeyDown(Keys.Space) && !prevKeys.IsKeyDown(Keys.Space))
-                FinishMinigame();
-            if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-                MinigameActive = false;
-            return;
-        }
-
-        // Tabs: Q/A — назад, E/D — вперёд (4 вкладки: all + 3 ветки)
-        if ((keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-            || (keys.IsKeyDown(Keys.A) && !prevKeys.IsKeyDown(Keys.A)))
-            CraftTab = (CraftTab + 3) % 4;
-        if ((keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-            || (keys.IsKeyDown(Keys.D) && !prevKeys.IsKeyDown(Keys.D)))
-            CraftTab = (CraftTab + 1) % 4;
-
-        // Pages: Left/Right
-        if (keys.IsKeyDown(Keys.Left) && !prevKeys.IsKeyDown(Keys.Left))
-            CraftPage = Math.Max(0, CraftPage - 1);
-        if (keys.IsKeyDown(Keys.Right) && !prevKeys.IsKeyDown(Keys.Right))
-            CraftPage++;
-
-        // Batch size [ / ]
-        if (keys.IsKeyDown(Keys.OemOpenBrackets) && !prevKeys.IsKeyDown(Keys.OemOpenBrackets))
-            CraftQty = Math.Max(1, CraftQty - 1);
-        if (keys.IsKeyDown(Keys.OemCloseBrackets) && !prevKeys.IsKeyDown(Keys.OemCloseBrackets))
-            CraftQty = Math.Min(9, CraftQty + 1);
-
-        // 1–8: начать крафт (мини-игра)
-        for (int i = 0; i < 8; i++)
-        {
-            var key = Keys.D1 + i;
-            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                StartCraft(i);
-        }
-
-        if (keys.IsKeyDown(Keys.K) && !prevKeys.IsKeyDown(Keys.K)
-            || keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = Screens.Game;
-    }
 
     private void HandleStatsInput(KeyboardState keys, KeyboardState prevKeys)
     {
@@ -552,79 +565,6 @@ public class GameController
     }
 
     /// <summary>Начать крафт предмета по индексу на странице (мини-игра).</summary>
-    public void StartCraft(int index)
-    {
-        var list = CraftableList();
-        int idx = CraftPage * Config.CraftPageSize + index;
-        if (index < 0 || idx >= list.Count) return;
-        var (key, def) = list[idx];
-
-        var branch = ItemData.CategoryOf(key);
-        int branchLevel = Player.CraftLevels.GetValueOrDefault(branch, 1);
-        if (Player.Level < def.LevelReq)
-        {
-            ShowMessage($"Требуется уровень персонажа: {def.LevelReq}.");
-            return;
-        }
-        if (def.SkillReq > branchLevel)
-        {
-            ShowMessage($"Требуется уровень ветки «{branch}»: {def.SkillReq}.");
-            return;
-        }
-        if (!string.IsNullOrEmpty(def.BlueprintRequired)
-            && !Player.Blueprints.Contains(def.BlueprintRequired))
-        {
-            ShowMessage("Требуется чертёж.");
-            return;
-        }
-
-        // Скорость мини-игры: 0.85 + skill_req*0.02 + (qty-1)*0.04, max 2.4
-        MinigameSpeed = Math.Min(2.4f,
-            0.85f + def.SkillReq * 0.02f + (CraftQty - 1) * 0.04f);
-        MinigamePos = 0.5f;
-        MinigameDir = 1f;
-        MinigameItem = key;
-        MinigameRecipeIdx = 0;
-        MinigameActive = true;
-    }
-
-    /// <summary>Тик мини-игры — двигает индикатор туда-обратно.</summary>
-    public void UpdateMinigame(float dt)
-    {
-        if (!MinigameActive) return;
-        MinigamePos += MinigameDir * MinigameSpeed * dt;
-        if (MinigamePos >= 1f) { MinigamePos = 1f; MinigameDir = -1f; }
-        if (MinigamePos <= 0f) { MinigamePos = 0f; MinigameDir = 1f; }
-    }
-
-    /// <summary>Остановить мини-игру и выполнить крафт с вычисленной точностью.</summary>
-    public void FinishMinigame()
-    {
-        if (!MinigameActive || MinigameItem == null) return;
-        MinigameActive = false;
-
-        var def = ItemData.Get(MinigameItem);
-        int skillReq = def?.SkillReq ?? 1;
-        double accuracy = 1.0 - Math.Abs(MinigamePos - 0.5) * 2.0
-            - skillReq * 0.008
-            - Math.Min(0.30, (CraftQty - 1) * 0.03);
-        accuracy = Math.Max(0.0, accuracy);
-
-        var result = Rules.CraftItem(Player, MinigameItem, CraftQty, accuracy,
-            MinigameRecipeIdx);
-        ShowMessage(result.Message);
-        if (result.Ok)
-        {
-            ItemsCrafted += 1;
-            Quests.UpdateCraft(MinigameItem);
-            Quests.UpdateCraft(ItemData.MakeLootKey(MinigameItem, 0));
-            Audio?.Play("pickup");
-        }
-    }
-
-    // ── Сбор ресурсов (E) ──
-
-    /// <summary>Добыть ресурс рядом с игроком или под курсором (E).</summary>
     public void TryHarvest()
     {
         // Ресурс на клетке игрока или в соседней клетке
@@ -844,124 +784,13 @@ public class GameController
     /// <summary>
     /// Handle input in shop mode.
     /// </summary>
-    private void HandleShopInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        // S: toggle buy/sell
-        if (keys.IsKeyDown(Keys.S) && !prevKeys.IsKeyDown(Keys.S))
-        {
-            ShopSubMode = ShopSubMode == "buy" ? "sell" : "buy";
-            ShopPage = 0;
-        }
-
-        // Q/E: pages
-        if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-            ShopPage = Math.Max(0, ShopPage - 1);
-        if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-            ShopPage = Math.Min(ShopPagesCount() - 1, ShopPage + 1);
-
-        // R: reroll — только у торговца подземелья (городские лавки фиксированы)
-        if (keys.IsKeyDown(Keys.R) && !prevKeys.IsKeyDown(Keys.R))
-            RerollShop();
-
-        // 1-9: buy or sell item (SHOP_PAGE_SIZE = 9)
-        for (int i = 0; i < 9; i++)
-        {
-            var key = Keys.D1 + i;
-            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-            {
-                if (ShopSubMode == "buy")
-                    BuyItem(i);
-                else
-                    SellItem(i);
-            }
-        }
-    }
-
-    /// <summary>Перегенерация стока торговца подземелья за золото (R).</summary>
-    public void RerollShop()
-    {
-        if (!DungeonShopMode || DungeonMerchant == null) return;
-        var map = CurrentMap;
-        if (map.MerchantStock == null) return;
-        int price = Config.RerollPrice(Math.Max(1, Depth));
-        if (Player.Gold < price)
-        {
-            ShowMessage($"Обновление стоит {price} золота!");
-            return;
-        }
-        Player.Gold -= price;
-        map.MerchantStock = RecipeData.MakeShopStock(Math.Max(1, Depth));
-        ShopPage = 0;
-        ShowMessage($"Ассортимент обновлён (-{price} золота)");
-    }
-
-    /// <summary>Переключение покупка/продажа (кнопка режима в магазине).</summary>
-    public void ToggleShopMode()
-    {
-        ShopSubMode = ShopSubMode == "buy" ? "sell" : "buy";
-        ShopPage = 0;
-    }
-
-    /// <summary>Число страниц магазина — parity ShopController.pages_count.</summary>
-    public int ShopPagesCount()
-    {
-        int n = ShopSubMode == "buy"
-            ? CurrentShopStock().Count
-            : Player.InventoryStacks().Count;
-        return Math.Max(1, (n + Config.ShopPageSize - 1) / Config.ShopPageSize);
-    }
-
-    /// <summary>Сток текущего магазина (городской NPC или торговец подземелья).</summary>
-    public List<RecipeData.ShopEntry> CurrentShopStock()
-    {
-        if (DungeonShopMode)
-        {
-            var map = CurrentMap;
-            if (map.MerchantStock == null)
-                map.MerchantStock = RecipeData.MakeShopStock(Math.Max(1, Depth));
-            return map.MerchantStock;
-        }
-        var list = new List<RecipeData.ShopEntry>();
-        if (ActiveShopNpc != null)
-            list = ShopSystem.CityStock(ActiveShopNpc);
-        return list;
-    }
-
-    /// <summary>
-    /// Handle input in quests mode.
-    /// </summary>
-    private void HandleQuestInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        // Up/Down: select quest
-        if (keys.IsKeyDown(Keys.Up) && !prevKeys.IsKeyDown(Keys.Up))
-            QuestSelected = Math.Max(0, QuestSelected - 1);
-        if (keys.IsKeyDown(Keys.Down) && !prevKeys.IsKeyDown(Keys.Down))
-            QuestSelected++;
-
-        // Enter: accept or turn in
-        if (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter))
-        {
-            var available = Quests.Available.ToList();
-            var completed = Quests.Completed.ToList();
-
-            if (QuestSelected < available.Count)
-                AcceptQuest(QuestSelected);
-            else
-            {
-                int completedIdx = QuestSelected - available.Count;
-                if (completedIdx >= 0 && completedIdx < completed.Count)
-                    TurnInQuest(completedIdx);
-            }
-        }
-    }
-
-    /// <summary>
-    /// Try to learn a skill node by index (0-6).
-    /// </summary>
     private void TryLearnNode(int index)
     {
         if (ProgressionSystem.LearnNode(Player, index, out string message))
+        {
             ShowMessage(message);
+            GameChat.Instance.Xp(message);   // изучение навыка — вкладка «Опыт»
+        }
         else if (message.Length > 0)
             ShowMessage(message);
     }
@@ -978,7 +807,10 @@ public class GameController
         {
             string newKey = command["promote:".Length..];
             if (ClassData.Promote(Player, newKey))
+            {
                 ShowMessage($"Новый класс: {ClassData.Get(newKey)?.Name}!");
+                GameChat.Instance.Level($"Класс сменён: {ClassData.Get(newKey)?.Name}!");
+            }
             else
                 ShowMessage($"Смена класса доступна с уровня " +
                     $"{ClassData.ClassChangeLevels[Math.Min(Player.ClassChanges, ClassData.ClassChangeLevels.Length - 1)]}.");
@@ -1007,7 +839,10 @@ public class GameController
     private void TryPromoteClass()
     {
         if (ProgressionSystem.Promote(Player, out string message))
+        {
             ShowMessage(message);
+            GameChat.Instance.Level(message);   // смена класса — вкладка «Опыт»
+        }
         else if (message.Length > 0)
             ShowMessage(message);
     }
@@ -1069,7 +904,10 @@ public class GameController
             case ItemData.ItemType.Scroll:
             case ItemData.ItemType.Rune:
                 if (Player.UseItem(key, CurrentMap))
+                {
                     ShowMessage($"Применено: {def.Name}");
+                    GameChat.Instance.Item($"Применено: {def.Name}");
+                }
                 else
                     ShowMessage($"Недостаточно маны ({def.ManaCost} MP).");
                 break;
@@ -1083,6 +921,7 @@ public class GameController
                 if (Player.UseItem(key, CurrentMap))
                 {
                     ShowMessage($"Использовано: {def.Name}");
+                    GameChat.Instance.Item($"Использовано: {def.Name}");
                     if (key.StartsWith("potion")) PotionsUsed++;
                 }
                 break;
@@ -1213,6 +1052,7 @@ public class GameController
             _locationCache[to] = map;
         }
         _currentLocation = map;
+        MarkVisited(to);
         // Вход — у врат локации (врата в первый столбец, вход справа от них)
         var (entryX, entryY) = (1, map.H / 2);
         if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
@@ -1332,7 +1172,24 @@ public class GameController
     {
         if (Depth <= 1)
         {
-            ExitToOverworld();
+            // Если спускались из локации «Подземелье» — вернуться туда,
+            // иначе — на поверхность (оверворлд).
+            if (_currentLocation?.LocationKey == "dungeon")
+            {
+                _worldMode = "overworld";
+                Dungeon = _currentLocation;
+                Depth = 0;
+                if (Dungeon.StairsPos.HasValue)
+                {
+                    Player.X = Dungeon.StairsPos.Value.Item1;
+                    Player.Y = Dungeon.StairsPos.Value.Item2;
+                }
+                ShowMessage("Вы поднялись в зал подземелья.");
+            }
+            else
+            {
+                ExitToOverworld();
+            }
             return;
         }
 
@@ -1403,13 +1260,35 @@ public class GameController
             _locationCache[key] = map;
         }
         _currentLocation = map;
+        MarkVisited(key);
         var (entryX, entryY) = (1, map.H / 2);
         if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
             CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
         Player.X = entryX;
         Player.Y = entryY;
+        CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
         ShowMessage($"Вы вошли в: {Locations.All[key].Name}.");
         return true;
+    }
+
+    /// <summary>
+    /// Быстрый переход с большой карты — только в посещённые локации.
+    /// </summary>
+    public bool FastTravel(string key)
+    {
+        if (!Locations.All.ContainsKey(key) || !VisitedLocations.Contains(key)) return false;
+        if (key == "village")
+        {
+            Projectiles.Clear();
+            _worldMode = "overworld";
+            _currentLocation = null;
+            Player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
+            Player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
+            Overworld.RevealAround(Player.X, Player.Y, Config.RevealRadius);
+            ShowMessage("Вы вернулись в Город Этельгард.");
+            return true;
+        }
+        return GotoLocation(key);
     }
 
     /// <summary>
@@ -1509,7 +1388,10 @@ public class GameController
     {
         // Дальнобойное оружие (bow/staff/book wtype) — выстрел по взгляду до 8 клеток
         string? weapon = Player.Weapon;
-        var wdef = ItemData.Get(weapon);
+        // Оружие может быть заточено ("sword+2") — ищем деф по базовому ключу,
+        // иначе Get вернёт null и дальнобойная атака молча пропадёт.
+        var (wBase, _) = ItemData.ParseItemKey(weapon ?? "");
+        var wdef = ItemData.Get(wBase) ?? ItemData.Get(weapon);
         if (wdef?.WType is "bow" or "staff" or "book")
         {
             var ranged = CombatSystem.FindInFacing(Player, CurrentMap, 8);
@@ -1604,7 +1486,7 @@ public class GameController
         _statusTimer += dt;
         if (_statusTimer >= Config.StatusTickInterval)
         {
-            _statusTimer = 0;
+            _statusTimer -= Config.StatusTickInterval;   // -= вместо = 0: часть интервала не теряется
             Player.TickStatuses();
             foreach (var m in CurrentMap.Monsters)
                 m.TickStatuses();
@@ -1614,7 +1496,7 @@ public class GameController
         _regenTimer += dt;
         if (_regenTimer >= Config.RegenTickInterval)
         {
-            _regenTimer = 0;
+            _regenTimer -= Config.RegenTickInterval;
             if (Player.Alive && Player.Hp < Player.MaxHp && Player.Regen)
                 Player.Hp = Math.Min(Player.MaxHp, Player.Hp + Config.RegenHpPerTick);
             if (Player.Mana < Player.MaxMana)
@@ -1662,7 +1544,7 @@ public class GameController
     /// </summary>
     private void UpdateMonsters(float dt)
     {
-        MonsterAI.Update(CurrentMap, new[] { Player }, dt,
+        MonsterAI.Update(CurrentMap, PlayerTargets, dt,
             onMelee: (_, _, result) =>
             {
                 if (!result.Dodged && result.Damage > 0)
@@ -1684,6 +1566,14 @@ public class GameController
         HandlePlayerDeath();
     }
 
+    // Кэш-массив цели снарядов и MonsterAI: раньше new[]{Player} аллоцировался
+    // на каждый снаряд (и в MonsterAI.Update) каждый кадр.
+    private Player[]? _playerTargetCache;
+    private IReadOnlyList<Player> PlayerTargets =>
+        _playerTargetCache != null && ReferenceEquals(_playerTargetCache[0], Player)
+            ? _playerTargetCache
+            : _playerTargetCache = new[] { Player };
+
     private void UpdateProjectiles(float dt)
     {
         for (int i = Projectiles.Count - 1; i >= 0; i--)
@@ -1691,7 +1581,7 @@ public class GameController
             var p = Projectiles[i];
             // Снаряды монстров целятся в игрока, остальные — в монстров.
             IReadOnlyList<Entity> targets = p.SourcePid == -1
-                ? new Entity[] { Player }
+                ? PlayerTargets
                 : CurrentMap.Monsters;
 
             if (ProjectileSystem.Update(p, dt, CurrentMap, targets))
@@ -1787,6 +1677,75 @@ public class GameController
     };
 
     /// <summary>
+    /// Ввод сообщения журнала во вкладку «Общение» (одиночная игра).
+    /// Enter — отправить, Esc — отмена, Backspace — стереть.
+    /// </summary>
+    private void HandleChatInput(KeyboardState keys, KeyboardState prevKeys)
+    {
+        bool shift = keys.IsKeyDown(Keys.LeftShift) || keys.IsKeyDown(Keys.RightShift);
+        bool submit, cancel;
+        if (EditChatLine(keys, prevKeys, ref ChatLogInput, shift, out submit, out cancel))
+        {
+            if (submit && ChatLogInput.Trim().Length > 0)
+                Chat.Social($"[{Player.ClassName}] {ChatLogInput.Trim()}");
+            ChatInputOpen = false;
+            ChatLogInput = "";
+        }
+    }
+
+    /// <summary>
+    /// Общая правка однострочного ввода чата. Раньше SP и MP дублировали
+    /// ~50 строк этой логики — правка в одном месте не попадала во второй.
+    /// Возвращает true, если клавиша обработана (в т.ч. «ничего не делать»);
+    /// submit — Enter, cancel — Esc. Символы с учётом раскладки
+    /// (Window.TextInput): русская клавиатура печатает русские буквы.
+    /// TextKeyMap — запасной путь для сред без TextInput-событий.
+    /// </summary>
+    private bool EditChatLine(KeyboardState keys, KeyboardState prevKeys,
+        ref string line, bool shift, out bool submit, out bool cancel)
+    {
+        submit = false; cancel = false;
+        if (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter))
+        {
+            submit = true;
+            return true;
+        }
+        if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
+        {
+            cancel = true;
+            return true;
+        }
+        if (keys.IsKeyDown(Keys.Back) && !prevKeys.IsKeyDown(Keys.Back))
+        {
+            if (line.Length > 0) line = line[..^1];
+            return true;
+        }
+        if (line.Length >= 120) return true;
+        bool gotText = false;
+        while (TextInput.TryDequeue(out char ch))
+        {
+            if (char.IsControl(ch)) continue;
+            if (line.Length < 120)
+            {
+                line += ch;
+                gotText = true;
+            }
+        }
+        if (gotText) return true;
+        foreach (var (key, ch) in TextKeyMap)
+        {
+            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
+            {
+                char c = ch;
+                if (shift && char.IsLetter(c)) c = char.ToUpper(c);
+                line += c;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Play sound for an event.
     /// </summary>
     public void PlaySound(string name)
@@ -1794,910 +1753,23 @@ public class GameController
         Audio?.Play(name);
     }
 
+    /// <summary>
+    /// Мышь в координатах дизайна (1920×1080) из сырого Mouse.GetState.
+    /// Общий хелпер: раньше SP и MP дублировали эту конструкцию.
+    /// </summary>
+    protected static MouseState ScaledMouse()
+    {
+        var cm = Mouse.GetState();
+        return new MouseState(
+            (int)(cm.X * AethelgardGame.MouseScaleX),
+            (int)(cm.Y * AethelgardGame.MouseScaleY),
+            cm.ScrollWheelValue, cm.LeftButton, cm.MiddleButton,
+            cm.RightButton, cm.XButton1, cm.XButton2);
+    }
+
     // ── Multiplayer ──
 
     /// <summary>
     /// Старт MP-игры как клиент (подключение к чужому серверу).
     /// </summary>
-    public void StartMultiplayer(GameClient client, string classKey)
-    {
-        MpClient = client;
-        IsMultiplayer = true;
-        ScreenMode = Screens.MpGame;
-        Player = new Player(string.IsNullOrEmpty(classKey) ? "warrior" : classKey);
-    }
-
-    /// <summary>
-    /// Стать хостом: поднять сервер, при продолжении — загрузить мир из
-    /// сейва (menu_multiplayer: «Продолжить игру»), иначе — новая игра.
-    /// Класс выбирается на class_select (python: хост всегда выбирает класс).
-    /// </summary>
-    public bool StartMpHost(bool freshStart, string classKey)
-    {
-        try
-        {
-            var server = new GameServer();
-            server.Start(GameServer.DefaultPort);
-            if (!freshStart)
-                server.Core.LoadWorld();   // продолжить из сохранения
-
-            var client = new GameClient();
-            bool ok = client.Connect("localhost", server.Port, classKey, null);
-            if (!ok)
-            {
-                server.Stop();
-                return false;
-            }
-            MpServer = server;
-            StartMultiplayer(client, classKey);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Подключиться к хосту по адресу "host:port" (menu_mp_join).
-    /// </summary>
-    public bool StartMpJoin(string hostPort)
-    {
-        try
-        {
-            var parts = hostPort.Split(':');
-            string host = parts[0];
-            int port = parts.Length > 1 && int.TryParse(parts[1], out var p) ? p : 9000;
-            var client = new GameClient();
-            if (!client.Connect(host, port, "warrior", null))
-                return false;
-            StartMultiplayer(client, "warrior");
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>Отключиться от MP-сессии и остановить сервер хоста.</summary>
-    public void StopMultiplayer()
-    {
-        MpClient?.Disconnect();
-        MpClient = null;
-        MpServer?.Stop();
-        MpServer = null;
-        IsMultiplayer = false;
-        MpSnapshot = null;
-        MpPanel = "";
-        ChatLog.Clear();
-        ChatInput = "";
-        ChatActive = false;
-    }
-
-    /// <summary>Синхронизирует видимые настройки (FPS, мини-карта, звук).</summary>
-    public void ApplySettings()
-    {
-        ShowFps = Settings.ShowFps;
-        MinimapVisible = Settings.ShowMinimap;
-        if (Audio != null)
-            Audio.Volume = Settings.Volume / 10f;
-    }
-
-
-    /// <summary>
-    /// Открытая панель MP-клиента: "" | "inventory" | "stats" | "skills" |
-    /// "quests" | "shop" — те же экраны, что в синглплеере (I/C/N/L/B).
-    /// </summary>
-    public string MpPanel = "";
-    public int MpPage = 0;          // инвентарь: страница по 8 слотов
-    public int MpShopPage = 0;      // магазин: страница по 9
-    public bool MpShopSell = false; // магазин: режим продажи
-    public bool MpSkillCast = false;// навыки: false — учить (1–7), true — кастовать (1–8)
-    public int MpTradeSel = 0;      // обмен: выбранный предмет моего предложения
-
-    /// <summary>
-    /// Handle input in multiplayer mode — send to server.
-    /// Клавиши повторяют синглплеер: WASD/Space/F/E/T/H/M/P, панели I/C/N/L/B,
-    /// хотбар 1–8, дуэль Z, ожидание X, чат Y/Enter, сохранение мира F5.
-    /// </summary>
-    private void HandleMpInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        if (MpClient == null) return;
-        var snap = MpSnapshot;
-        var my = snap?.Players.FirstOrDefault(p => p.Pid == snap.MyPid);
-        bool shift = keys.IsKeyDown(Keys.LeftShift) || keys.IsKeyDown(Keys.RightShift);
-
-        // ── Ввод чата ──
-        if (ChatActive)
-        {
-            if (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter))
-            {
-                if (ChatInput.Length > 0)
-                {
-                    MpClient.SendChat(ChatInput);
-                    ChatLog.Add($"[me] {ChatInput}");
-                }
-                ChatActive = false;
-                ChatInput = "";
-                return;
-            }
-            if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            {
-                ChatActive = false;
-                ChatInput = "";
-                return;
-            }
-            if (keys.IsKeyDown(Keys.Back) && !prevKeys.IsKeyDown(Keys.Back))
-            {
-                if (ChatInput.Length > 0) ChatInput = ChatInput[..^1];
-                return;
-            }
-            // Печатные символы — через общую карту TextKeyMap (фикс: раньше
-            // ввод текста был заглушкой и чат нельзя было набрать)
-            foreach (var (key, ch) in TextKeyMap)
-            {
-                if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                {
-                    char c = ch;
-                    if (shift && char.IsLetter(c)) c = char.ToUpper(c);
-                    ChatInput += c;
-                    return;
-                }
-            }
-            return;
-        }
-
-        // Чат: Y или Enter
-        if ((keys.IsKeyDown(Keys.Y) && !prevKeys.IsKeyDown(Keys.Y))
-            || (keys.IsKeyDown(Keys.Enter) && !prevKeys.IsKeyDown(Keys.Enter)))
-        {
-            ChatActive = true;
-            ChatInput = "";
-            return;
-        }
-
-        if (snap == null || my == null) return;
-
-        // Окно обмена открывается и закрывается снапшотом
-        // (net/view.py:_apply_trade).
-        if (snap.Trade != null && snap.Trade.Players.Contains(snap.MyPid))
-        {
-            if (MpPanel == "") { MpPanel = Screens.Trade; MpTradeSel = 0; }
-        }
-        else if (MpPanel == Screens.Trade)
-        {
-            MpPanel = "";
-        }
-
-        // ── Панели (экраны MP дублируют SP-экраны) ──
-        if (MpPanel != "")
-        {
-            HandleMpPanelInput(keys, prevKeys, snap, my, shift);
-            return;
-        }
-
-        // Открытие панелей — те же клавиши, что в сингле
-        if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
-        { MpPanel = Screens.Inventory; MpPage = 0; return; }
-        if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
-        { MpPanel = Screens.Stats; return; }
-        if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
-        { MpPanel = Screens.Skills; MpSkillCast = false; return; }
-        if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
-        { MpPanel = Screens.Quests; return; }
-        if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
-        { MpPanel = Screens.Shop; MpShopPage = 0; MpShopSell = false; return; }
-
-        // Движение
-        int dx = 0, dy = 0;
-        if (keys.IsKeyDown(Keys.W) || keys.IsKeyDown(Keys.Up)) dy = -1;
-        else if (keys.IsKeyDown(Keys.S) || keys.IsKeyDown(Keys.Down)) dy = 1;
-        else if (keys.IsKeyDown(Keys.A) || keys.IsKeyDown(Keys.Left)) dx = -1;
-        else if (keys.IsKeyDown(Keys.D) || keys.IsKeyDown(Keys.Right)) dx = 1;
-
-        if ((dx != 0 || dy != 0) && _moveCooldown <= 0)
-        {
-            MpClient.SendInput(dx, dy);
-            _moveCooldown = Config.PlayerMoveCooldown;
-        }
-
-        // Атака (Space)
-        if (keys.IsKeyDown(Keys.Space) && !prevKeys.IsKeyDown(Keys.Space))
-            MpClient.SendAttack();
-
-        // Лестницы/выход/ворота (F — как в сингле)
-        if (keys.IsKeyDown(Keys.F) && !prevKeys.IsKeyDown(Keys.F))
-            MpClient.SendUseStairs();
-
-        // Добыча ресурса (E — как в сингле): смежный живой узел из снапшота
-        if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-        {
-            foreach (var node in snap.Harvests)
-            {
-                if (Math.Max(Math.Abs(node.X - my.X), Math.Abs(node.Y - my.Y)) <= 1)
-                {
-                    MpClient.SendHarvest(node.X, node.Y);
-                    break;
-                }
-            }
-        }
-
-        // Поговорить с NPC (T — как в сингле): смежный NPC по NpcType
-        if (keys.IsKeyDown(Keys.T) && !prevKeys.IsKeyDown(Keys.T))
-        {
-            foreach (var npc in snap.Npcs)
-            {
-                if (!string.IsNullOrEmpty(npc.NpcType)
-                    && Math.Max(Math.Abs(npc.X - my.X), Math.Abs(npc.Y - my.Y)) <= 1)
-                {
-                    MpClient.SendQuestTalk(npc.NpcType);
-                    break;
-                }
-            }
-        }
-
-        // Быстрое зелье (H — как в сингле)
-        if (keys.IsKeyDown(Keys.H) && !prevKeys.IsKeyDown(Keys.H))
-            MpClient.SendUsePotion();
-
-        // Ожидание хода (X — net/core.py:wait)
-        if (keys.IsKeyDown(Keys.X) && !prevKeys.IsKeyDown(Keys.X))
-            MpClient.SendWait();
-
-        // Дуэль (Z — net/core.py:duel_request): ближайший другой игрок
-        if (keys.IsKeyDown(Keys.Z) && !prevKeys.IsKeyDown(Keys.Z))
-        {
-            int bestPid = -1, bestDist = int.MaxValue;
-            foreach (var p in snap.Players)
-            {
-                if (p.Pid == snap.MyPid) continue;
-                int d = Math.Max(Math.Abs(p.X - my.X), Math.Abs(p.Y - my.Y));
-                if (d < bestDist) { bestDist = d; bestPid = p.Pid; }
-            }
-            if (bestPid >= 0) MpClient.SendDuelRequest(bestPid);
-        }
-
-        // Обмен (G — соседняя с Z клавиша; в python обмен вызывается кликом
-        // по игроку): предложение обмена ближайшему игроку в клетке рядом.
-        if (keys.IsKeyDown(Keys.G) && !prevKeys.IsKeyDown(Keys.G))
-        {
-            int bestPid = -1, bestDist = int.MaxValue;
-            foreach (var p in snap.Players)
-            {
-                if (p.Pid == snap.MyPid) continue;
-                int d = Math.Max(Math.Abs(p.X - my.X), Math.Abs(p.Y - my.Y));
-                if (d < bestDist) { bestDist = d; bestPid = p.Pid; }
-            }
-            if (bestPid >= 0 && bestDist <= 1) MpClient.SendTrade(bestPid, "request");
-        }
-
-        // Повышение класса (P — как в сингле)
-        if (keys.IsKeyDown(Keys.P) && !prevKeys.IsKeyDown(Keys.P))
-            MpClient.SendPromote();
-
-        // Хотбар 1–8 (как в сингле): использовать назначенный предмет
-        for (int i = 0; i < 8 && i < my.Quickbar.Length; i++)
-        {
-            var key = Keys.D1 + i;
-            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key)
-                && !shift && my.Quickbar[i] != null)
-            {
-                MpClient.SendUseItem(my.Quickbar[i]!);
-            }
-        }
-
-        // Сохранение мира хостом (F5 — аналог быстрого сохранения)
-        if (keys.IsKeyDown(Keys.F5) && !prevKeys.IsKeyDown(Keys.F5))
-            MpClient.SendSaveWorld();
-    }
-
-    /// <summary>
-    /// Ввод на открытой MP-панели: раскладка клавиш повторяет
-    /// HandleInventoryInput / HandleStatsInput / HandleSkillsInput /
-    /// HandleQuestInput / HandleShopInput синглплеера.
-    /// </summary>
-    private void HandleMpPanelInput(KeyboardState keys, KeyboardState prevKeys,
-        Snapshot snap, Snapshot.PlayerState my, bool shift)
-    {
-        // Esc / повторная клавиша панели — закрыть
-        if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-        { MpPanel = ""; return; }
-
-        switch (MpPanel)
-        {
-            case Screens.Inventory:
-            {
-                if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
-                { MpPanel = ""; return; }
-
-                // Q/E — страницы (как в SP)
-                if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-                    MpPage = Math.Max(0, MpPage - 1);
-                if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-                    MpPage++;
-
-                // U/V/H/B/N — снять weapon/armor/head/legs/boots (как в SP)
-                var unequips = new (Keys Key, string Slot)[]
-                {
-                    (Keys.U, "weapon"), (Keys.V, "armor"), (Keys.H, "head"),
-                    (Keys.B, "legs"), (Keys.N, "boots"),
-                };
-                foreach (var (key, slot) in unequips)
-                {
-                    if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                    {
-                        MpClient!.SendUnequip(slot);
-                        return;
-                    }
-                }
-
-                var items = my.Inventory.Keys.ToList();
-                // Shift+1–8 — назначить предмет в хотбар (как в SP)
-                if (shift)
-                {
-                    for (int i = 0; i < 8; i++)
-                    {
-                        var key = Keys.D1 + i;
-                        int idx = MpPage * 8 + i;
-                        if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key)
-                            && idx < items.Count)
-                            MpClient!.SendQuickbar(i, items[idx]);
-                    }
-                    return;
-                }
-
-                // 1–8 — использовать/экипировать предмет (как в SP)
-                for (int i = 0; i < 8; i++)
-                {
-                    var key = Keys.D1 + i;
-                    int idx = MpPage * 8 + i;
-                    if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key)
-                        && idx < items.Count)
-                        MpClient!.SendUseItem(items[idx]);
-                }
-                break;
-            }
-
-            case Screens.Stats:
-            {
-                if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
-                { MpPanel = ""; return; }
-                // 1–6 — вложить очко (str/agi/vit/luk/df/int, как в SP)
-                string[] stats = { "str", "agi", "vit", "luk", "df_stat", "int" };
-                for (int i = 0; i < 6; i++)
-                {
-                    var key = Keys.D1 + i;
-                    if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                        MpClient!.SendAllocateStat(stats[i]);
-                }
-                break;
-            }
-
-            case Screens.Skills:
-            {
-                if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
-                { MpPanel = ""; return; }
-
-                // Q/E — переключение «учить / кастовать» (как табы в SP)
-                if ((keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-                    || (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E)))
-                    MpSkillCast = !MpSkillCast;
-
-                // P — повышение класса (как в SP)
-                if (keys.IsKeyDown(Keys.P) && !prevKeys.IsKeyDown(Keys.P))
-                {
-                    MpClient!.SendPromote();
-                    return;
-                }
-
-                if (!MpSkillCast)
-                {
-                    // 1–7 — изучить узел (как HandleSkillsInput в SP)
-                    for (int i = 0; i < 7; i++)
-                    {
-                        var key = Keys.D1 + i;
-                        if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                            MpClient!.SendLearnNode(i);
-                    }
-                }
-                else
-                {
-                    // 1–8 — применить активный навык (как F1–F8 в SP)
-                    for (int i = 0; i < 8; i++)
-                    {
-                        var key = Keys.D1 + i;
-                        if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                            MpClient!.SendSkill(i);
-                    }
-                }
-                break;
-            }
-
-            case Screens.Quests:
-            {
-                if (keys.IsKeyDown(Keys.L) && !prevKeys.IsKeyDown(Keys.L))
-                { MpPanel = ""; return; }
-                // 1–9: принять доступный / сдать выполненный (как в SP)
-                var available = snap.QuestBoard.Where(q => q.State == "available").ToList();
-                var completed = snap.QuestBoard.Where(q => q.State == "completed").ToList();
-                for (int i = 0; i < 9; i++)
-                {
-                    var key = Keys.D1 + i;
-                    if (!keys.IsKeyDown(key) || prevKeys.IsKeyDown(key)) continue;
-                    if (i < available.Count)
-                        MpClient!.SendQuest(available[i].Key, true);
-                    else
-                    {
-                        int cIdx = i - available.Count;
-                        if (cIdx < completed.Count)
-                            MpClient!.SendQuest(completed[cIdx].Key, false);
-                    }
-                }
-                break;
-            }
-
-            case Screens.Shop:
-            {
-                if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
-                { MpPanel = ""; return; }
-
-                // S — купить/продать (как в SP)
-                if (keys.IsKeyDown(Keys.S) && !prevKeys.IsKeyDown(Keys.S))
-                { MpShopSell = !MpShopSell; MpShopPage = 0; }
-
-                // Left/Right — страницы (как в SP)
-                if (keys.IsKeyDown(Keys.Left) && !prevKeys.IsKeyDown(Keys.Left))
-                    MpShopPage = Math.Max(0, MpShopPage - 1);
-                if (keys.IsKeyDown(Keys.Right) && !prevKeys.IsKeyDown(Keys.Right))
-                    MpShopPage++;
-
-                // R — реролл стока торговца (как в SP)
-                if (keys.IsKeyDown(Keys.R) && !prevKeys.IsKeyDown(Keys.R))
-                    MpClient!.SendReroll();
-
-                // 1–9 — купить/продать
-                for (int i = 0; i < 9; i++)
-                {
-                    var key = Keys.D1 + i;
-                    if (!keys.IsKeyDown(key) || prevKeys.IsKeyDown(key)) continue;
-                    int idx = MpShopPage * Config.ShopPageSize + i;
-                    if (MpShopSell) MpClient!.SendSell(idx);
-                    else MpClient!.SendBuy(idx);
-                }
-                break;
-            }
-
-            case Screens.Trade:
-            {
-                var trade = snap.Trade;
-                if (trade == null) { MpPanel = ""; return; }
-                int myPid = snap.MyPid;
-                int other = trade.Players.FirstOrDefault(p => p != myPid);
-                if (other <= 0) { MpPanel = ""; return; }
-                bool accepted = trade.Accepted.Contains(myPid);
-
-                // Esc — отмена (decline до подтверждения, cancel после)
-                if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-                {
-                    MpClient!.SendTrade(other, accepted ? "cancel" : "decline");
-                    MpPanel = "";
-                    return;
-                }
-
-                // Y — принять заявку
-                if (!accepted && keys.IsKeyDown(Keys.Y) && !prevKeys.IsKeyDown(Keys.Y))
-                { MpClient!.SendTrade(other, "accept"); return; }
-
-                if (!accepted) return;
-
-                var myOffer = trade.Offers.GetValueOrDefault(myPid.ToString())
-                    ?? new Dictionary<string, int>();
-                var myKeys = myOffer.Keys.OrderBy(k => k).ToList();
-                if (MpTradeSel >= myKeys.Count) MpTradeSel = Math.Max(0, myKeys.Count - 1);
-
-                // R — подтвердить (net/core.py:trade_ready)
-                if (keys.IsKeyDown(Keys.R) && !prevKeys.IsKeyDown(Keys.R))
-                { MpClient!.SendTrade(other, "ready"); return; }
-
-                // Q/E — выбор предмета моего предложения
-                if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-                    MpTradeSel = Math.Max(0, MpTradeSel - 1);
-                if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-                    MpTradeSel = Math.Min(myKeys.Count - 1, MpTradeSel + 1);
-
-                // X — убрать выбранный предмет из предложения
-                if (keys.IsKeyDown(Keys.X) && !prevKeys.IsKeyDown(Keys.X)
-                    && myKeys.Count > 0 && MpTradeSel < myKeys.Count)
-                { MpClient!.SendTrade(other, "remove", myKeys[MpTradeSel]); return; }
-
-                // Золото: C +10 · V −10 · B +100 (в python — кнопки в окне)
-                int myGold = trade.Gold.GetValueOrDefault(myPid.ToString());
-                if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C)
-                    && myGold + 10 <= my.Gold)
-                    MpClient!.SendTrade(other, "gold", null, 1, myGold + 10);
-                if (keys.IsKeyDown(Keys.V) && !prevKeys.IsKeyDown(Keys.V)
-                    && myGold - 10 >= 0)
-                    MpClient!.SendTrade(other, "gold", null, 1, myGold - 10);
-                if (keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B)
-                    && myGold + 100 <= my.Gold)
-                    MpClient!.SendTrade(other, "gold", null, 1, myGold + 100);
-
-                // 1–9 — добавить предмет из инвентаря (×1)
-                var inv = my.Inventory.Keys.OrderBy(k => k).ToList();
-                for (int i = 0; i < 9 && i < inv.Count; i++)
-                {
-                    var key = Keys.D1 + i;
-                    if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                    { MpClient!.SendTrade(other, "add", inv[i]); return; }
-                }
-                break;
-            }
-        }
-    }
-
-    /// <summary>
-    /// Update multiplayer state — fetch latest snapshot.
-    /// </summary>
-    public void UpdateMp(float dt)
-    {
-        if (MpClient == null) return;
-
-        MpSnapshot = MpClient.GetSnapshot();
-
-        if (MpSnapshot != null)
-        {
-            // Update chat log from snapshot
-            foreach (var chat in MpSnapshot.Chat)
-            {
-                string entry = $"[P{chat.Pid}] {chat.Text}";
-                if (!ChatLog.Contains(entry))
-                    ChatLog.Add(entry);
-            }
-            if (ChatLog.Count > 20)
-                ChatLog.RemoveRange(0, ChatLog.Count - 20);
-        }
-
-        // Message timer
-        if (MessageTimer > 0)
-            MessageTimer -= dt;
-
-        // Move cooldown
-        _moveCooldown -= dt;
-    }
-
-    // ── City NPCs ──
-
-    private void SpawnCityNpcs()
-    {
-        CityNpcs.Clear();
-        // Стражники: 4 поста у ворот (север, восток, запад, юг) — parity с
-        // _monsters.py: посты (50,24), (64,35), (34,35), (50,44).
-        var guardPosts = new (int X, int Y)[]
-        {
-            (50, 24), (64, 35), (34, 35), (50, 44),
-        };
-        foreach (var def in CityData.Npcs.Values)
-        {
-            if (def.IsGuard)
-            {
-                foreach (var (px, py) in guardPosts)
-                {
-                    var guard = new Entity(px, py, 9999, 9999, 3, 0,
-                        def.Name, 'G', def.Color, 0)
-                    {
-                        IsNpc = true,
-                        NpcType = "guard",
-                        Immortal = true,
-                        HomeX = px,
-                        HomeY = py,
-                    };
-                    CityNpcs.Add(guard);
-                    if (Overworld.Tiles[py][px] == Tile.Wall)
-                        Overworld.Tiles[py][px] = Tile.Floor;
-                }
-                continue;
-            }
-
-            var npc = new Entity(def.Pos.X, def.Pos.Y, 10, 10, 0, 0,
-                def.Name, def.Ch.Length > 0 ? def.Ch[0] : '?', def.Color, 0)
-            {
-                IsNpc = true,
-                NpcType = def.Key,
-                HomeX = def.Pos.X,
-                HomeY = def.Pos.Y,
-            };
-            CityNpcs.Add(npc);
-            // Ensure NPC tile is floor
-            if (Overworld.Tiles[def.Pos.Y][def.Pos.X] == Tile.Wall)
-                Overworld.Tiles[def.Pos.Y][def.Pos.X] = Tile.Floor;
-        }
-    }
-
-    /// <summary>
-    /// Get all NPCs on the current map (городские + NPC текущей карты:
-    /// торговец и доска заданий в подземелье).
-    /// </summary>
-    public List<Entity> AllNpcs()
-    {
-        var npcs = new List<Entity>();
-        if (QuestBoard != null) npcs.Add(QuestBoard);
-        if (Elder != null) npcs.Add(Elder);
-        if (_worldMode == "overworld")
-            npcs.AddRange(CityNpcs);
-        // NPC на текущей карте (торговец/доска в подземелье, локации)
-        foreach (var m in CurrentMap.Monsters)
-            if (m.IsNpc && m.Alive)
-                npcs.Add(m);
-        return npcs;
-    }
-
-    /// <summary>
-    /// NPC at position, or null.
-    /// </summary>
-    public Entity? NpcAt(int x, int y)
-    {
-        foreach (var npc in AllNpcs())
-        {
-            if (npc.X == x && npc.Y == y)
-                return npc;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// NPC adjacent to player (within 1 tile).
-    /// </summary>
-    public Entity? NearbyNpc()
-    {
-        foreach (var npc in AllNpcs())
-        {
-            if (Math.Max(Math.Abs(npc.X - Player.X), Math.Abs(npc.Y - Player.Y)) <= 1)
-                return npc;
-        }
-        return null;
-    }
-
-    // ── Shop ──
-
-    /// <summary>
-    /// Open shop with a city NPC.
-    /// </summary>
-    public void OpenCityShop(string npcType)
-    {
-        ActiveShopNpc = npcType;
-        ShopSubMode = "buy";
-        ShopPage = 0;
-        ScreenMode = Screens.Shop;
-    }
-
-    /// <summary>
-    /// Buy item from shop by index (городская лавка или торговец подземелья).
-    /// </summary>
-    public void BuyItem(int index)
-    {
-        var stock = CurrentShopStock();
-        int pageStart = ShopPage * Config.ShopPageSize;
-        int idx = pageStart + index;
-        if (index < 0 || idx >= stock.Count) return;
-
-        if (ShopSystem.Buy(Player, stock, idx, out string message))
-            ShowMessage(message);
-        else if (message.Length > 0)
-            ShowMessage(message);
-    }
-
-    /// <summary>
-    /// Sell item from inventory by index (цена продажи sell + rarity*10).
-    /// </summary>
-    public void SellItem(int index)
-    {
-        int pageStart = ShopPage * Config.ShopPageSize;
-        int idx = pageStart + index;
-        int before = Player.Gold;
-        if (ShopSystem.Sell(Player, idx, out string message))
-        {
-            GoldEarned += Player.Gold - before;
-            ShowMessage(message);
-        }
-        else if (message.Length > 0)
-            ShowMessage(message);
-    }
-
-    // ── Quests ──
-
-    /// <summary>
-    /// Accept quest from the board by index (статические + сгенерированные).
-    /// </summary>
-    public void AcceptQuest(int index)
-    {
-        var available = Quests.Available.ToList();
-        // Сначала статические, затем сгенерированные
-        if (index < available.Count)
-        {
-            string key = available[index];
-            var def = QuestData.Get(key);
-            if (Quests.Accept(key, def?.Count ?? 1, Player.Inventory))
-                ShowMessage($"Принято задание: {def?.Name}");
-            return;
-        }
-
-        int genIdx = index - available.Count;
-        var generated = Quests.GeneratedBoard;
-        if (genIdx < 0 || genIdx >= generated.Count) return;
-
-        var q = generated[genIdx];
-        if (Quests.AcceptGenerated(q))
-        {
-            generated.RemoveAt(genIdx);
-            QuestsDone++;
-            ShowMessage($"Принято задание: {q.Name}");
-        }
-    }
-
-    /// <summary>
-    /// Turn in a completed quest by index (статические + сгенерированные).
-    /// </summary>
-    public void TurnInQuest(int index)
-    {
-        var completed = Quests.Completed.ToList();
-        if (index < completed.Count)
-        {
-            string key = completed[index];
-            if (Quests.TurnIn(key, Player))
-            {
-                var def = QuestData.Get(key);
-                QuestsDone++;
-                ShowMessage($"Задание выполнено: {def?.Name}! (+{def?.RewardGold} золота, +{def?.RewardXp} опыта)");
-            }
-            return;
-        }
-
-        int genIdx = index - completed.Count;
-        if (genIdx >= 0)
-        {
-            // Сдать завершённый сгенерированный квест (по ключу активного)
-            var genActive = Quests.Active.Where(kv => kv.Value.Generated).ToList();
-            var done = genActive.Where(kv => kv.Value.Progress >= kv.Value.Count).ToList();
-            if (genIdx < done.Count)
-            {
-                var kv = done[genIdx];
-                if (Quests.TurnInGenerated(kv.Key, Player))
-                {
-                    QuestsDone++;
-                    ShowMessage($"Задание выполнено: {kv.Value.Name}! (+{kv.Value.RewardGold} золота, +{kv.Value.RewardXp} опыта)");
-                }
-            }
-        }
-    }
-
-    // ── Dialogue ──
-
-    /// <summary>
-    /// Talk to nearby NPC (T). Диалоги: старейшина (лор), стражник,
-    /// торговец подземелья, доска заданий, городские лавки.
-    /// </summary>
-    public void TalkToNpc()
-    {
-        var npc = NearbyNpc();
-        if (npc == null) return;
-
-        if (npc.NpcType == "quest_board")
-        {
-            // Доска: фиксированные квесты + сгенерированные (до 3 на доске)
-            Quests.PopulateBoard();
-            Quests.GeneratedBoard = QuestData.GenerateBoardQuests(
-                Math.Max(0, Depth), Math.Min(Config.MaxDepth, Depth + 4), 3,
-                Environment.TickCount);
-            ScreenMode = Screens.Quests;
-            return;
-        }
-
-        if (npc.NpcType == "elder")
-        {
-            DialogueNpc = "Старейшина";
-            DialogueText = "Приветствую, искатель приключений. Подземелье на северо-востоке таит большие опасности... и большие сокровища. Загляни на доску заданий, если ищешь работу.";
-            ScreenMode = Screens.Dialogue;
-            return;
-        }
-
-        if (npc.NpcType == "merchant")
-        {
-            // Торговец подземелья
-            DungeonMerchant = npc;
-            DungeonShopMode = true;
-            ShopSubMode = "buy";
-            ShopPage = 0;
-            ScreenMode = Screens.Shop;
-            return;
-        }
-
-        // Shop NPCs
-        if (npc.NpcType != null && CityData.Npcs.ContainsKey(npc.NpcType))
-        {
-            if (npc.NpcType == "guard")
-            {
-                DialogueNpc = "Стражник";
-                DialogueText = "Я сторожу врата. Монстры редко подходят к городским стенам, но в диких землях будьте начеку.";
-                ScreenMode = Screens.Dialogue;
-            }
-            else
-            {
-                DungeonShopMode = false;
-                OpenCityShop(npc.NpcType);
-            }
-            return;
-        }
-    }
-
-    // ── Guard AI ──
-
-    /// <summary>
-    /// Update city guard: attacks nearby monsters, returns to post.
-    /// </summary>
-    private void UpdateGuard(float dt)
-    {
-        _guardTimer += dt;
-        if (_guardTimer < 0.5f) return;
-        _guardTimer = 0;
-
-        if (_worldMode != "overworld") return;
-
-        foreach (var guard in CityNpcs.Where(n => n.NpcType == "guard"))
-        {
-            // Find nearest monster within 5 tiles
-            Entity? target = null;
-            int bestDist = 6;
-            foreach (var m in Overworld.Monsters)
-            {
-                if (!m.Alive) continue;
-                int dist = Math.Max(Math.Abs(m.X - guard.X), Math.Abs(m.Y - guard.Y));
-                if (dist <= 5 && dist < bestDist)
-                {
-                    bestDist = dist;
-                    target = m;
-                }
-            }
-
-            if (target != null)
-            {
-                if (bestDist <= 1)
-                {
-                    // Attack
-                    target.Hp -= guard.Atk;
-                    if (target.Hp <= 0)
-                        Overworld.Monsters.Remove(target);
-                }
-                else
-                {
-                    // Move toward target
-                    int dx = Math.Sign(target.X - guard.X);
-                    int dy = Math.Sign(target.Y - guard.Y);
-                    int nx = guard.X + dx, ny = guard.Y + dy;
-                    if (Overworld.IsWalkable(nx, ny) && Overworld.MonsterAt(nx, ny) == null
-                        && !(nx == Player.X && ny == Player.Y))
-                    {
-                        guard.X = nx;
-                        guard.Y = ny;
-                    }
-                }
-            }
-            else
-            {
-                // Return to post
-                int dx = Math.Sign(guard.HomeX - guard.X);
-                int dy = Math.Sign(guard.HomeY - guard.Y);
-                if (dx != 0 || dy != 0)
-                {
-                    int nx = guard.X + dx, ny = guard.Y + dy;
-                    if (Overworld.IsWalkable(nx, ny) && Overworld.MonsterAt(nx, ny) == null
-                        && !(nx == Player.X && ny == Player.Y))
-                    {
-                        guard.X = nx;
-                        guard.Y = ny;
-                    }
-                }
-            }
-        }
-    }
 }

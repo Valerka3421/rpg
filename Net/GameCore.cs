@@ -120,7 +120,11 @@ public class GameCore
     public void RemovePlayer(int pid)
     {
         CancelTrade(pid, "opponent left");
+        Players.TryGetValue(pid, out var gone);
         Players.Remove(pid);
+        // Кулдаун снимается только ушедшему игроку: раньше Clear() сбрасывал
+        // кулдауны атак всех оставшихся.
+        if (gone != null) _lastAttack.Remove(gone);
         AddEvent($"Игрок {pid} покинул игру");
     }
 
@@ -222,8 +226,11 @@ public class GameCore
             StatSystem.Allocate(player, msg.AllocateStat);
         if (!string.IsNullOrEmpty(msg.CraftKey) && msg.CraftAccuracy.HasValue)
         {
-            var res = Rules.CraftItem(player, msg.CraftKey, msg.CraftQty ?? 1,
-                Math.Clamp(msg.CraftAccuracy.Value, 0.0, 1.0));
+            // Точность мини-игры ограничиваем сервером: клиент присылает её
+            // как число, читер мог бы всегда слать 1.0. Честный диапазон
+            // [0, 1] плюс штраф за партию — как в серверной формуле крафта.
+            double acc = Math.Clamp(msg.CraftAccuracy.Value, 0.0, 1.0);
+            var res = Rules.CraftItem(player, msg.CraftKey, msg.CraftQty ?? 1, acc);
             AddEvent(res.Message);
         }
         if (msg.BuyIdx.HasValue) MpBuy(player, msg.BuyIdx.Value);
@@ -350,6 +357,9 @@ public class GameCore
         public bool Done;
     }
 
+    // Серверный кулдаун атак (DPS-эксплойт без него: 240 cmd/s = 240 атак/с)
+    private readonly Dictionary<Player, DateTime> _lastAttack = new();
+
     private void HandleTrade(int pid, Player player, ClientMsg msg)
     {
         int target = msg.TradeTarget ?? -1;
@@ -409,7 +419,11 @@ public class GameCore
                 {
                     int count = Math.Max(1, msg.TradeCount ?? 1);
                     var offer = pid == st3.PidA ? st3.OfferA : st3.OfferB;
-                    if (player.ItemCount(msg.TradeItemKey) >= count)
+                    // Суммарно предложено не больше, чем есть в инвентаре
+                    // (иначе повторные add наращивают оффер сверх наличия).
+                    int have = player.ItemCount(msg.TradeItemKey);
+                    if (count > 0 && have >= count
+                        && offer.GetValueOrDefault(msg.TradeItemKey) + count <= have)
                         offer[msg.TradeItemKey] = offer.GetValueOrDefault(msg.TradeItemKey) + count;
                 }
                 break;
@@ -586,6 +600,14 @@ public class GameCore
 
     private void PlayerAttack(Player player)
     {
+        // Серверный кулдаун атаки: без него rate-limit 240 cmd/s =
+        // 240 атак в секунду (DPS-эксплойт).
+        var now = DateTime.UtcNow;
+        if (_lastAttack.TryGetValue(player, out var last)
+            && (now - last).TotalSeconds < Config.PlayerAttackCooldown)
+            return;
+        _lastAttack[player] = now;
+
         var outcome = CombatSystem.AttackNearest(player, CurrentMap);
         if (outcome is { Killed: true, Target: not null })
             KillMonster(player, outcome.Target);
@@ -815,15 +837,54 @@ public class GameCore
         Events.Add(msg);
     }
 
+    // ── Дельта-снапшоты: ревизия карты и кэш сериализованных строк тайлов ──
+    // Тайлы меняются крайне редко (смена этажа/локации), поэтому снапшот 20 Гц
+    // включает карту только клиентам с устаревшей ревизией; строка карты
+    // сериализуется один раз на смену карты, а не на каждый тик.
+    private object? _mapRevOwner;   // ссылка на объект карты текущей ревизии
+    private int _mapRev;
+    private List<string>? _tilesCache;
+
+    /// <summary>Сбросить кэш тайлов при мутации карты (если появится).</summary>
+    public void InvalidateTiles()
+    {
+        _tilesCache = null;
+        _mapRev++;
+    }
+
+    private void TouchMapRevision()
+    {
+        if (!ReferenceEquals(_mapRevOwner, CurrentMap))
+        {
+            _mapRevOwner = CurrentMap;
+            _mapRev++;
+            _tilesCache = null;
+        }
+    }
+
+    private List<string> BuildTilesRows()
+    {
+        if (_tilesCache != null) return _tilesCache;
+        var rows = new List<string>(CurrentMap.H);
+        foreach (var row in CurrentMap.Tiles)
+            rows.Add(new string(row.Select(t => (char)('0' + (int)t)).ToArray()));
+        _tilesCache = rows;
+        return rows;
+    }
+
     /// <summary>
     /// Build a snapshot for a specific client (their view).
     /// NPC и сток торговца включены (test_mp_ui/test_new_features).
+    /// clientMapRev — ревизия карты, известная клиенту: если она актуальна,
+    /// Tiles не включаются (null = клиент reuse'ит кэш предыдущего снапшота).
     /// </summary>
-    public Snapshot BuildSnapshot(int forPid)
+    public Snapshot BuildSnapshot(int forPid, int clientMapRev = -1)
     {
+        TouchMapRevision();
         var snap = new Snapshot
         {
             Depth = Depth,
+            MapRev = _mapRev,
             MapW = CurrentMap.W,
             MapH = CurrentMap.H,
             WorldMode = _worldMode,
@@ -833,9 +894,9 @@ public class GameCore
             MyPid = forPid,
         };
 
-        // Карта тайлов (стены/лестницы/ворота рисуются как в сингле)
-        foreach (var row in CurrentMap.Tiles)
-            snap.Tiles.Add(new string(row.Select(t => (char)('0' + (int)t)).ToArray()));
+        // Карта тайлов — только при устаревшей ревизии клиента (дельта-снапшот)
+        if (clientMapRev != _mapRev)
+            snap.Tiles = BuildTilesRows();
 
         // Живые узлы ресурсов (E — добыть)
         foreach (var ((hx, hy), rec) in CurrentMap.Harvestables)
@@ -1003,13 +1064,9 @@ public class GameCore
     /// Сохранение мира MP-сессии хостом (net/core.py:save_world):
     /// savegame_mp_world.json (мета мира) + savegame_mp_players.json (игроки).
     /// </summary>
-    public int SaveWorld()
+    public Dictionary<string, object?>[] BuildSaveWorldData()
     {
-        try
-        {
-            var dir = Config.DataDir;
-            var worldPath = Path.Combine(dir, "savegame_mp_world.json");
-            var world = new Dictionary<string, object?>
+        var world = new Dictionary<string, object?>
             {
                 ["version"] = 8,
                 ["world_mode"] = _worldMode,
@@ -1047,9 +1104,7 @@ public class GameCore
                 ["current_location"] = _currentLocation?.LocationKey,
                 ["saved_at"] = DateTime.UtcNow.ToString("o"),
             };
-            File.WriteAllText(worldPath, JsonSerializer.Serialize(world, new JsonSerializerOptions { WriteIndented = true }));
 
-            var playersPath = Path.Combine(dir, "savegame_mp_players.json");
             var players = new Dictionary<string, object?>();
             foreach (var (pid, p) in Players)
             {
@@ -1071,7 +1126,22 @@ public class GameCore
                     ["blueprints"] = p.Blueprints.ToList(),
                 };
             }
-            File.WriteAllText(playersPath, JsonSerializer.Serialize(players, new JsonSerializerOptions { WriteIndented = true }));
+
+            return new[] { world, players };
+    }
+
+    /// <summary>Запись подготовленных данных мира на диск — вызывается ВНЕ
+    /// блокировки симуляции (File.WriteAllText под _lock замораживал игру).</summary>
+    public int WriteSaveWorldData(Dictionary<string, object?>[] data)
+    {
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(Config.DataDir, "savegame_mp_world.json"),
+                JsonSerializer.Serialize(data[0], new JsonSerializerOptions { WriteIndented = true }));
+            File.WriteAllText(
+                Path.Combine(Config.DataDir, "savegame_mp_players.json"),
+                JsonSerializer.Serialize(data[1], new JsonSerializerOptions { WriteIndented = true }));
             AddEvent("Мир сохранён.");
             return Players.Count;
         }
@@ -1079,6 +1149,12 @@ public class GameCore
         {
             return -1;
         }
+    }
+
+    public int SaveWorld()
+    {
+        try { return WriteSaveWorldData(BuildSaveWorldData()); }
+        catch { return -1; }
     }
 
     /// <summary>Сохранённые игроки (восстанавливаются при «Продолжить игру»).</summary>

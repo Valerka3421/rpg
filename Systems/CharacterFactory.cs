@@ -14,9 +14,11 @@ public static class CharacterFactory
         ApplyClass(new Player(classKey), classKey);
 
     /// <summary>
-    /// Применить к уже созданному персонажу бонусы класса и автоэкипировку.
-    /// Стартовые предметы добавляет конструктор <see cref="Player"/>, поэтому
-    /// здесь они не начисляются повторно (раньше SP и MP удваивали набор).
+    /// Применить к уже созданному персонажу стартовую автоэкипировку.
+    /// Бонусы класса НЕ начисляются здесь: конструктор <see cref="Player"/>
+    /// получает полные статы через ClassData.ClassStats (bonus уже учтён) —
+    /// раньше ApplyClass добавлял их второй раз. Стартовые предметы тоже
+    /// добавляет конструктор.
     /// </summary>
     public static Player ApplyClass(Player player, string classKey)
     {
@@ -24,12 +26,6 @@ public static class CharacterFactory
         if (def == null) return player;
 
         player.ClassName = def.Name;
-        player.Str += def.StrBonus;
-        player.Agi += def.AgiBonus;
-        player.Vit += def.VitBonus;
-        player.Luk += def.LukBonus;
-        player.IntStat += def.IntBonus;
-        player.DfStat += def.DfStatBonus;
         player.ClassTier = def.Tier;
         player.Recalc();
         player.Hp = player.MaxHp;

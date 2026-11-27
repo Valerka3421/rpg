@@ -81,7 +81,7 @@ public static partial class ItemData
         [3] = new Color(255, 180, 80),
     };
 
-    private static readonly Random Rng = new();
+    private static Random Rng => Random.Shared;   // потокобезопасно: дёргается и из серверного потока MP
 
     public static ItemType KindOf(string type) => type switch
     {
@@ -232,7 +232,7 @@ public static partial class ItemData
 
     public static bool IsStackable(Def def) => !IsEquipment(def);
 
-    private static readonly Random LootRng = new();
+    private static Random LootRng => Random.Shared;   // потокобезопасно
 
     /// <summary>
     /// Пул возможного лута сундуков на глубине depth. В оригинале

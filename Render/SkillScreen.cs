@@ -65,6 +65,7 @@ public class SkillScreen
         _sb.Draw(Blank, new Rectangle(px, py + panelH - 2, panelW, 2), Config.ColGold);
 
         if (_font == null) return null;
+        var font = _font;   // локаль: вызовы методов сбрасывают null-state поля (_font)
 
         // Title
         _sb.DrawString(_font, "ДРЕВО НАВЫКОВ", new Vector2(px + 20, py + 14), Config.ColGold);
@@ -227,21 +228,21 @@ public class SkillScreen
                     learned ? Color.White : Color.Multiply(Color.White, 0.55f));
                 // Уровень требования — под иконкой
                 string reqText = learned ? "изучено" : $"Ур.{node.Level}";
-                var reqSize = _font.MeasureString(reqText);
+                var reqSize = _font!.MeasureString(reqText);
                 _sb.DrawString(_font, reqText, new Vector2(nx - reqSize.X / 2, ny + radius - 26),
                     learned ? Color.White : (locked ? new Color(200, 110, 90) : Config.ColText));
             }
             else
             {
                 string reqText = learned ? "+" : $"Ур.{node.Level}";
-                var reqSize = _font.MeasureString(reqText);
+                var reqSize = _font!.MeasureString(reqText);
                 _sb.DrawString(_font, reqText, new Vector2(nx - reqSize.X / 2, ny - reqSize.Y / 2 - 2),
                     learned ? Color.White : (locked ? new Color(200, 110, 90) : Config.ColText));
             }
 
             // Node name — по центру под гексом
             string label = node.Name.Length > 20 ? node.Name[..19] + "…" : node.Name;
-            var labelSize = _font.MeasureString(label);
+            var labelSize = _font!.MeasureString(label);
             _sb.DrawString(_font, label, new Vector2(nx - labelSize.X / 2, ny + radius + 6),
                 learned ? new Color(120, 190, 110) : Config.ColDim);
 

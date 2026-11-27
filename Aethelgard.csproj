@@ -8,7 +8,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>Aethelgard</AssemblyName>
     <RootNamespace>Aethelgard</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Company>Valerka3421</Company>
     <Product>Aethelgard</Product>
     <Description>Tactical RPG — refactored layered architecture (BaseClass/Entities/Structs/World/Systems/Data)</Description>
@@ -30,6 +30,12 @@
   </ItemGroup>
 
   <!-- Игровые данные перенесены из data/*.json в C#-классы (Data/*Defs.cs) -->
+
+  <!-- Тестам нужен доступ к internal-таблицам данных (Data/*Defs) для
+       валидатора ссылочной целостности -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Aethelgard.Tests" />
+  </ItemGroup>
 
   <!-- Тестовый проект лежит в tests/ и не должен попадать в игру -->
   <ItemGroup>

@@ -28,7 +28,7 @@ public static class HarvestSystem
         ["bush"] = "Куст ягод",
     };
 
-    private static readonly Random Rng = new();
+    private static Random Rng => Random.Shared;   // потокобезопасно: дёргается и из серверного потока MP
 
     public static double Now => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
 

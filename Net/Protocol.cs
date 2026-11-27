@@ -14,8 +14,9 @@ namespace Aethelgard.Net;
 /// </summary>
 public static class Protocol
 {
-    /// <summary>Версия протокола. Несовпадение → сервер явно отклоняет клиента.</summary>
-    public const int Version = 2;
+    /// <summary>Версия протокола. Несовпадение → сервер явно отклоняет клиента.
+    /// v3: обязательная HMAC-подпись после hello + monotonic Seq (anti-replay).</summary>
+    public const int Version = 3;
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {

@@ -29,7 +29,7 @@ public class GameRenderer
     }
 
     /// <summary>
-    /// Main draw: world tiles + entities + HUD. mouse — в дизайн-координатах 1280×720.
+    /// Main draw: world tiles + entities + HUD. mouse — в дизайн-координатах 1920×1080.
     /// </summary>
     public void Draw(GameController game, MouseState? mouse = null)
     {
@@ -130,42 +130,60 @@ public class GameRenderer
 
     private void DrawEntities(Dungeon d, Player player)
     {
-        // Draw monsters
+        // Y-sort: сущности рисуются по возрастанию Y, а не игрок всегда
+        // поверх — раньше монстр выше игрока перекрывался им, что выдавало
+        // «дешёвый» top-down в бою. Кортежи вместо замыканий — без аллокаций
+        // делегатов на каждый кадр.
+        var drawList = new List<(int Y, Entity M, Player? P)>();
         foreach (var m in d.Monsters)
         {
             if (!m.Alive) continue;
             if (!IsVisible(m.X, m.Y)) continue;
+            drawList.Add((m.Y, m, null));
+        }
+        drawList.Add((player.Y, null!, player));
+        drawList.Sort((a, b) => a.Y.CompareTo(b.Y));
+        foreach (var (_, m, p) in drawList)
+        {
+            if (p == null) DrawMonster(m);
+            else DrawPlayer(p);
+        }
+    }
 
-            var pos = new Vector2(m.X * Config.TileSize - _camX + Config.TileSize / 2,
-                                   m.Y * Config.TileSize - _camY + Config.TileSize / 2);
-            // Спрайт монстра: PNG из assets/sprites или процедурный фолбэк
-            int spr = m.Boss ? 58 : 46;
-            var sprTex = SpriteStore.Get(_device, m.Boss ? "bosses" : "monsters", m.MonsterKey, m.Color);
-            _sb.Draw(sprTex,
-                new Rectangle((int)pos.X - spr / 2, (int)pos.Y - spr / 2 + 2, spr, spr),
-                Color.White);
-            // Boss outline
-            if (m.Boss)
-            {
-                DrawCircleOutline(pos, 30, new Color(220, 50, 50));
-            }
-
-            // HP bar above monster if damaged
-            if (m.Hp < m.MaxHp)
-            {
-                int barW = m.Boss ? 40 : 24;
-                int barH = 3;
-                int bx = (int)pos.X - barW / 2;
-                int by = (int)pos.Y - (m.Boss ? 32 : 26);
-                _sb.Draw(_blankTex, new Rectangle(bx, by, barW, barH),
-                    new Color(40, 20, 20));
-                int fillW = m.MaxHp > 0 ? barW * m.Hp / m.MaxHp : 0;
-                _sb.Draw(_blankTex, new Rectangle(bx, by, fillW, barH),
-                    Config.ColHp);
-            }
+    private void DrawMonster(Entity m)
+    {
+        var pos = new Vector2(m.X * Config.TileSize - _camX + Config.TileSize / 2,
+                               m.Y * Config.TileSize - _camY + Config.TileSize / 2);
+        // Спрайт монстра: PNG из assets/sprites или процедурный фолбэк
+        int spr = m.Boss ? 58 : 46;
+        var sprTex = SpriteStore.Get(_device, m.Boss ? "bosses" : "monsters", m.MonsterKey, m.Color);
+        _sb.Draw(sprTex,
+            new Rectangle((int)pos.X - spr / 2, (int)pos.Y - spr / 2 + 2, spr, spr),
+            Color.White);
+        // Boss outline
+        if (m.Boss)
+        {
+            DrawCircleOutline(pos, 30, new Color(220, 50, 50));
         }
 
-        // Draw player — спрайт класса (PNG или процедурный)
+        // HP bar above monster if damaged
+        if (m.Hp < m.MaxHp)
+        {
+            int barW = m.Boss ? 40 : 24;
+            int barH = 3;
+            int bx = (int)pos.X - barW / 2;
+            int by = (int)pos.Y - (m.Boss ? 32 : 26);
+            _sb.Draw(_blankTex, new Rectangle(bx, by, barW, barH),
+                new Color(40, 20, 20));
+            int fillW = m.MaxHp > 0 ? barW * m.Hp / m.MaxHp : 0;
+            _sb.Draw(_blankTex, new Rectangle(bx, by, fillW, barH),
+                Config.ColHp);
+        }
+    }
+
+    private void DrawPlayer(Player player)
+    {
+        // Спрайт класса (PNG или процедурный)
         var ppos = new Vector2(player.X * Config.TileSize - _camX + Config.TileSize / 2,
                                 player.Y * Config.TileSize - _camY + Config.TileSize / 2);
         var pTex = SpriteStore.Get(_device, "player", player.ClassKey, Config.ColPlayer);
@@ -469,6 +487,10 @@ public class GameRenderer
 
     private void DrawHud(Player player, GameController game, MouseState? mouse)
     {
+        // Журнал с вкладками над HUD (Всё/Бой/Предметы/Общение/Опыт)
+        if (_font != null)
+            ChatPanel.Draw(_sb, _font, game, _blankTex, mouse ?? default);
+
         // HUD background
         _sb.Draw(_blankTex,
             new Rectangle(0, AethelgardGame.ScreenH - Config.HudHeight, AethelgardGame.ScreenW, Config.HudHeight),

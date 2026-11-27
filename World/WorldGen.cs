@@ -53,11 +53,11 @@ public static class WorldGen
         foreach (var (x0, y0, x1, y1) in Overworld.RoadSegments)
             CarveRoad(d, x0, y0, x1, y1);
 
-        // 5. Dungeon entrance clearing + stairs
+        // 5. Dungeon entrance clearing + врата в отдельную локацию «Подземелье»
         ClearCircle(d, Overworld.DungeonPos, Overworld.DungeonRuinsRadius);
         var (ex, ey) = Overworld.DungeonPos;
-        d.Tiles[ey][ex] = Tile.Stairs;
-        d.StairsPos = (ex, ey);
+        d.Tiles[ey][ex] = Tile.Gate;
+        d.Transitions[(ex, ey)] = ("dungeon", (1, Locations.All["dungeon"].H / 2));
 
         // 6. Cardinal gates + transitions to edge locations
         // (parity: VILLAGE_GATES — north→birch, east→swamp, south→meadow,

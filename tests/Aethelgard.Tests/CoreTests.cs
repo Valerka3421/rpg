@@ -399,4 +399,58 @@ public class SharedSimulationTests
         Assert.Equal(100 - skill.Mana, player.Mana);
         Assert.True(player.ActiveSkillCd.ContainsKey(skill.Key));
     }
+
+    [Fact]
+    public void VampireMonster_LifestealsInsteadOfPoisoning()
+    {
+        // Раньше вампир имел Ability "poison" и травил вместо вампиризма
+        var vamp = MonsterData.CreateEntity("vampire", 10);
+        Assert.Equal("vampire", vamp.Ability);
+
+        var player = CharacterFactory.Create("warrior");
+        vamp.Atk = Math.Max(vamp.Atk, 20);       // гарантированный урон
+
+        // Уклонение — редкая случайность: повторяем до не-уклонения,
+        // чтобы тест был детерминированным
+        Rules.AttackResult result;
+        int hpBefore;
+        do
+        {
+            vamp.Hp = Math.Max(1, vamp.MaxHp / 2);   // раненый вампир должен лечиться
+            hpBefore = vamp.Hp;
+            result = Rules.ResolveAttack(vamp, player);
+        } while (result.Dodged);
+
+        Assert.True(result.Damage > 0);
+        Assert.True(result.Healed > 0, "вампир должен восстанавливать HP при атаке");
+        Assert.True(vamp.Hp > hpBefore);
+        Assert.Null(result.StatusApplied);       // яд больше не применяется
+    }
+
+    [Fact]
+    public void Snapshot_DeltaSkipsTilesWhenClientRevisionCurrent()
+    {
+        // Дельта-снапшоты: клиент с актуальной ревизией не получает карту
+        // (раньше каждый снапшот 20 Гц таскал всю карту JSON-строками)
+        var core = new GameCore();
+        core.AddPlayer(1, "warrior");
+
+        var full = core.BuildSnapshot(1, clientMapRev: -1);
+        Assert.NotNull(full.Tiles);
+        Assert.True(full.Tiles!.Count > 0);
+        Assert.Equal(full.MapRev, core.BuildSnapshot(1).MapRev);
+
+        var delta = core.BuildSnapshot(1, clientMapRev: full.MapRev);
+        Assert.Null(delta.Tiles);                       // карта не передаётся
+        Assert.Equal(full.MapRev, delta.MapRev);
+
+        // Смена карты меняет ревизию — клиент снова получает тайлы
+        var p = core.Players[1];
+        var (sx, sy) = Aethelgard.World.Overworld.DungeonPos;
+        p.X = sx; p.Y = sy;
+        core.ProcessInput(1, new ClientMsg { Type = "input", UseStairs = true });
+        var afterMove = core.BuildSnapshot(1, clientMapRev: full.MapRev);
+        Assert.NotNull(afterMove.Tiles);
+        Assert.NotEqual(full.MapRev, afterMove.MapRev);
+    }
 }

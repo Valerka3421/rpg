@@ -12,7 +12,10 @@ namespace Aethelgard.Systems;
 /// </summary>
 public static class Rules
 {
-    private static readonly Random Rng = new();
+    // Random.Shared вместо собственного static Random: хост-игра дёргает Rules
+    // и из UI-потока, и из серверного UpdateLoop — Random не потокобезопасен
+    // и конкурентный NextDouble портил внутреннее состояние.
+    private static Random Rng => Random.Shared;
 
     public class AttackResult
     {
@@ -39,6 +42,16 @@ public static class Rules
         if (Rng.NextDouble() < dodge)
         {
             result.Dodged = true;
+            // Журнал «Бой»: уклонение игрока
+            GameChat.Instance.Add($"Вы уклонились от атаки {attacker.Name}",
+                new(150, 170, 200), combat: true);
+            return result;
+        }
+
+        // Режим бога (dev-консоль): игрок не получает урона
+        if (defender is Player god && god.GodModeStat)
+        {
+            result.Damage = 0;
             return result;
         }
 
@@ -63,6 +76,17 @@ public static class Rules
         result.Damage = Math.Max(1, baseDmg);
         defender.Hp -= result.Damage;
 
+        // Журнал «Бой»: нанесённый/полученный урон
+        if (attacker is Player)
+            GameChat.Instance.Add(
+                $"Вы нанесли {result.Damage} урона {defender.Name}"
+                + (result.Crit ? " (крит!)" : ""),
+                new(230, 200, 170), combat: true);
+        else if (defender is Player)
+            GameChat.Instance.Add(
+                $"Получен урон {result.Damage} от {attacker.Name}",
+                new(220, 140, 120), combat: true);
+
         // Apply ability status (ABILITY_TO_STATUS из statuses.json)
         if (!string.IsNullOrEmpty(attacker.Ability) && result.Damage > 0 &&
             StatusData.AbilityToStatus.TryGetValue(attacker.Ability, out var status))
@@ -85,11 +109,23 @@ public static class Rules
             }
         }
 
+        // Способность монстра «vampire»: высасывает 50% нанесённого урона
+        // (раньше вампир травил — Ability «poison» по переносу из JSON)
+        if (attacker.Ability == "vampire" && result.Damage > 0 && attacker.Hp > 0)
+        {
+            int heal = Math.Max(1, result.Damage / 2);
+            attacker.Hp = Math.Min(attacker.MaxHp, attacker.Hp + heal);
+            result.Healed += heal;
+        }
+
         // Thorns: ответный урон
         if (defender is Player dp && dp.Thorns && result.Damage > 0 && attacker.Alive)
         {
             attacker.Hp -= Config.ThornsDamage;
             result.ThornsDamage = Config.ThornsDamage;
+            GameChat.Instance.Add(
+                $"Шипы нанесли {Config.ThornsDamage} урона {attacker.Name}",
+                new(200, 170, 130), combat: true);
         }
 
         return result;
@@ -138,13 +174,23 @@ public static class Rules
         // drop_pct из узлов/класса повышает шанс каждой строки таблицы.
         string monsterKey = !string.IsNullOrEmpty(monster.MonsterKey)
             ? monster.MonsterKey : def?.Key ?? "";
+        var drops = new List<string>();
         foreach (var drop in DungeonGen.RollDrops(
                      monsterKey, monster.Ch, depth, killer.Effect("drop_pct")))
-            killer.AddItem(drop, 1);
+        {
+            killer.AddItem(drop, 1, log: false);
+            drops.Add(drop);
+        }
 
         // Mana crystal: шанс 8% с любого моба (размер по max_hp)
         var crystal = MonsterData.RollManaCrystal(monster);
-        if (crystal != null) killer.AddItem(crystal, 1);
+        if (crystal != null) { killer.AddItem(crystal, 1, log: false); drops.Add(crystal); }
+
+        // Журнал: выпавшие предметы — и в «Бой», и в «Предметы»
+        if (drops.Count > 0)
+            GameChat.Instance.Loot(
+                $"С {monster.Name} выпало: " +
+                string.Join(", ", drops.Select(ItemData.DisplayName)));
     }
 
     /// <summary>
@@ -204,16 +250,15 @@ public static class Rules
 
         bool cast = false;
 
-        // Лечение
+        // Лечение: мана списывается, только если HP реально восстановилось
+        // (README python-final: свиток списывает ману, лишь если эффект сработал)
         int heal = def.Heal > 0 ? def.Heal : 0;
         if (heal > 0)
         {
             int before = player.Hp;
             player.Hp = Math.Min(player.MaxHp, player.Hp + heal);
             result.Healed = player.Hp - before;
-            cast = cast || result.Healed > 0 || player.Hp == player.MaxHp && before < player.MaxHp
-                   || before == player.MaxHp; // руну лечения применяем всегда
-            cast = true;
+            cast = result.Healed > 0;
         }
 
         // Урон по области — по ключу эффекта
@@ -221,17 +266,17 @@ public static class Rules
         int dmg = def.IntValue;
         if (key.Contains("fireball") && dmg > 0)
         {
-            HitArea(map, player.X, player.Y, FireballRadius, dmg + player.TotalInt, result);
+            HitArea(map, player.X, player.Y, FireballRadius, dmg + player.TotalInt, result, player);
             cast = true;
         }
         else if (key.Contains("lightning") && dmg > 0)
         {
-            HitArea(map, player.X, player.Y, BoltRadius, dmg + player.TotalInt, result);
+            HitArea(map, player.X, player.Y, BoltRadius, dmg + player.TotalInt, result, player);
             cast = true;
         }
         else if (key.Contains("inferno") && dmg > 0)
         {
-            HitArea(map, player.X, player.Y, BoltRadius, dmg + player.TotalInt, result);
+            HitArea(map, player.X, player.Y, BoltRadius, dmg + player.TotalInt, result, player);
             cast = true;
         }
         else if ((key.Contains("freeze") || key.Contains("frost")) && !key.Contains("fire"))
@@ -252,7 +297,7 @@ public static class Rules
         else if (key.Contains("fire") && dmg > 0 && heal <= 0 && result.Hits.Count == 0)
         {
             // руна огня — урон ближайшему
-            HitArea(map, player.X, player.Y, 1, dmg + player.TotalInt, result);
+            HitArea(map, player.X, player.Y, 1, dmg + player.TotalInt, result, player);
             cast = true;
         }
 
@@ -283,7 +328,7 @@ public static class Rules
     }
 
     private static void HitArea(Dungeon map, int cx, int cy, int radius, int dmg,
-        CastResult result)
+        CastResult result, Player player)
     {
         foreach (var m in map.Monsters.Where(m => m.Alive).ToList())
         {
@@ -292,6 +337,13 @@ public static class Rules
             {
                 m.Hp -= dmg;
                 result.Hits.Add((m.X, m.Y, dmg));
+                // Убитый свитком/руной монстр даёт ту же награду, что и в
+                // ближнем бою (XP/золото/лут) — раньше награды не было.
+                if (m.Hp <= 0)
+                {
+                    CombatSystem.AwardKill(player, map, m, Math.Max(1, map.Depth));
+                    GameChat.Instance.Combat($"{m.Name} погибает от заклинания");
+                }
             }
         }
     }

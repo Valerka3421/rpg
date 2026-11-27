@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Aethelgard.World;
 
@@ -20,6 +21,7 @@ public static class Locations
     public static readonly Dictionary<string, LocDef> All = new()
     {
         ["village"]       = new() { Key="village", Name="Город Этельгард", W=100, H=70, Biome="village" },
+        ["dungeon"]       = new() { Key="dungeon", Name="Подземелье", W=60, H=40, Biome="dungeon", IsDungeon=true },
         ["goblin_village"]= new() { Key="goblin_village", Name="Деревня гоблинов", W=120, H=70, Biome="goblin" },
         ["mine"]          = new() { Key="mine", Name="Заброшенная шахта", W=120, H=70, Biome="mine", IsDungeon=true },
         ["pine"]          = new() { Key="pine", Name="Сосновый бор", W=120, H=70, Biome="pine" },
@@ -49,6 +51,11 @@ public static class Locations
         // Village uses the overworld generator (embedded village)
         if (key == "village")
             return WorldGen.GenerateOverworld(actualSeed);
+
+        // Dungeon — отдельная локация-вход: каменные залы с лестницей вниз
+        // (механика этажей Depth остаётся прежней) и вратами назад в деревню.
+        if (key == "dungeon")
+            return GenerateDungeonEntrance(def, actualSeed);
 
         // Generate biome map
         var d = new Dungeon(def.W, def.H);
@@ -117,22 +124,7 @@ public static class Locations
         d.Transitions[(0, def.H / 2)] = ("village", (Aethelgard.World.Overworld.VillageCenter.Item1, Aethelgard.World.Overworld.VillageCenter.Item2));
 
         // Spawn monsters based on biome
-        var biomeMonsters = new Dictionary<string, string[]>
-        {
-            ["pine"] = new[] { "deer", "wolf", "rat" },
-            ["birch"] = new[] { "deer", "slime", "rat" },
-            ["rock"] = new[] { "wolf", "bear" },
-            ["autumn"] = new[] { "deer", "boar", "wolf" },
-            ["swamp"] = new[] { "slime", "rat", "boar" },
-            ["dead"] = new[] { "wolf", "bear", "rat" },
-            ["meadow"] = new[] { "deer", "boar", "rat" },
-            ["beach"] = new[] { "rat", "slime", "boar" },
-            ["goblin"] = new[] { "goblin", "archer", "shaman", "boar", "wolf" },
-            ["mine"] = new[] { "skeleton", "orc", "troll" },
-            ["ruins"] = new[] { "skeleton", "wraith", "troll" },
-        };
-
-        var pool = biomeMonsters.GetValueOrDefault(def.Biome, new[] { "rat", "wolf" });
+        var pool = MonstersOf(def.Biome);
         int monsterCount = def.Biome == "goblin" ? 15 : 10;
         int spawned = 0;
         for (int attempt = 0; attempt < 100 && spawned < monsterCount; attempt++)
@@ -151,14 +143,7 @@ public static class Locations
         Rules.InitActionTimers(d.Monsters);
 
         // Scatter items
-        var itemPool = def.Biome switch
-        {
-            "pine" => new[] { "wood", "mushroom", "berry" },
-            "rock" => new[] { "stone", "ore" },
-            "swamp" => new[] { "mushroom", "berry" },
-            "mine" => new[] { "ore", "stone", "iron_ingot" },
-            _ => new[] { "mushroom", "wood", "stone", "berry" },
-        };
+        var itemPool = ItemsOf(def.Biome);
         for (int i = 0; i < 15; i++)
         {
             int x = rng.Next(1, def.W - 1);
@@ -190,6 +175,137 @@ public static class Locations
         // Rooms (for dungeon gen)
         d.Rooms = new List<Room>(); // для карт локаций комнаты не отслеживаются
 
+        return d;
+    }
+
+    /// <summary>Пул монстров биома (для генерации и сводки на большой карте).</summary>
+    public static string[] MonstersOf(string biome) => biome switch
+    {
+        "pine"   => new[] { "deer", "wolf", "rat" },
+        "birch"  => new[] { "deer", "slime", "rat" },
+        "rock"   => new[] { "wolf", "bear" },
+        "autumn" => new[] { "deer", "boar", "wolf" },
+        "swamp"  => new[] { "slime", "rat", "boar" },
+        "dead"   => new[] { "wolf", "bear", "rat" },
+        "meadow" => new[] { "deer", "boar", "rat" },
+        "beach"  => new[] { "rat", "slime", "boar" },
+        "goblin" => new[] { "goblin", "archer", "shaman", "boar", "wolf" },
+        "mine"   => new[] { "skeleton", "orc", "troll" },
+        "ruins"  => new[] { "skeleton", "wraith", "troll" },
+        "dungeon"=> new[] { "skeleton", "orc", "troll", "wraith" },
+        _        => new[] { "rat", "wolf" },
+    };
+
+    /// <summary>Пул предметов биома (для генерации и сводки на большой карте).</summary>
+    public static string[] ItemsOf(string biome) => biome switch
+    {
+        "pine"   => new[] { "wood", "mushroom", "berry" },
+        "rock"   => new[] { "stone", "ore" },
+        "swamp"  => new[] { "mushroom", "berry" },
+        "mine"   => new[] { "ore", "stone", "iron_ingot" },
+        "dungeon"=> new[] { "ore", "iron_ingot" },
+        _        => new[] { "mushroom", "wood", "stone", "berry" },
+    };
+
+    /// <summary>
+    /// Отдельная локация «Подземелье»: каменные залы, соединённые
+    /// коридорами; в центральной комнате лестница вниз (этажи Depth),
+    /// у выхода врата назад в деревню.
+    /// </summary>
+    private static Dungeon GenerateDungeonEntrance(LocDef def, int seed)
+    {
+        var d = new Dungeon(def.W, def.H);
+        d.LocationKey = "dungeon";
+        var rng = new Random(seed);
+
+        // Комнаты 5×4 … 10×7, до 8 штук, без пересечений (с запасом 1 клетка)
+        var rects = new List<(int X, int Y, int W, int H)>();
+        for (int attempt = 0; attempt < 200 && rects.Count < 8; attempt++)
+        {
+            int w = rng.Next(5, 11), h = rng.Next(4, 8);
+            int x = rng.Next(2, def.W - w - 2), y = rng.Next(2, def.H - h - 2);
+            bool overlaps = false;
+            foreach (var (rx, ry, rw, rh) in rects)
+                if (x - 1 < rx + rw + 1 && x + w + 1 > rx - 1
+                    && y - 1 < ry + rh + 1 && y + h + 1 > ry - 1)
+                    { overlaps = true; break; }
+            if (overlaps) continue;
+
+            for (int yy = y; yy < y + h; yy++)
+                for (int xx = x; xx < x + w; xx++)
+                    d.Tiles[yy][xx] = Tile.Floor;
+            rects.Add((x, y, w, h));
+        }
+
+        // L-коридоры между центрами комнат по порядку
+        int CenterX(int i) => rects[i].X + rects[i].W / 2;
+        int CenterY(int i) => rects[i].Y + rects[i].H / 2;
+        for (int i = 1; i < rects.Count; i++)
+        {
+            int x = CenterX(i - 1), y = CenterY(i - 1);
+            int tx = CenterX(i), ty = CenterY(i);
+            for (; x != tx; x += Math.Sign(tx - x)) d.Tiles[y][x] = Tile.Floor;
+            for (; y != ty; y += Math.Sign(ty - y)) d.Tiles[y][x] = Tile.Floor;
+        }
+
+        // Лестница вниз — центр первой комнаты
+        var (sx, sy) = (CenterX(0), CenterY(0));
+        d.Tiles[sy][sx] = Tile.Stairs;
+        d.StairsPos = (sx, sy);
+
+        // Врата назад в деревню — слева посередине, с проходом до карты
+        int gy = def.H / 2;
+        d.Tiles[gy][0] = Tile.Gate;
+        d.Transitions[(0, gy)] = ("village", (Overworld.VillageCenter.Item1, Overworld.VillageCenter.Item2));
+        for (int x = 1; x < def.W / 2 && d.Tiles[gy][x] == Tile.Wall; x++)
+            d.Tiles[gy][x] = Tile.Floor;
+
+        // Монстры из пула подземелья
+        var pool = MonstersOf("dungeon");
+        int spawned = 0;
+        for (int attempt = 0; attempt < 100 && spawned < 8; attempt++)
+        {
+            var (rx, ry, rw, rh) = rects[rng.Next(rects.Count)];
+            int x = rng.Next(rx, rx + rw), y = rng.Next(ry, ry + rh);
+            if (d.Tiles[y][x] != Tile.Floor || d.MonsterAt(x, y) != null) continue;
+            if ((x, y) == (sx, sy)) continue;
+            string key = pool[rng.Next(pool.Length)];
+            if (!MonsterData.All.ContainsKey(key)) continue;
+            var m = MonsterData.CreateEntity(key, 1);
+            m.X = x; m.Y = y;
+            d.Monsters.Add(m);
+            spawned++;
+        }
+        Rules.InitActionTimers(d.Monsters);
+
+        // Предметы и пара сундуков в комнатах
+        var itemPool = ItemsOf("dungeon");
+        for (int i = 0; i < 8; i++)
+        {
+            var (rx, ry, rw, rh) = rects[rng.Next(rects.Count)];
+            int x = rng.Next(rx, rx + rw), y = rng.Next(ry, ry + rh);
+            if (d.Tiles[y][x] == Tile.Floor && !d.Items.ContainsKey((x, y)) && (x, y) != (sx, sy))
+                d.Items[(x, y)] = itemPool[rng.Next(itemPool.Length)];
+        }
+        for (int i = 0; i < 2 && i < rects.Count; i++)
+        {
+            var (rx, ry, rw, rh) = rects[i];
+            int x = rx + rw / 2, y = ry + 1;
+            if (d.Tiles[y][x] == Tile.Floor && (x, y) != (sx, sy))
+            {
+                d.Tiles[y][x] = Tile.Chest;
+                var resources = new[] { "ore", "stone", "iron_ingot" };
+                var loot = new Dictionary<string, int>();
+                for (int j = 0; j < 2; j++)
+                {
+                    string key = resources[rng.Next(resources.Length)];
+                    loot[key] = loot.GetValueOrDefault(key) + rng.Next(2, 6);
+                }
+                d.ChestLoot[(x, y)] = loot;
+            }
+        }
+
+        d.Rooms = rects.Select(r => new Room(r.X, r.Y, r.W, r.H)).ToList();
         return d;
     }
 

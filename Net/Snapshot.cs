@@ -110,8 +110,13 @@ public sealed class Snapshot
     /// <summary>
     /// Карта тайлов: строки символов, каждый символ — '0' + (int)Tile.
     /// Даёт клиенту рисовать стены/лестницы/ворота как в синглплеере.
+    /// Дельта-режим: null = карта не менялась, клиент reuse'ит кэш
+    /// предыдущего снапшота.
     /// </summary>
-    public List<string> Tiles { get; set; } = new();
+    public List<string>? Tiles { get; set; }
+
+    /// <summary>Ревизия карты на сервере (для дельта-снапшотов).</summary>
+    public int MapRev { get; set; }
 
     /// <summary>Ресурсы для добычи (координаты живых узлов, E — собрать).</summary>
     public List<PointState> Harvests { get; set; } = new();
@@ -232,6 +237,8 @@ public sealed class ClientMsg
     public string? ServerPassword { get; set; }
     // HMAC-подпись сообщения (session key из welcome)
     public string? Sig { get; set; }
+    // Monotonic counter пакета (anti-replay): строго +1 после hello
+    public int Seq { get; set; }
 
     // input
     public int? Dx { get; set; }
@@ -297,6 +304,11 @@ public sealed class ClientMsg
 
     // chat
     public string? ChatText { get; set; }
+
+    // дельта-снапшоты: ревизия карты, известная клиенту. Сервер включает
+    // массив тайлов только если ревизия клиента устарела (снапшот 20 Гц
+    // раньше таскал всю карту ~100×70 строк JSON каждый тик).
+    public int? MapRev { get; set; }
 }
 
 /// <summary>

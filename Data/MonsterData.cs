@@ -88,7 +88,9 @@ public static partial class MonsterData
 
     /// <summary>
     /// Пул монстров для этажа глубины depth. В оригинале DungeonGen вызывал
-    /// несуществующий MonsterData.PoolForDepth(depth).
+    /// несуществующий MonsterData.PoolForDepth(depth). Выбор из пула —
+    /// взвешенный по глубине (см. DungeonGen.SpawnDungeonMonsters): «устаревшие»
+    /// для глубины монстры имеют экспоненциально меньший вес.
     /// </summary>
     public static string[] PoolForDepth(int depth)
     {
@@ -116,7 +118,7 @@ public static partial class MonsterData
         public bool Gold = true;
     }
 
-    private static readonly Random Rng = new();
+    private static Random Rng => Random.Shared;   // потокобезопасно: дёргается и из серверного потока MP
 
     public const double ManaCrystalChance = 0.08;
 
