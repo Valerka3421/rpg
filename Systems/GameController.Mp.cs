@@ -134,6 +134,37 @@ public partial class GameController
     /// разбираются вводом чата. SP и MP.</summary>
     public readonly Queue<char> TextInput = new();
 
+    // ── Стек модальных экранов SP (InputMapper-lite): открытие — Push,
+    // ── закрытие — Pop, ESC — всегда «шаг вверх» через HandleEscape().
+    public readonly ModalStack Modals = new();
+
+    /// <summary>Открыть модальный экран (класть на стек и переключить режим).</summary>
+    public void OpenModal(string mode)
+    {
+        Modals.Push(mode);
+        ScreenMode = mode;
+    }
+
+    /// <summary>Закрыть модальный экран со стека и вернуться к предыдущему.</summary>
+    public void CloseModal()
+    {
+        Modals.Pop();
+        ScreenMode = Modals.Current ?? Screens.Game;
+    }
+
+    /// <summary>
+    /// Единая обработка ESC для SP (вызывается из World/Game.cs): модал —
+    /// шаг вверх; в игре — открыть паузу. Возвращает true, если ESC был
+    /// обработан здесь.
+    /// </summary>
+    public bool HandleEscape()
+    {
+        if (Modals.IsOpen) { CloseModal(); return true; }
+        if (ScreenMode == Screens.Pause) { CloseModal(); return true; }
+        if (ScreenMode == Screens.Game) { OpenModal(Screens.Pause); return true; }
+        return false;
+    }
+
     // ── MP попап «Обмен / Дуэль» по клику на другом игроке ──
     // (net/view.py:_click_map_player + player_popup)
     public int? MpPopupPid;

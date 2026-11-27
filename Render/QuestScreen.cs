@@ -7,17 +7,18 @@ using Microsoft.Xna.Framework.Input;
 namespace Aethelgard.Render;
 
 /// <summary>
-/// Quest board screen — accept and turn in quests.
-/// Ported from Python render/screens_renderer.py:draw_quests.
-///
-/// Shows: available quests, active quests, completed quests.
+/// Доска заданий — новая реализация на UiKit (единая UI-база).
+/// Секции: доступные / активные (с прогресс-барами) / выполненные.
+/// Строки с hover, тултипы с описанием и наградами.
+/// Порт python render/screens_renderer.py:draw_quests.
 /// </summary>
 public class QuestScreen
 {
     private readonly GraphicsDevice _device;
     private readonly SpriteBatch _sb;
     private SpriteFont? _font;
-    private Texture2D? _blank;
+
+    private static readonly UiKit K = UiKit.Kit;
 
     public QuestScreen(GraphicsDevice device, SpriteBatch sb)
     {
@@ -29,126 +30,206 @@ public class QuestScreen
 
     public void Draw(GameController game)
     {
+        var mouse = Mouse.GetState();
+        K.Begin(_sb, _device, mouse);
+
         int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
+        var panel = new Rectangle((sw - 1000) / 2, (sh - 640) / 2, 1000, 640);
+        K.Panel(panel);
 
-        // Dark overlay
-        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
+        // ── Шапка ──
+        K.Text("ДОСКА ЗАДАНИЙ", new Vector2(panel.X + 20, panel.Y + 14),
+            UiKit.Theme.GoldBright, 2);
+        K.Text("принимай, выполняй, сдавай",
+            new Vector2(panel.X + 20, panel.Y + 48),
+            UiKit.Theme.TextMuted, 4, shadow: false);
 
-        // Panel
-        int panelW = 600, panelH = 500;
-        int px = (sw - panelW) / 2;
-        int py = (sh - panelH) / 2;
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH), new Color(20, 18, 14, 240));
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, 2), Config.ColGold);
-        _sb.Draw(Blank, new Rectangle(px, py + panelH - 2, panelW, 2), Config.ColGold);
-
-        if (_font == null) return;
-
-        // Title
-        _sb.DrawString(_font, "ДОСКА ЗАДАНИЙ", new Vector2(px + 16, py + 10), Config.ColGold);
-
-        int y = py + 40;
-
-        // Available quests
         var available = game.Quests.Available.ToList();
+        var completed = game.Quests.Completed.ToList();
+        K.Text($"Доступно: {available.Count}   Активно: {game.Quests.Active.Count}   Сдать: {completed.Count}",
+            new Vector2(panel.Right - 20 - K.FontWidth(
+                $"Доступно: {available.Count}   Активно: {game.Quests.Active.Count}   Сдать: {completed.Count}", 4),
+                panel.Y + 24), UiKit.Theme.TextDim, 4, shadow: false);
+
+        int y = panel.Y + 74;
+        int contentBottom = panel.Bottom - 36;
+
+        // ── Доступные квесты (клавиатура: Enter — принять) ──
         if (available.Count > 0)
         {
-            _sb.DrawString(_font, "Доступные:", new Vector2(px + 16, y), Config.ColText);
-            y += 24;
-            for (int i = 0; i < available.Count; i++)
-            {
-                var def = QuestData.Get(available[i]);
-                if (def == null) continue;
-                bool selected = i == game.QuestSelected;
-                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter — принять");
-                y += 48;
-            }
+            var rect = SectionRect(panel.X + 20, y, panel.Width - 40, Math.Min(available.Count, 4));
+            K.Section(rect, "Доступные");
+            y = DrawQuestRows(game, available, rect, selectedIndexOffset: 0,
+                trailing: "Enter — принять");
+            y += UiKit.Gap;
         }
 
-        // Active quests
+        // ── Активные квесты с прогресс-барами ──
         if (game.Quests.Active.Count > 0)
         {
-            y += 8;
-            _sb.DrawString(_font, "Активные:", new Vector2(px + 16, y), Config.ColText);
-            y += 24;
-            foreach (var (key, progress) in game.Quests.Active)
-            {
-                var def = QuestData.Get(key);
-                if (def == null) continue;
-                string progressText = def.Type == "reach"
-                    ? ""
-                    : $"  [{progress}/{def.Count}]";
-                DrawQuestRow(def, px + 16, y, panelW - 32, false, progressText);
-                y += 48;
-            }
+            var rect = SectionRect(panel.X + 20, y, panel.Width - 40,
+                Math.Min(game.Quests.Active.Count, 3), perRow: 58);
+            K.Section(rect, "Активные");
+            y = DrawActiveRows(game, rect);
+            y += UiKit.Gap;
         }
 
-        // Completed quests
-        var completed = game.Quests.Completed.ToList();
+        // ── Выполненные (сдать для награды) ──
         if (completed.Count > 0)
         {
-            y += 8;
-            _sb.DrawString(_font, "Выполненные (сдайте для награды):", new Vector2(px + 16, y),
-                new Color(120, 200, 120));
-            y += 24;
-            for (int i = 0; i < completed.Count; i++)
-            {
-                var def = QuestData.Get(completed[i]);
-                if (def == null) continue;
-                int selIdx = available.Count + i;
-                bool selected = selIdx == game.QuestSelected;
-                DrawQuestRow(def, px + 16, y, panelW - 32, selected, "Enter — сдать!");
-                y += 48;
-            }
+            var rect = SectionRect(panel.X + 20, y, panel.Width - 40, Math.Min(completed.Count, 3));
+            K.Section(rect, "Выполненные — сдайте для награды");
+            DrawQuestRows(game, completed, rect,
+                selectedIndexOffset: available.Count, trailing: "Enter — сдать!",
+                trailingColor: UiKit.Theme.Xp);
         }
 
-        // Hint
-        _sb.DrawString(_font, "↑/↓: выбор  Enter: принять/сдать  Esc: закрыть",
-            new Vector2(px + 16, py + panelH - 24), Config.ColDim);
+        // ── Подсказка внизу ──
+        K.TextCentered("↑/↓: выбор   Enter: принять/сдать   Esc: закрыть",
+            new Rectangle(panel.X, panel.Bottom - 28, panel.Width, 22),
+            UiKit.Theme.TextMuted, 4, shadow: false);
+
+        K.End();
+        K.EndInputFrame();
     }
 
-    private void DrawQuestRow(QuestData.Def def, int x, int y, int w, bool selected,
-        string actionText)
+    /// <summary>Прямоугольник секции по числу строк.</summary>
+    private Rectangle SectionRect(int x, int y, int w, int rows, int perRow = 48) =>
+        new(x, y, w, 26 + rows * (perRow + 4) + 6);
+
+    /// <summary>
+    /// Строки квестов внутри секции. selected по глобальному индексу
+    /// (доступные + выполненные — единый список выбора клавиатурой).
+    /// </summary>
+    private int DrawQuestRows(GameController game, List<string> keys, Rectangle section,
+        int selectedIndexOffset, string trailing, Color? trailingColor = null)
     {
-        var bg = selected ? new Color(50, 45, 25) : new Color(25, 23, 18);
-        _sb.Draw(Blank, new Rectangle(x, y, w, 44), bg);
-        _sb.Draw(Blank, new Rectangle(x, y, w, 1), new Color(50, 45, 38));
+        int y = section.Y + 30;
+        foreach (var key in keys)
+        {
+            var def = QuestData.Get(key);
+            if (def == null) continue;
+            int idx = selectedIndexOffset + keys.IndexOf(key);
+            bool selected = idx == game.QuestSelected;
 
-        _sb.DrawString(_font, def.Name, new Vector2(x + 8, y + 4),
-            selected ? Config.ColGold : Config.ColText);
-        _sb.DrawString(_font, def.Desc, new Vector2(x + 8, y + 22), Config.ColDim);
+            var rowRect = new Rectangle(section.X + 8, y, section.Width - 16, 48);
+            // Имя рисует K.Row; описание и правый текст — сами (нужен свой цвет)
+            K.Row(rowRect, def.Name, null, selected: selected, enabled: true);
 
-        // Rewards
-        string rewards = $"+{def.RewardGold}g  +{def.RewardXp} XP";
-        if (def.RewardItems.Count > 0)
-            rewards += $"  +{ItemData.DisplayName(def.RewardItems.Keys.First())}";
-        _sb.DrawString(_font, rewards, new Vector2(x + w - 180, y + 4), Config.ColGold);
+            _sb.DrawString(Fonts.Small, def.Desc, new Vector2(rowRect.X + 10, y + 26),
+                UiKit.Theme.TextDim);
 
-        // Action hint
-        if (!string.IsNullOrEmpty(actionText))
-            _sb.DrawString(_font, actionText, new Vector2(x + w - 180, y + 22),
-                new Color(200, 180, 100));
+            string rewardText = $"+{def.RewardGold} з. +{def.RewardXp} XP";
+            K.Text(rewardText,
+                new Vector2(rowRect.Right - K.FontWidth(rewardText, 4) - 10, y + 5),
+                UiKit.Theme.Gold, 4, shadow: false);
+            K.Text(trailing,
+                new Vector2(rowRect.Right - K.FontWidth(trailing, 4) - 10, y + 26),
+                trailingColor ?? UiKit.Theme.GoldBright, 4, shadow: false);
+
+            // Тултип: описание + награды
+            if (K.Hoverable(rowRect))
+            {
+                var lines = new List<(string, Color)>();
+                foreach (var line in Wrap(def.Desc, 250, Fonts.Small))
+                    lines.Add((line, UiKit.Theme.TextDim));
+                lines.Add(($"+{def.RewardGold} з.  +{def.RewardXp} XP", UiKit.Theme.Gold));
+                foreach (var it in def.RewardItems)
+                    lines.Add(($"  + {ItemData.DisplayName(it.Key)}×{it.Value}", UiKit.Theme.Xp));
+                K.Tooltip(rowRect, def.Name, lines);
+            }
+
+            y += 52;
+            if (y + 48 > section.Bottom) break;
+        }
+        return y;
+    }
+
+    /// <summary>Активные квесты: имя, прогресс-бар, тултип.</summary>
+    private int DrawActiveRows(GameController game, Rectangle section)
+    {
+        int y = section.Y + 30;
+        foreach (var (key, state) in game.Quests.Active)
+        {
+            var def = QuestData.Get(key); // сгенерированные квесты здесь не показываем (parity)
+            if (def == null) continue;
+
+            var rowRect = new Rectangle(section.X + 8, y, section.Width - 16, 58);
+            K.Row(rowRect, def.Name, null, selected: false, enabled: true);
+            _sb.DrawString(Fonts.Small, def.Desc, new Vector2(rowRect.X + 10, y + 26),
+                UiKit.Theme.TextDim);
+
+            // Прогресс-бар: reached/kill-счётчик
+            double frac = state.Count > 0 ? (double)state.Progress / state.Count : 0;
+            int barW = 220;
+            K.Bar(rowRect.Right - barW - 12, y + 8, barW, 14, frac, UiKit.Theme.Xp);
+            string prog = $"{state.Progress}/{state.Count}";
+            K.Text(prog, new Vector2(rowRect.Right - barW - 12 + (barW - K.FontWidth(prog, 4)) / 2,
+                y + 8), UiKit.Theme.GoldBright, 4, shadow: false);
+
+            if (frac >= 1.0)
+            {
+                string ready = "Готово — сдай!";
+                K.Text(ready, new Vector2(rowRect.Right - K.FontWidth(ready, 4) - 12, y + 34),
+                    UiKit.Theme.Xp, 4, shadow: false);
+            }
+
+            // Тултип
+            if (K.Hoverable(rowRect))
+            {
+                var lines = new List<(string, Color)>
+                {
+                    (def.Type == "reach" ? "Достигни нужной глубины"
+                        : def.Type == "craft" ? "Скрафти предметы"
+                        : def.Type == "collect" ? "Собери предметы"
+                        : "Убей врагов", UiKit.Theme.TextDim),
+                    ($"Прогресс: {state.Progress}/{state.Count}", UiKit.Theme.Gold),
+                    ($"Награда: +{def.RewardGold} з.  +{def.RewardXp} XP", UiKit.Theme.Gold),
+                };
+                K.Tooltip(rowRect, def.Name, lines);
+            }
+
+            y += 62;
+            if (y + 58 > section.Bottom) break;
+        }
+        return y;
+    }
+
+    /// <summary>Перенос текста по ширине (для тултипов).</summary>
+    private static IEnumerable<string> Wrap(string text, int maxW, SpriteFont f)
+    {
+        foreach (var paragraph in text.Split('\n'))
+        {
+            string line = "";
+            foreach (var word in paragraph.Split(' '))
+            {
+                string candidate = line.Length == 0 ? word : line + " " + word;
+                if (f.MeasureString(candidate).X > maxW && line.Length > 0)
+                {
+                    yield return line;
+                    line = word;
+                }
+                else line = candidate;
+            }
+            if (line.Length > 0) yield return line;
+        }
     }
 
     /// <summary>
     /// Статистика забега (Tab) — parity python _quests.py:draw_run_stats.
+    /// Две колонки-секции на UiKit: общее / убито по типам.
     /// </summary>
     public void DrawRunStats(GameController game)
     {
+        var mouse = Mouse.GetState();
+        K.Begin(_sb, _device, mouse);
+
         int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
+        var panel = new Rectangle((sw - 1100) / 2, (sh - 640) / 2, 1100, 640);
+        K.Panel(panel);
 
-        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
-
-        int panelW = 980, panelH = 600;
-        int px = (sw - panelW) / 2, py = (sh - panelH) / 2;
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH), new Color(20, 18, 14, 240));
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, 2), Config.ColGold);
-        _sb.Draw(Blank, new Rectangle(px, py + panelH - 2, panelW, 2), Config.ColGold);
-
-        if (_font == null) return;
-
-        _sb.DrawString(_font, "СТАТИСТИКА ЗАБЕГА", new Vector2(px + 20, py + 12),
-            Config.ColGold);
+        K.Text("СТАТИСТИКА ЗАБЕГА", new Vector2(panel.X + 20, panel.Y + 14),
+            UiKit.Theme.GoldBright, 2);
 
         var ts = DateTime.Now - game.RunStart;
         int mins = (int)ts.TotalSeconds / 60, secs = (int)ts.TotalSeconds % 60;
@@ -169,49 +250,44 @@ public class QuestScreen
             ("Квестов активно", questsActive.ToString()),
         };
 
-        int lx = px + 20, rx = px + panelW / 2 + 30;
-        int y = py + 52;
-        _sb.DrawString(_font, "─── ОБЩЕЕ ───", new Vector2(lx, y), new Color(190, 172, 138));
-        _sb.DrawString(_font, "─── УБИТО ПО ТИПАМ ───", new Vector2(rx, y),
-            new Color(190, 172, 138));
-        y += 34;
-
+        int colW = panel.Width / 2 - 30;
+        var leftRect = new Rectangle(panel.X + 20, panel.Y + 60, colW, 26 + left.Length * 28 + 8);
+        K.Section(leftRect, "Общее");
+        int ly = leftRect.Y + 32;
         foreach (var (name, val) in left)
         {
-            _sb.DrawString(_font, name, new Vector2(lx, y), Config.ColDim);
-            _sb.DrawString(_font, val, new Vector2(lx + 220, y), Config.ColText);
-            y += 30;
+            K.Text(name, new Vector2(leftRect.X + 12, ly), UiKit.Theme.TextDim, 4, shadow: false);
+            K.Text(val, new Vector2(leftRect.X + colW - 12 - K.FontWidth(val, 4), ly),
+                UiKit.Theme.GoldBright, 4, shadow: false);
+            ly += 28;
         }
 
-        y = py + 86;
+        // Правая колонка — убито по типам
+        var rightRect = new Rectangle(leftRect.Right + UiKit.Gap, leftRect.Y,
+            panel.Width - 40 - colW - UiKit.Gap, leftRect.Height);
+        K.Section(rightRect, "Убито по типам");
+        int ry = rightRect.Y + 32;
         bool has = false;
         foreach (var kv in game.KillsByCh.OrderByDescending(kv => kv.Value))
         {
             if (kv.Value == 0) continue;
             has = true;
-            _sb.DrawString(_font, $"{kv.Key}:", new Vector2(rx, y), Config.ColDim);
-            _sb.DrawString(_font, kv.Value.ToString(), new Vector2(rx + 260, y),
-                Config.ColText);
-            y += 30;
-            if (y > py + panelH - 30) break;
+            K.Text(kv.Key, new Vector2(rightRect.X + 12, ry), UiKit.Theme.Text, 4, shadow: false);
+            K.Text(kv.Value.ToString(),
+                new Vector2(rightRect.Right - 12 - K.FontWidth(kv.Value.ToString(), 4), ry),
+                UiKit.Theme.GoldBright, 4, shadow: false);
+            ry += 28;
+            if (ry > rightRect.Bottom - 8) break;
         }
         if (!has)
-            _sb.DrawString(_font, "(пока никого)", new Vector2(rx, y), Config.ColDim);
+            K.Text("(пока никого)", new Vector2(rightRect.X + 12, ry),
+                UiKit.Theme.TextMuted, 4, shadow: false);
 
-        _sb.DrawString(_font, "Tab/Esc — закрыть",
-            new Vector2(px + 20, py + panelH - 26), Config.ColDim);
-    }
+        K.TextCentered("Tab/Esc — закрыть",
+            new Rectangle(panel.X, panel.Bottom - 28, panel.Width, 22),
+            UiKit.Theme.TextMuted, 4, shadow: false);
 
-    private Texture2D Blank
-    {
-        get
-        {
-            if (_blank == null)
-            {
-                _blank = new Texture2D(_device, 1, 1);
-                _blank.SetData(new[] { Color.White });
-            }
-            return _blank;
-        }
+        K.End();
+        K.EndInputFrame();
     }
 }

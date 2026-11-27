@@ -33,6 +33,8 @@ public class GameClient
     public bool Connected => _running && _tcp?.Connected == true;
 
     private byte[]? _sessionKey;
+    private string? _myDhPublic;
+    private string? _helloClass, _helloToken, _helloPassword;
     private const int MaxMsgSize = Config.MaxMsgSize;
     private int _seq;                       // monotonic counter пакетов
     private Thread? _pingThread;
@@ -110,15 +112,11 @@ public class GameClient
             _sessionKey = null;
             _lineBuf.Clear();
 
-            // Send hello with persistent player token
-            var hello = new ClientMsg
-            {
-                Type = "hello",
-                Class = classKey,
-                Token = token ?? GetOrCreateToken(),
-                ServerPassword = password,
-            };
-            SendMsg(hello);
+            // hello отправляется ПОСЛЕ welcome (нужен публичный ключ ECDH
+            // сервера, чтобы вывести сессионный ключ) — параметры сохраним
+            _helloClass = classKey;
+            _helloToken = token ?? GetOrCreateToken();
+            _helloPassword = password;
 
             // Start receiving (старые потоки остановлены Disconnect'ом выше)
             _recvThread = new Thread(RecvLoop) { IsBackground = true };
@@ -319,11 +317,41 @@ public class GameClient
                         {
                             MyPid = msg.Pid ?? -1;
                             MyToken = msg.YourToken;
-                            // Сессионный ключ для HMAC-подписи
-                            if (!string.IsNullOrEmpty(msg.SessionKey))
+                            // ECDH P-256 (v4): сессионный ключ = SHA256(общий
+                            // секрет); plaintext-ключ в welcome больше не шлётся
+                            if (!string.IsNullOrEmpty(msg.DhPublic))
                             {
-                                try { _sessionKey = Convert.FromBase64String(msg.SessionKey); }
+                                try
+                                {
+                                    using var dh = System.Security.Cryptography.ECDiffieHellman.Create(
+                                        System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+                                    using var serverEcdh = System.Security.Cryptography.ECDiffieHellman.Create();
+                                    serverEcdh.ImportSubjectPublicKeyInfo(
+                                        Convert.FromBase64String(msg.DhPublic), out _);
+                                    _sessionKey = dh.DeriveKeyFromHash(serverEcdh.PublicKey,
+                                        System.Security.Cryptography.HashAlgorithmName.SHA256);
+                                    _myDhPublic = Convert.ToBase64String(
+                                        dh.PublicKey.ExportSubjectPublicKeyInfo());
+                                }
                                 catch { _sessionKey = null; }
+                            }
+                            // hello с публичным ключом клиента — сервер выводит
+                            // тот же общий секрет и включает подписи
+                            if (_sessionKey != null)
+                            {
+                                SendMsg(new ClientMsg
+                                {
+                                    Type = "hello",
+                                    Class = _helloClass,
+                                    Token = _helloToken,
+                                    ServerPassword = _helloPassword,
+                                    DhPublic = _myDhPublic,
+                                });
+                            }
+                            else
+                            {
+                                ErrorMessage = "Handshake failed (no ECDH key)";
+                                _running = false;
                             }
                         }
                         else if (msg.Type == "error")

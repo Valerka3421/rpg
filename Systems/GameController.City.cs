@@ -109,7 +109,7 @@ public partial class GameController
         ActiveShopNpc = npcType;
         ShopSubMode = "buy";
         ShopPage = 0;
-        ScreenMode = Screens.Shop;
+        OpenModal(Screens.Shop);
     }
 
     /// <summary>
@@ -239,7 +239,7 @@ public partial class GameController
         {
             DialogueNpc = "Старейшина";
             DialogueText = "Приветствую, искатель приключений. Подземелье на северо-востоке таит большие опасности... и большие сокровища. Загляни на доску заданий, если ищешь работу.";
-            ScreenMode = Screens.Dialogue;
+            OpenModal(Screens.Dialogue);
             return;
         }
 
@@ -250,7 +250,7 @@ public partial class GameController
             DungeonShopMode = true;
             ShopSubMode = "buy";
             ShopPage = 0;
-            ScreenMode = Screens.Shop;
+            OpenModal(Screens.Shop);
             return;
         }
 
@@ -261,7 +261,7 @@ public partial class GameController
             {
                 DialogueNpc = "Стражник";
                 DialogueText = "Я сторожу врата. Монстры редко подходят к городским стенам, но в диких землях будьте начеку.";
-                ScreenMode = Screens.Dialogue;
+                OpenModal(Screens.Dialogue);
             }
             else
             {

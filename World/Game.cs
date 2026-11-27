@@ -82,39 +82,13 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _game.TextInput.Enqueue(e.Character);
     }
 
-    protected override void OnExiting(object sender, EventArgs args)
+    /// <summary>
+    /// Создать атласы шрифтов и раздать их всем рендерерам. Вызывается в
+    /// LoadContent и при каждом GraphicsDevice.DeviceResetting — старые
+    /// текстуры атласов после сброса устройства недействительны.
+    /// </summary>
+    private void CreateFonts()
     {
-        // Освобождаем аудио: без этого DynamicSoundEffectInstance не
-        // возвращает ресурсы устройства до завершения процесса.
-        _game.Audio?.Dispose();
-        base.OnExiting(sender, args);
-    }
-
-    protected override void Initialize()
-    {
-        _game = new GameController();
-        base.Initialize();
-    }
-
-    protected override void LoadContent()
-    {
-        _spriteBatch = new SpriteBatch(GraphicsDevice);
-        _renderer = new GameRenderer(GraphicsDevice, _spriteBatch);
-        _inventory = new InventoryScreen(GraphicsDevice, _spriteBatch);
-        _skills = new SkillScreen(GraphicsDevice, _spriteBatch);
-        _classSelect = new ClassSelectScreen(GraphicsDevice, _spriteBatch);
-        _shop = new ShopScreen(GraphicsDevice, _spriteBatch);
-        _quests = new QuestScreen(GraphicsDevice, _spriteBatch);
-        _dialogue = new DialogueScreen(GraphicsDevice, _spriteBatch);
-        _mpRenderer = new MpRenderer(GraphicsDevice, _spriteBatch);
-        _devConsole = new DevConsoleScreen(GraphicsDevice, _spriteBatch);
-        _bigmap = new BigmapScreen(GraphicsDevice, _spriteBatch);
-        _craft = new CraftScreen(GraphicsDevice, _spriteBatch);
-        _stats = new StatsScreen(GraphicsDevice, _spriteBatch);
-        _pause = new PauseScreen(GraphicsDevice, _spriteBatch);
-        _menu = new MainMenuScreen(GraphicsDevice, _spriteBatch);
-
-        // Generate fonts at runtime (no MGCB content pipeline needed).
         // Набор как в python render/theme.py:
         // H1 = 40 bold, H2 = 22 bold, BODY = 18, SMALL = 14, TINY = 12.
         var fontH1 = RuntimeFont.Create(GraphicsDevice, 40, bold: true);
@@ -159,6 +133,49 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _menu.LoadFont(font, fontBig);
         else if (font != null)
             _menu.LoadFont(font, font);
+    }
+
+    protected override void OnExiting(object sender, EventArgs args)
+    {
+        // Освобождаем аудио: без этого DynamicSoundEffectInstance не
+        // возвращает ресурсы устройства до завершения процесса.
+        _game.Audio?.Dispose();
+        base.OnExiting(sender, args);
+    }
+
+    protected override void Initialize()
+    {
+        _game = new GameController();
+        base.Initialize();
+    }
+
+    protected override void LoadContent()
+    {
+        _spriteBatch = new SpriteBatch(GraphicsDevice);
+        _renderer = new GameRenderer(GraphicsDevice, _spriteBatch);
+        _inventory = new InventoryScreen(GraphicsDevice, _spriteBatch);
+        _skills = new SkillScreen(GraphicsDevice, _spriteBatch);
+        _classSelect = new ClassSelectScreen(GraphicsDevice, _spriteBatch);
+        _shop = new ShopScreen(GraphicsDevice, _spriteBatch);
+        _quests = new QuestScreen(GraphicsDevice, _spriteBatch);
+        _dialogue = new DialogueScreen(GraphicsDevice, _spriteBatch);
+        _mpRenderer = new MpRenderer(GraphicsDevice, _spriteBatch);
+        _devConsole = new DevConsoleScreen(GraphicsDevice, _spriteBatch);
+        _bigmap = new BigmapScreen(GraphicsDevice, _spriteBatch);
+        _craft = new CraftScreen(GraphicsDevice, _spriteBatch);
+        _stats = new StatsScreen(GraphicsDevice, _spriteBatch);
+        _pause = new PauseScreen(GraphicsDevice, _spriteBatch);
+        _menu = new MainMenuScreen(GraphicsDevice, _spriteBatch);
+
+        // Generate fonts at runtime (no MGCB content pipeline needed).
+        // Набор как в python render/theme.py:
+        // H1 = 40 bold, H2 = 22 bold, BODY = 18, SMALL = 14, TINY = 12.
+        CreateFonts();
+
+        // Атлас шрифтов — GPU-текстуры: после DeviceReset (fullscreen,
+        // смена разрешения, потеря контекста) они становятся инвалидными —
+        // пересоздаём шрифты заново.
+        GraphicsDevice.DeviceResetting += (s, e) => CreateFonts();
 
         // Render target фиксированного «дизайн-разрешения»
         _target = new RenderTarget2D(GraphicsDevice, ScreenW, ScreenH);
@@ -200,6 +217,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _game.ShowMessage(ok ? $"Сохранено в слот {slot}" : "Ошибка сохранения!");
             if (_menu.FromGame && ok)
             {
+                _game.Modals.Clear();   // из паузы через сейв-экран — стек модалей пуст
                 _game.ScreenMode = ScreenMode.Game;
                 _menu.OpenFromGame();
             }
@@ -223,10 +241,11 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             else
                 _game.ShowMessage($"Слот {slot} пуст");
         };
-        _menu.OnResume = () => _game.ScreenMode = ScreenMode.Game;
+        _menu.OnResume = () => { _game.Modals.Clear(); _game.ScreenMode = ScreenMode.Game; };
         _menu.OnExitToMenu = () =>
         {
             SaveSystem.Save(_game, _game.CurrentSlot);  // тихое сохранение (python exit_to_main_menu)
+            _game.Modals.Clear();
             _game.ScreenMode = ScreenMode.Menu;
             _menu.OpenMain();
         };
@@ -271,7 +290,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
     /// <summary>
     /// Мышь приходит в координатах клиентской области окна (логических,
     /// как их отдаёт SDL/MonoGame), а весь UI размечен в дизайн-координатах
-    /// 1920×1080 (render target растягивается на всё окно). Пересчитываем.
+    /// 1920×1080 (render target рисуется с letterbox внутри окна).
+    /// Пересчитываем: вычитаем смещение полей и делим на единый масштаб.
     /// Важно: используем Window.ClientBounds, а не GraphicsDevice.Viewport —
     /// при масштабировании Windows (125%/150%) viewport измеряется в
     /// физических пикселях и мышь «не точь в точь» попадает по UI.
@@ -281,16 +301,24 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
         int vw, vh;
         try { vw = Window.ClientBounds.Width; vh = Window.ClientBounds.Height; }
         catch { return m; }
-        if (vw <= 0 || vh <= 0 || (vw == ScreenW && vh == ScreenH))
+        if (vw <= 0 || vh <= 0)
         {
             MouseScaleX = MouseScaleY = 1;
             return m;
         }
-        MouseScaleX = (float)ScreenW / vw;
-        MouseScaleY = (float)ScreenH / vh;
+        float fit = MathF.Min(vw / (float)ScreenW, vh / (float)ScreenH);
+        int dstW = (int)(ScreenW * fit), dstH = (int)(ScreenH * fit);
+        int offX = (vw - dstW) / 2, offY = (vh - dstH) / 2;
+        if (dstW == vw && dstH == vh && offX == 0 && offY == 0)
+        {
+            MouseScaleX = MouseScaleY = 1;
+            return m;
+        }
+        MouseScaleX = 1f / fit;
+        MouseScaleY = 1f / fit;
         return new MouseState(
-            (int)MathF.Round(m.X * MouseScaleX),
-            (int)MathF.Round(m.Y * MouseScaleY),
+            (int)MathF.Round((m.X - offX) / fit),
+            (int)MathF.Round((m.Y - offY) / fit),
             m.ScrollWheelValue,
             m.LeftButton, m.MiddleButton, m.RightButton, m.XButton1, m.XButton2);
     }
@@ -367,12 +395,12 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     break;
                 case ScreenMode.Inventory: case ScreenMode.Skills: case ScreenMode.Shop: case ScreenMode.Quests:
                 case ScreenMode.Dialogue: case ScreenMode.Craft: case ScreenMode.Stats: case ScreenMode.Bigmap:
-                case ScreenMode.StatsRun:
-                    _game.ScreenMode = ScreenMode.Game;
+                case ScreenMode.StatsRun: case ScreenMode.Pause: case ScreenMode.Game:
+                    // Единый ESC-контракт (стек модалей): модал — шаг вверх,
+                    // в игре — пауза.
+                    _game.HandleEscape();
                     escConsumed = true;
                     break;
-                // ScreenMode.Pause: ESC обрабатывается GameController (resume)
-                // ScreenMode.Game: ESC → пауза (тоже GameController)
             }
             if (escConsumed)
             {
@@ -398,8 +426,8 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             int? choice = _pause.HandleInput(keys, _prevKeys);
             int? mouseChoice = _pause.HandleMouse(mouse, _prevMouse);
             if (mouseChoice.HasValue) choice = mouseChoice;
-            if (escPressed) _game.ScreenMode = ScreenMode.Game;      // Esc — вернуться
-            else if (choice == 0) _game.ScreenMode = ScreenMode.Game;
+            if (escPressed) _game.HandleEscape();
+            else if (choice == 0) _game.CloseModal();   // пауза снимается со стека
             else if (choice == 1)
             {
                 _menu.FromGame = true;
@@ -545,7 +573,13 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                 }
                 case ScreenMode.Quests: _quests.Draw(_game); break;
                 case ScreenMode.Dialogue: _dialogue.Draw(_game); break;
-                case ScreenMode.Bigmap: _bigmap.Draw(_game); break;
+                case ScreenMode.Bigmap:
+                    _bigmap.Draw(_game);
+                    // Переход по Enter/клику на карте (клик ставится в Draw)
+                    var travelKey = _bigmap.ConsumeTravel();
+                    if (travelKey != null && _game.FastTravel(travelKey))
+                        _game.ScreenMode = ScreenMode.Game;
+                    break;
                 case ScreenMode.Craft: _craft.Draw(_game, mouse); break;
                 case ScreenMode.Stats: _stats.Draw(_game, mouse); break;
                 case ScreenMode.StatsRun: _quests.DrawRunStats(_game); break;
@@ -556,14 +590,19 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
             _spriteBatch.End();
         }
 
-        // Масштабируем render target под выбранное разрешение окна
+        // Масштабируем render target под окно, сохраняя пропорции 16:9:
+        // при произвольном ресайзе по бокам появляются чёрные поля
+        // (letterbox), картинка не растягивается.
         GraphicsDevice.SetRenderTarget(null);
         GraphicsDevice.Clear(new Color(6, 5, 4));
+        var vp = GraphicsDevice.Viewport;
+        float fit = MathF.Min(vp.Width / (float)ScreenW, vp.Height / (float)ScreenH);
+        int dstW = (int)(ScreenW * fit), dstH = (int)(ScreenH * fit);
+        int dstX = (vp.Width - dstW) / 2, dstY = (vp.Height - dstH) / 2;
+        Ui.ViewRect = new Rectangle(dstX, dstY, dstW, dstH);
         _spriteBatch.Begin(SpriteSortMode.Immediate, BlendState.Opaque,
             SamplerState.LinearClamp, null, null);
-        _spriteBatch.Draw(_target, new Rectangle(0, 0,
-            GraphicsDevice.Viewport.Width, GraphicsDevice.Viewport.Height),
-            Color.White);
+        _spriteBatch.Draw(_target, Ui.ViewRect, Color.White);
         _spriteBatch.End();
 
         base.Draw(gameTime);

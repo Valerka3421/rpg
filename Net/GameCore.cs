@@ -972,9 +972,17 @@ public class GameCore
         if (clientMapRev != _mapRev)
             snap.Tiles = BuildTilesRows();
 
+        // ── FOV-фильтр: сущности за пределами радиуса снапшота вокруг
+        // запрашивающего игрока не отсылаются (раньше каждый снапшот таскал
+        // ВСЮ карту сущностей). Игроки отсылаются целиком (интерполяция,
+        // торговля, чат), монстры/предметы/ресурсы/NPC — только ближние.
+        Players.TryGetValue(forPid, out var me);
+        int meX = me?.X ?? 0, meY = me?.Y ?? 0;
+
         // Живые узлы ресурсов (E — добыть)
         foreach (var ((hx, hy), rec) in CurrentMap.Harvestables)
-            if (rec.Has) snap.Harvests.Add(new PointState { X = hx, Y = hy });
+            if (rec.Has && InSnapshotRadius(hx, hy, meX, meY))
+                snap.Harvests.Add(new PointState { X = hx, Y = hy });
 
         // Players (расширенный набор полей как в snapshot_builder.py)
         foreach (var (pid, p) in Players)
@@ -1007,9 +1015,10 @@ public class GameCore
             });
         }
 
-        // Monsters
+        // Monsters (только ближние)
         foreach (var m in CurrentMap.Monsters)
         {
+            if (!InSnapshotRadius(m.X, m.Y, meX, meY)) continue;
             snap.Monsters.Add(new Snapshot.MonsterState
             {
                 X = m.X, Y = m.Y,
@@ -1021,21 +1030,23 @@ public class GameCore
             });
         }
 
-        // Items
+        // Items (только ближние)
         foreach (var ((x, y), key) in CurrentMap.Items)
-            snap.Items.Add(new Snapshot.ItemState { X = x, Y = y, Key = key });
+            if (InSnapshotRadius(x, y, meX, meY))
+                snap.Items.Add(new Snapshot.ItemState { X = x, Y = y, Key = key });
 
         // Projectiles (визуальные снаряды — рисуются клиентом)
         foreach (var p in Projectiles)
-            snap.Projectiles.Add(new Snapshot.ProjectileState
-            {
-                X = p.X, Y = p.Y, Kind = p.Kind, Color = p.Color,
-            });
+            if (InSnapshotRadius((int)p.X, (int)p.Y, meX, meY))
+                snap.Projectiles.Add(new Snapshot.ProjectileState
+                {
+                    X = p.X, Y = p.Y, Kind = p.Kind, Color = p.Color,
+                });
 
-        // NPCs (городские + торговец/доска подземелья)
+        // NPCs (городские + торговец/доска подземелья) — только ближние
         foreach (var m in CurrentMap.Monsters)
         {
-            if (m.IsNpc && m.Alive)
+            if (m.IsNpc && m.Alive && InSnapshotRadius(m.X, m.Y, meX, meY))
                 snap.Npcs.Add(new Snapshot.NpcEntry
                 {
                     X = m.X, Y = m.Y, Ch = m.Ch, Color = m.Color,
@@ -1117,6 +1128,11 @@ public class GameCore
 
         return snap;
     }
+
+    /// <summary>Сущность в радиусе снапшота вокруг игрока (чеврова дистанция
+    /// в тайлах; клиентская зона рендера ~30×16 тайлов + запас).</summary>
+    private static bool InSnapshotRadius(int x, int y, int px, int py) =>
+        Math.Max(Math.Abs(x - px), Math.Abs(y - py)) <= Config.SnapshotRadius;
 
     private static TradeSnapshot TradeSnapshotFor(TradeSession s)
     {

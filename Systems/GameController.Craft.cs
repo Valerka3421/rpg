@@ -61,7 +61,7 @@ public partial class GameController
 
         if (keys.IsKeyDown(Keys.K) && !prevKeys.IsKeyDown(Keys.K)
             || keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = Screens.Game;
+            CloseModal();
     }
 
     public void StartCraft(int index)

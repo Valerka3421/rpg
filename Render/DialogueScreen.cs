@@ -6,15 +6,18 @@ using Microsoft.Xna.Framework.Input;
 namespace Aethelgard.Render;
 
 /// <summary>
-/// Dialogue screen — NPC text box with portrait.
-/// Ported from Python game/dialogue_controller.py.
+/// Диалоговый экран — новая реализация на UiKit (единая UI-база).
+/// Нижняя панель: портретная зона с первой буквой имени NPC, имя золотом,
+/// текст с переносом строк, подсказки клавиш.
+/// Порт python game/dialogue_controller.py.
 /// </summary>
 public class DialogueScreen
 {
     private readonly GraphicsDevice _device;
     private readonly SpriteBatch _sb;
     private SpriteFont? _font;
-    private Texture2D? _blank;
+
+    private static readonly UiKit K = UiKit.Kit;
 
     public DialogueScreen(GraphicsDevice device, SpriteBatch sb)
     {
@@ -28,37 +31,51 @@ public class DialogueScreen
     {
         if (game.DialogueText == null || game.DialogueNpc == null) return;
 
+        var mouse = Mouse.GetState();
+        K.Begin(_sb, _device, mouse);
+
         int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
 
-        // Dark overlay
-        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 160));
-
-        // Dialogue box at bottom
-        int boxW = sw - 80, boxH = 140;
+        // Панель диалога внизу экрана
+        int boxW = sw - 160, boxH = 200;
         int bx = (sw - boxW) / 2;
         int by = sh - boxH - 40;
+        var panel = new Rectangle(bx, by, boxW, boxH);
+        K.Panel(panel, dimWorldBehind: false);
 
-        _sb.Draw(Blank, new Rectangle(bx, by, boxW, boxH), new Color(20, 18, 14, 240));
-        _sb.Draw(Blank, new Rectangle(bx, by, boxW, 2), Config.ColGold);
-        _sb.Draw(Blank, new Rectangle(bx, by + boxH - 2, boxW, 2), Config.ColGold);
+        // ── Портретная зона слева: рамка + инициал NPC ──
+        int portraitSize = boxH - 32;
+        var portraitRect = new Rectangle(panel.X + 16, panel.Y + 16, portraitSize, portraitSize);
+        Rect(portraitRect, UiKit.Theme.BgSlot);
+        Frame(portraitRect, UiKit.Theme.Border);
+        Rect(new Rectangle(portraitRect.X, portraitRect.Y, portraitRect.Width, 2), UiKit.Theme.Gold);
+        string initial = game.DialogueNpc.Substring(0, 1).ToUpperInvariant();
+        K.TextCentered(initial, portraitRect, UiKit.Theme.GoldBright, 2);
 
-        if (_font == null) return;
+        // ── Текстовая зона справа от портрета ──
+        int textX = portraitRect.Right + 16;
+        int textW = panel.Right - 16 - textX;
 
-        // NPC name
-        _sb.DrawString(_font, game.DialogueNpc, new Vector2(bx + 16, by + 10), Config.ColGold);
+        K.Text(game.DialogueNpc, new Vector2(textX, panel.Y + 18),
+            UiKit.Theme.GoldBright, 3);
+        Rect(new Rectangle(textX, panel.Y + 48, textW, 1), UiKit.Theme.BorderSoft);
 
-        // Dialogue text (word-wrapped)
-        var lines = WrapText(game.DialogueText, boxW - 32, _font);
-        int textY = by + 36;
-        foreach (var line in lines)
+        // Текст диалога с переносом по ширине
+        int textY = panel.Y + 58;
+        var font = Fonts.Body;
+        foreach (var line in WrapText(game.DialogueText, textW - 8, font))
         {
-            _sb.DrawString(_font, line, new Vector2(bx + 16, textY), Config.ColText);
-            textY += 18;
+            _sb.DrawString(font, line, new Vector2(textX, textY), UiKit.Theme.Text);
+            textY += 20;
+            if (textY > panel.Bottom - 40) break; // защита от переполнения
         }
 
-        // Continue hint
-        _sb.DrawString(_font, "[Enter / T / Esc — далее]",
-            new Vector2(bx + boxW - 200, by + boxH - 20), Config.ColDim);
+        // ── Подсказки клавиш внизу справа ──
+        K.KeyHint(panel.Right - 260, panel.Bottom - 30, "Enter", "далее");
+        K.KeyHint(panel.Right - 150, panel.Bottom - 30, "Esc", "закрыть");
+
+        K.End();
+        K.EndInputFrame();
     }
 
     private List<string> WrapText(string text, int maxW, SpriteFont font)
@@ -87,6 +104,9 @@ public class DialogueScreen
         return lines;
     }
 
+    // ── Локальные примитивы (поверх UiKit-палитры) ──
+
+    private Texture2D? _blank;
     private Texture2D Blank
     {
         get
@@ -95,8 +115,23 @@ public class DialogueScreen
             {
                 _blank = new Texture2D(_device, 1, 1);
                 _blank.SetData(new[] { Color.White });
+                GpuReset.Register(_device, () =>
+                {
+                    try { _blank?.Dispose(); } catch { }
+                    _blank = null;
+                });
             }
             return _blank;
         }
+    }
+
+    private void Rect(Rectangle r, Color c) => _sb.Draw(Blank, r, c);
+
+    private void Frame(Rectangle r, Color c)
+    {
+        Rect(new Rectangle(r.X, r.Y, r.Width, 1), c);
+        Rect(new Rectangle(r.X, r.Bottom - 1, r.Width, 1), c);
+        Rect(new Rectangle(r.X, r.Y, 1, r.Height), c);
+        Rect(new Rectangle(r.Right - 1, r.Y, 1, r.Height), c);
     }
 }

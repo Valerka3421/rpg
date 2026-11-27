@@ -159,6 +159,37 @@ public class ProtocolTests
         Assert.Equal(Protocol.Version,
             Protocol.Deserialize<ClientMsg>(Protocol.Serialize(msg))!.ProtocolVersion);
     }
+
+    [Fact]
+    public void Ecdh_BothSidesDeriveSameSessionKey()
+    {
+        // v4: сессионный ключ HMAC выводится из ECDH P-256, plaintext-ключ
+        // в welcome больше не передаётся (защита от пассивного прослушивания)
+        using var server = System.Security.Cryptography.ECDiffieHellman.Create(
+            System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+        using var client = System.Security.Cryptography.ECDiffieHellman.Create(
+            System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+
+        var serverPub = Convert.ToBase64String(
+            server.PublicKey.ExportSubjectPublicKeyInfo());
+        var clientPub = Convert.ToBase64String(
+            client.PublicKey.ExportSubjectPublicKeyInfo());
+
+        using var importedServer = System.Security.Cryptography.ECDiffieHellman.Create();
+        importedServer.ImportSubjectPublicKeyInfo(
+            Convert.FromBase64String(serverPub), out _);
+        using var importedClient = System.Security.Cryptography.ECDiffieHellman.Create();
+        importedClient.ImportSubjectPublicKeyInfo(
+            Convert.FromBase64String(clientPub), out _);
+
+        var serverKey = server.DeriveKeyFromHash(importedClient.PublicKey,
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+        var clientKey = client.DeriveKeyFromHash(importedServer.PublicKey,
+            System.Security.Cryptography.HashAlgorithmName.SHA256);
+
+        Assert.Equal(32, serverKey.Length);
+        Assert.Equal(serverKey, clientKey);
+    }
 }
 
 public class EffectTests

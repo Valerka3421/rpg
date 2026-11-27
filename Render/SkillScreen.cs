@@ -8,17 +8,19 @@ using Aethelgard.Data;
 namespace Aethelgard.Render;
 
 /// <summary>
-/// Дерево навыков: вкладки «Класс | Ковка | Алхимия | Инженерия».
-/// Узлы классовой ветки — с иконками из assets/skills/class,
-/// ветки крафта — из assets/skills/craft. Вкладки и узлы кликабельны.
-/// Полоса «ПЕРЕХОД НА НОВЫЙ КЛАСС» видна всегда (до уровня — заблокирована).
+/// Дерево навыков — реализация на UiKit (единая UI-база).
+/// Вкладки «Класс | Ковка | Алхимия | Инженерия» через K.Tabs. Узлы классовой
+/// ветки — гексагоны (позиции сохранены) с hover-тултипом и золотой рамкой
+/// под курсором; ветки крафта — список рецептов с hover-подсветкой.
+/// Полоса эволюции класса видна всегда (до уровня — заблокирована).
 /// </summary>
 public class SkillScreen
 {
     private readonly GraphicsDevice _device;
     private readonly SpriteBatch _sb;
-    private SpriteFont? _font;
     private Texture2D? _blank;
+
+    private static readonly UiKit K = UiKit.Kit;
 
     public int CurrentTab = 0;  // 0=class, 1=blacksmith, 2=alchemy, 3=magic_eng
     public string? HoveredNode;
@@ -26,104 +28,77 @@ public class SkillScreen
     private static readonly string[] TabNames = { "Класс", "Ковка", "Алхимия", "Инженерия" };
     private static readonly string[] TabKeys = { "", "blacksmith", "alchemy", "magic_engineering" };
 
-    /// <summary>Клик «отпущен и снова нажат»: защита от повтора в каждом кадре.</summary>
-    private bool _clickArmed = true;
-
     public SkillScreen(GraphicsDevice device, SpriteBatch sb)
     {
         _device = device;
         _sb = sb;
     }
 
-    public void LoadFont(SpriteFont font) => _font = font;
+    /// <summary>Шрифты теперь глобальные (Fonts) — метод оставлен для контракта.</summary>
+    public void LoadFont(SpriteFont font) { }
 
     /// <summary>
-    /// Draw the skill tree overlay.
-    /// Returns the action the user clicked on ("learn:<key>" / "promote:<key>"), or null.
-    /// Клик возвращается только один раз на нажатие (не каждый кадр).
+    /// Рисует дерево навыков. Возвращает действие клика
+    /// ("learn:<key>" / "promote:<key>") или null.
     /// </summary>
     public string? Draw(Player player, MouseState mouse)
     {
-        int sw = AethelgardGame.ScreenW;
-        int sh = AethelgardGame.ScreenH;
+        K.Begin(_sb, _device, mouse);
 
-        // «Свежий» клик: нажатие, не продолжающееся с прошлого кадра
-        bool freshClick = mouse.LeftButton == ButtonState.Pressed && _clickArmed;
-        if (mouse.LeftButton == ButtonState.Released) _clickArmed = true;
-        else if (freshClick) _clickArmed = false;
-
-        // Dark overlay
-        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
-
-        // Panel
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
         int panelW = 1560, panelH = 950;
-        int px = (sw - panelW) / 2;
-        int py = (sh - panelH) / 2;
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH),
-            new Color(20, 18, 14, 240));
-        _sb.Draw(Blank, new Rectangle(px, py, panelW, 2), Config.ColGold);
-        _sb.Draw(Blank, new Rectangle(px, py + panelH - 2, panelW, 2), Config.ColGold);
+        var panel = new Rectangle((sw - panelW) / 2, (sh - panelH) / 2, panelW, panelH);
+        K.Panel(panel);
 
-        if (_font == null) return null;
-        var font = _font;   // локаль: вызовы методов сбрасывают null-state поля (_font)
-
-        // Title
-        _sb.DrawString(_font, "ДРЕВО НАВЫКОВ", new Vector2(px + 20, py + 14), Config.ColGold);
+        // ── Шапка ──
+        var headerRect = new Rectangle(panel.X, panel.Y, panel.Width, 72);
+        K.Text("ДРЕВО НАВЫКОВ", new Vector2(headerRect.X + 20, headerRect.Y + 14),
+            UiKit.Theme.GoldBright, 2);
         var classDef = ClassData.Get(player.ClassKey);
         string className = classDef?.Name ?? player.ClassKey;
-        _sb.DrawString(_font, $"{className}  Ур.{player.Level}",
-            new Vector2(px + panelW - 320, py + 14), Config.ColText);
+        string subText = $"{className}  ·  Уровень {player.Level}";
+        K.Text(subText, new Vector2(headerRect.X + 20, headerRect.Y + 48),
+            UiKit.Theme.TextDim, 4, shadow: false);
 
-        // Skill points badge
         if (player.SkillPoints > 0)
         {
             string badge = $"Очки навыков: {player.SkillPoints}";
-            _sb.DrawString(_font, badge, new Vector2(px + 20, py + 46), Config.ColGold);
+            var badgeRect = new Rectangle(
+                headerRect.Right - 60 - (int)K.FontWidth(badge, 3) - 24,
+                headerRect.Y + 16, (int)K.FontWidth(badge, 3) + 24, 36);
+            K.Button(badgeRect, badge, state: 1, enabled: false);
         }
 
-        // Tabs (кликабельные, текст по центру)
+        // ── Вкладки (кликабельны, hover-подсветка через K.Tabs) ──
         HoveredNode = null;
-        int tabY = py + 78;
-        int tabX = px + 20;
+        int tabY = panel.Y + 84;
+        var tabLabels = new string[TabNames.Length];
         for (int i = 0; i < TabNames.Length; i++)
         {
-            string label = TabNames[i];
+            tabLabels[i] = TabNames[i];
             if (i > 0)
             {
                 int lvl = player.CraftLevels.GetValueOrDefault(TabKeys[i], 1);
-                label += $" ({lvl})";
+                tabLabels[i] += $" ({lvl})";
             }
-            var size = _font.MeasureString(label);
-            var rect = new Rectangle(tabX, tabY, (int)size.X + 36, 34);
-            bool active = i == CurrentTab;
-            _sb.Draw(Blank, rect,
-                active ? new Color(60, 50, 30) : new Color(30, 28, 22));
-            var bc = active ? Config.ColGold : new Color(50, 45, 38);
-            _sb.Draw(Blank, new Rectangle(tabX, tabY, rect.Width, 1), bc);
-            _sb.Draw(Blank, new Rectangle(tabX, tabY + rect.Height - 1, rect.Width, 1), bc);
-
-            Ui.TextCentered(_sb, _font, label, rect, active ? Config.ColGold : Config.ColDim, shadow: false);
-
-            if (rect.Contains(mouse.X, mouse.Y) && freshClick && !active)
-                CurrentTab = i;
-            tabX += rect.Width + 10;
         }
+        int tabClicked = K.Tabs(panel.X + UiKit.Pad, tabY, tabLabels, CurrentTab, widthEach: 150);
+        if (tabClicked >= 0) CurrentTab = tabClicked;
 
-        // Content area
-        int contentY = tabY + 46;
-        int contentH = panelH - (contentY - py) - 18;
+        // ── Контент ──
+        int contentY = tabY + UiKit.TabH + UiKit.Gap + 4;
+        int contentH = panel.Bottom - UiKit.Pad - contentY;
 
         string? clicked = null;
         if (CurrentTab == 0)
-            clicked = DrawClassTree(player, px + 20, contentY, panelW - 40, contentH, mouse, freshClick);
+            clicked = DrawClassTree(player, panel.X + UiKit.Pad, contentY,
+                panel.Width - UiKit.Pad * 2, contentH);
         else
-            clicked = DrawCraftTab(player, TabKeys[CurrentTab], px + 20, contentY,
-                panelW - 40, contentH, mouse);
+            clicked = DrawCraftTab(player, TabKeys[CurrentTab], panel.X + UiKit.Pad,
+                contentY, panel.Width - UiKit.Pad * 2, contentH);
 
-        // Tooltip
-        if (HoveredNode != null)
-            DrawTooltip(HoveredNode, player, mouse);
-
+        K.End();
+        K.EndInputFrame();
         return clicked;
     }
 
@@ -136,31 +111,13 @@ public class SkillScreen
         return def?.Key ?? "warrior";
     }
 
-    private static string? IconKeyOf(string nodeKey)
-    {
-        // w_0 → warrior_0, m_3 → mage_3, r_5 → rogue_5, a_7 → artisan_7, d_1 → default_1
-        if (nodeKey.Length >= 2 && nodeKey[1] == '_')
-            return nodeKey[0] switch
-            {
-                'w' => "warrior_" + nodeKey[2..],
-                'm' => "mage_" + nodeKey[2..],
-                'r' => "rogue_" + nodeKey[2..],
-                'a' => "artisan_" + nodeKey[2..],
-                'd' => "default_" + nodeKey[2..],
-                _ => null,
-            };
-        return null;
-    }
-
-    private string? DrawClassTree(Player player, int x, int y, int w, int h,
-        MouseState mouse, bool freshClick)
+    private string? DrawClassTree(Player player, int x, int y, int w, int h)
     {
         var nodes = SkillTree.GetNodes(player);
         if (nodes.Length == 0)
         {
-            if (_font != null)
-                _sb.DrawString(_font, "У этого класса нет древа навыков.",
-                    new Vector2(x + 10, y + 10), Config.ColDim);
+            K.Text("У этого класса нет древа навыков.", new Vector2(x + 10, y + 10),
+                UiKit.Theme.TextMuted, 3);
             return null;
         }
 
@@ -173,10 +130,9 @@ public class SkillScreen
         bool promosUnlocked = ClassData.AvailablePromotions(player).Length > 0;
         int promoH = promoKeys.Length > 0 ? 110 : 0;
         int treeH = h - promoH;
-        _sb.Draw(Blank, new Rectangle(x, y, w, treeH), new Color(17, 15, 12));
-        _sb.Draw(Blank, new Rectangle(x, y, w, 1), new Color(48, 42, 33));
+        K.Section(new Rectangle(x, y, w, treeH));
 
-        // Hex positions: center + ring of 11 → 2 кольца (0 центр, 1-6 ближнее, 7-11 дальнее)
+        // Hex positions: center + кольца (0 центр, 1-5 ближнее, 6-11 дальнее)
         int centerX = x + w / 2;
         int centerY = y + treeH / 2 - 8;
         int radius = 56;
@@ -197,11 +153,6 @@ public class SkillScreen
         string? clicked = null;
         string baseKey = BaseKeyOf(player);
 
-        // Соединительные линии между узлами убраны: пунктирные линии
-        // артефактили плотной сеткой и мешали читать дерево. Кольца
-        // и иконки сами показывают структуру ветки.
-
-        // Draw nodes
         for (int i = 0; i < nodes.Length && i < positions.Count; i++)
         {
             var node = nodes[i];
@@ -211,13 +162,18 @@ public class SkillScreen
             bool available = !learned && player.Level >= node.Level && player.SkillPoints > 0;
             bool locked = player.Level < node.Level;
 
-            Color nodeColor;
-            if (learned) nodeColor = new Color(80, 160, 80);
-            else if (available) nodeColor = new Color(200, 170, 60);
-            else if (locked) nodeColor = new Color(60, 55, 45);
-            else nodeColor = new Color(80, 75, 65);
+            Color nodeFill = learned ? new Color(70, 110, 66)
+                           : available ? new Color(84, 68, 34)
+                           : new Color(38, 34, 28);
+            Color nodeBorder = learned ? UiKit.Theme.Xp
+                             : available ? UiKit.Theme.Gold
+                             : UiKit.Theme.BorderSoft;
 
-            DrawHex(nx, ny, radius, nodeColor, learned);
+            var nodeRect = new Rectangle(nx - radius, ny - radius - 8, radius * 2, radius * 2 + 14);
+            bool hot = K.Hot(nodeRect);
+            if (hot) nodeBorder = UiKit.Theme.GoldBright;   // hover — золотая рамка
+
+            DrawHex(nx, ny, radius, nodeFill, nodeBorder, learned);
 
             // Иконка узла из assets/skills/class/<базовый класс>_<индекс>.png
             var icon = Ui.SkillIcon(_device, "class", $"{baseKey}_{i}");
@@ -226,105 +182,93 @@ public class SkillScreen
                 int isz = radius * 2 - 22;
                 _sb.Draw(icon, new Rectangle(nx - isz / 2, ny - isz / 2 - 8, isz, isz),
                     learned ? Color.White : Color.Multiply(Color.White, 0.55f));
-                // Уровень требования — под иконкой
                 string reqText = learned ? "изучено" : $"Ур.{node.Level}";
-                var reqSize = _font!.MeasureString(reqText);
-                _sb.DrawString(_font, reqText, new Vector2(nx - reqSize.X / 2, ny + radius - 26),
-                    learned ? Color.White : (locked ? new Color(200, 110, 90) : Config.ColText));
+                K.TextCentered(reqText,
+                    new Rectangle(nx - radius, ny + radius - 26, radius * 2, 18),
+                    learned ? UiKit.Theme.Xp : locked ? UiKit.Theme.Danger : UiKit.Theme.Text, 4);
             }
             else
             {
                 string reqText = learned ? "+" : $"Ур.{node.Level}";
-                var reqSize = _font!.MeasureString(reqText);
-                _sb.DrawString(_font, reqText, new Vector2(nx - reqSize.X / 2, ny - reqSize.Y / 2 - 2),
-                    learned ? Color.White : (locked ? new Color(200, 110, 90) : Config.ColText));
+                K.TextCentered(reqText,
+                    new Rectangle(nx - radius, ny - 10, radius * 2, 20),
+                    learned ? UiKit.Theme.Xp : locked ? UiKit.Theme.Danger : UiKit.Theme.Text, 4);
             }
 
-            // Node name — по центру под гексом
+            // Имя узла — по центру под гексом
             string label = node.Name.Length > 20 ? node.Name[..19] + "…" : node.Name;
-            var labelSize = _font!.MeasureString(label);
-            _sb.DrawString(_font, label, new Vector2(nx - labelSize.X / 2, ny + radius + 6),
-                learned ? new Color(120, 190, 110) : Config.ColDim);
+            K.TextCentered(label,
+                new Rectangle(nx - radius, ny + radius + 6, radius * 2, 18),
+                learned ? UiKit.Theme.Xp : hot ? UiKit.Theme.GoldBright : UiKit.Theme.TextDim, 4);
 
-            // Hover and click
-            var nodeRect = new Rectangle(nx - radius, ny - radius - 8, radius * 2, radius * 2 + 14);
-            if (nodeRect.Contains(mouse.X, mouse.Y))
+            if (hot)
             {
                 HoveredNode = node.Key;
-                _sb.Draw(Blank, new Rectangle(nx - radius - 2, ny - radius - 10,
-                    radius * 2 + 4, radius * 2 + 18),
-                    new Color(240, 210, 90, 40));
-                if (freshClick && !learned)
+                ShowNodeTooltip(nodeRect, node, player, learned, available, locked);
+                if (K.Clicked(nodeRect) && !learned)
                     clicked = "learn:" + node.Key;
             }
         }
 
-        // Bottom hint
-        if (_font != null)
-        {
-            string hint = "Наведи для подробностей. Клик — изучить (нужно очко навыков и уровень).";
-            _sb.DrawString(_font, hint,
-                new Vector2(x + 10, y + treeH - 26), Config.ColDim);
-        }
+        // Подсказка внизу древа
+        K.Text("Наведи курсор для подробностей · Клик — изучить (нужны очко навыков и уровень)",
+            new Vector2(x + 10, y + treeH - 26), UiKit.Theme.TextMuted, 4, shadow: false);
 
         // ── Эволюция класса: всегда видна, до нужного уровня — заблокирована ──
-        if (promoKeys.Length > 0 && _font != null)
+        if (promoKeys.Length > 0)
         {
-            int promoY = y + treeH + 8;
-            _sb.Draw(Blank, new Rectangle(x, promoY, w, promoH - 8),
-                new Color(30, 24, 14));
-            _sb.Draw(Blank, new Rectangle(x, promoY, w, 1), new Color(150, 120, 60));
-            _sb.DrawString(_font, "ЭВОЛЮЦИЯ КЛАССА:",
-                new Vector2(x + 10, promoY + 8), Config.ColGold);
+            int promoY = y + treeH + UiKit.Gap;
+            var promoRect = new Rectangle(x, promoY, w, promoH - UiKit.Gap);
+            K.Section(promoRect, "ЭВОЛЮЦИЯ КЛАССА");
             if (!promosUnlocked)
-                _sb.DrawString(_font, $"доступно с уровня {promoReqLevel}",
-                    new Vector2(x + 240, promoY + 8), new Color(200, 120, 90));
+                K.Text($"доступно с уровня {promoReqLevel}",
+                    new Vector2(x + 220, promoY + 8), UiKit.Theme.Danger, 4, shadow: false);
 
             int bx = x + 10;
             foreach (var pk in promoKeys)
             {
                 var pdef = ClassData.Get(pk);
                 if (pdef == null) continue;
-                var size = _font.MeasureString(pdef.Name);
-                var rect = new Rectangle(bx, promoY + 36, (int)size.X + 76, 52);
-                bool hover = rect.Contains(mouse.X, mouse.Y);
-                _sb.Draw(Blank, rect, hover ? new Color(64, 50, 26) : new Color(44, 36, 24));
-                var bc = promosUnlocked ? (hover ? Config.ColGold : new Color(150, 120, 60))
-                                        : new Color(80, 70, 55);
-                _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, rect.Width, 1), bc);
-                _sb.Draw(Blank, new Rectangle(rect.X, rect.Bottom - 1, rect.Width, 1), bc);
-                _sb.Draw(Blank, new Rectangle(rect.X, rect.Y, 1, rect.Height), bc);
-                _sb.Draw(Blank, new Rectangle(rect.Right - 1, rect.Y, 1, rect.Height), bc);
+                var rect = new Rectangle(bx, promoY + 30,
+                    (int)K.FontWidth(pdef.Name, 3) + 76, 52);
 
                 // Иконка класса из assets/skills/class/<ключ>_0.png
                 var icon = Ui.SkillIcon(_device, "class", pk + "_0");
+                bool hot = K.Hot(rect) && promosUnlocked;
+
+                Color bg = !promosUnlocked ? UiKit.Theme.BgSlot
+                         : hot ? UiKit.Theme.BgSlotHot : UiKit.Theme.BgSlot;
+                Color border = !promosUnlocked ? UiKit.Theme.BorderSoft
+                             : hot ? UiKit.Theme.GoldBright : UiKit.Theme.Border;
+                Rect(rect, bg);
+                Frame(rect, border);
+
                 if (icon != null)
                     _sb.Draw(icon, new Rectangle(rect.X + 8, rect.Y + 8, 36, 36), Color.White);
                 else
                     DrawFilledCircle(rect.X + 24, rect.Y + 26, 11, pdef.Color);
-                _sb.DrawString(_font, pdef.Name,
-                    new Vector2(rect.X + 54, rect.Y + 16),
-                    promosUnlocked ? (hover ? Config.ColGold : Config.ColText)
-                                   : new Color(130, 120, 105));
-                bx += rect.Width + 12;
+                K.Text(pdef.Name, new Vector2(rect.X + 54, rect.Y + 16),
+                    !promosUnlocked ? UiKit.Theme.TextMuted
+                    : hot ? UiKit.Theme.GoldBright : UiKit.Theme.Text, 3);
 
-                if (hover && freshClick && promosUnlocked)
+                if (hot && K.Clicked(rect))
                     clicked = "promote:" + pk;
+                bx += rect.Width + 12;
             }
-            _sb.DrawString(_font, "Клик — сменить класс (навыки и снаряжение сохраняются)",
-                new Vector2(x + 10, promoY + promoH - 22), Config.ColDim);
+            K.Text("Клик — сменить класс (навыки и снаряжение сохраняются)",
+                new Vector2(x + 10, promoY + promoH - 28),
+                UiKit.Theme.TextMuted, 4, shadow: false);
         }
 
         return clicked;
     }
 
-    private string? DrawCraftTab(Player player, string branchKey,
-        int x, int y, int w, int h, MouseState mouse)
+    // ── Вкладка крафта: шапка ветки, XP-бар, список рецептов ──
+    private string? DrawCraftTab(Player player, string branchKey, int x, int y, int w, int h)
     {
         if (!SkillTree.CraftBranches.TryGetValue(branchKey, out var branch))
             return null;
 
-        // Branch icon
         int lvl = player.CraftLevels.GetValueOrDefault(branchKey, 1);
         var branchIcon = Ui.SkillIcon(_device, "craft",
             branchKey + "_" + Math.Clamp(lvl - 1, 0, 7));
@@ -336,62 +280,49 @@ public class SkillScreen
             headerX = x + 74;
         }
 
-        if (_font != null)
-        {
-            _sb.DrawString(_font, branch.Name, new Vector2(headerX, y + 10), Config.ColGold);
-            _sb.DrawString(_font, branch.Desc, new Vector2(headerX, y + 34),
-                Config.ColDim);
-            _sb.DrawString(_font, $"Уровень: {lvl}/25  Опыт: {player.CraftXp.GetValueOrDefault(branchKey, 0)}/{branch.XpNext * lvl}",
-                new Vector2(headerX, y + 56), Config.ColText);
-        }
+        K.Text(branch.Name, new Vector2(headerX, y + 10), UiKit.Theme.GoldBright, 3);
+        K.Text(branch.Desc, new Vector2(headerX, y + 36), UiKit.Theme.TextDim, 4, shadow: false);
+        K.Text($"Уровень: {lvl}/25   Опыт: {player.CraftXp.GetValueOrDefault(branchKey, 0)}/{branch.XpNext * lvl}",
+            new Vector2(headerX, y + 56), UiKit.Theme.Text, 4, shadow: false);
 
-        // XP bar
-        int barX = x + 10;
-        int barY = y + 82;
-        int barW = w - 20;
+        // XP-бар через кит
         int xp = player.CraftXp.GetValueOrDefault(branchKey, 0);
         int xpNext = branch.XpNext * lvl;
-        _sb.Draw(Blank, new Rectangle(barX, barY, barW, 12),
-            new Color(30, 28, 22));
-        int fillW = xpNext > 0 ? barW * xp / xpNext : 0;
-        _sb.Draw(Blank, new Rectangle(barX, barY, fillW, 12),
-            new Color(100, 180, 110));
+        K.Bar(x + 10, y + 84, w - 20, 12, xpNext > 0 ? (double)xp / xpNext : 0, UiKit.Theme.Xp);
 
-        // Recipe list
-        int listY = y + 108;
-        _sb.DrawString(_font, "Рецепты:", new Vector2(x + 10, listY),
-            Config.ColText);
-        listY += 30;
+        // Список рецептов
+        int listY = y + 110;
+        K.Text("Рецепты:", new Vector2(x + 10, listY), UiKit.Theme.Text, 4, shadow: false);
+        listY += 26;
 
         foreach (var (reqLevel, recipes) in branch.Recipes)
         {
             foreach (var recipeKey in recipes)
             {
-                var def = ItemData.Get(recipeKey);
-                if (def == null) continue;
+                var rdef = ItemData.Get(recipeKey);
+                if (rdef == null) continue;
 
-                // Прогрессия: рецепт открыт, когда и ветка крафта, и уровень
-                // персонажа достаточны
+                // Рецепт открыт, когда и ветка крафта, и уровень персонажа достаточны
                 bool byBranch = lvl >= reqLevel;
-                bool byChar = player.Level >= def.LevelReq;
+                bool byChar = player.Level >= rdef.LevelReq;
                 bool unlocked = byBranch && byChar;
-                string lockText = !byChar ? $"нужен ур. {def.LevelReq}"
+                string lockText = !byChar ? $"нужен ур. {rdef.LevelReq}"
                     : !byBranch ? $"нужна ветка ур. {reqLevel}" : "";
 
-                int rowH = 52;
+                const int rowH = 52;
                 var rect = new Rectangle(x + 10, listY, w - 20, rowH);
-                _sb.Draw(Blank, rect,
-                    unlocked ? new Color(30, 35, 25) : new Color(20, 18, 14));
-                _sb.Draw(Blank, new Rectangle(x + 10, listY, w - 20, 1),
-                    new Color(50, 45, 38));
+                bool hot = K.Hot(rect);
+                Rect(rect, unlocked ? (hot ? UiKit.Theme.BgSlotHot : UiKit.Theme.BgSlot)
+                                    : UiKit.Theme.BgSoft);
+                Frame(rect, hot ? new Color(UiKit.Theme.Gold, 120) : UiKit.Theme.BorderSoft);
 
-                string name = def.Name;
+                string name = rdef.Name;
                 string reqStr = unlocked ? "" : $"  ({lockText})";
-                _sb.DrawString(_font, $"{name}{reqStr}",
-                    new Vector2(x + 18, listY + 8),
-                    unlocked ? Config.ColText : new Color(150, 140, 125));
+                K.Text($"{name}{reqStr}", new Vector2(rect.X + 8, listY + 8),
+                    unlocked ? (hot ? UiKit.Theme.GoldBright : UiKit.Theme.Text)
+                             : UiKit.Theme.TextMuted, 4);
 
-                // Materials needed (из реальных рецептов) — на второй строке
+                // Материалы (из реальных рецептов) — на второй строке
                 var variants = ItemData.RecipesOf(recipeKey);
                 if (variants.Count > 0)
                 {
@@ -399,10 +330,9 @@ public class SkillScreen
                         .Select(m => $"{ItemData.DisplayName(m.Key)}×{m.Value}"));
                     bool afford = variants[0].Materials.All(m =>
                         player.Inventory.GetValueOrDefault(m.Key) >= m.Value);
-                    _sb.DrawString(_font, mats,
-                        new Vector2(x + 18, listY + 30),
-                        unlocked ? (afford ? new Color(120, 180, 110) : new Color(160, 130, 110))
-                                 : new Color(110, 100, 88));
+                    K.Text(mats, new Vector2(rect.X + 8, listY + 28),
+                        unlocked ? (afford ? UiKit.Theme.Xp : UiKit.Theme.Danger)
+                                 : UiKit.Theme.TextMuted, 4, shadow: false);
                 }
 
                 listY += rowH + 4;
@@ -412,16 +342,44 @@ public class SkillScreen
         return null;
     }
 
-    private void DrawFilledCircle(int cx, int cy, int r, Color color)
+    // ── Тултип узла (рисуется UiKit поверх всего в End) ──
+    private void ShowNodeTooltip(Rectangle anchor, SkillTree.Node node, Player player,
+        bool learned, bool available, bool locked)
     {
-        for (int dy = -r; dy <= r; dy++)
+        var lines = new List<(string, Color)>
         {
-            int w = (int)Math.Sqrt(r * r - dy * dy);
-            _sb.Draw(Blank, new Rectangle(cx - w, cy + dy, w * 2, 1), color);
+            (node.Desc, UiKit.Theme.TextMuted),
+        };
+        if (learned) lines.Add(("● Изучено", UiKit.Theme.Xp));
+        else if (locked)
+        {
+            lines.Add(($"Требуется уровень {node.Level}", UiKit.Theme.Danger));
+            lines.Add(("● Заблокировано", UiKit.Theme.TextMuted));
         }
+        else if (player.SkillPoints < 1)
+        {
+            lines.Add(("Нет очков навыков", UiKit.Theme.Danger));
+        }
+        else
+        {
+            lines.Add(("● Доступно — кликните, чтобы изучить", UiKit.Theme.Gold));
+        }
+        K.Tooltip(anchor, node.Name, lines);
     }
 
-    private void DrawHex(int cx, int cy, int r, Color fill, bool filled)
+    // ── Примитивы рисования (только для гексагонов, которых нет в ките) ──
+
+    private void Rect(Rectangle r, Color c) => _sb.Draw(Blank, r, c);
+
+    private void Frame(Rectangle r, Color c)
+    {
+        Rect(new Rectangle(r.X, r.Y, r.Width, 1), c);
+        Rect(new Rectangle(r.X, r.Bottom - 1, r.Width, 1), c);
+        Rect(new Rectangle(r.X, r.Y, 1, r.Height), c);
+        Rect(new Rectangle(r.Right - 1, r.Y, 1, r.Height), c);
+    }
+
+    private void DrawHex(int cx, int cy, int r, Color fill, Color border, bool filled)
     {
         var points = new Vector2[6];
         for (int i = 0; i < 6; i++)
@@ -433,21 +391,26 @@ public class SkillScreen
         }
 
         if (filled)
-        {
             for (int i = 0; i < 6; i++)
-            {
-                var p0 = new Vector2(cx, cy);
-                var p1 = points[i];
-                var p2 = points[(i + 1) % 6];
-                DrawTriangle(p0, p1, p2, fill);
-            }
-        }
+                DrawTriangle(new Vector2(cx, cy), points[i],
+                    points[(i + 1) % 6], fill);
 
         for (int i = 0; i < 6; i++)
+            DrawLine(points[i], points[(i + 1) % 6], border);
+        // Тёплая тень под гексом
+        DrawHexOutlineShadow(cx, cy, r + 2);
+    }
+
+    private void DrawHexOutlineShadow(int cx, int cy, int r)
+    {
+        // простая тень: полупрозрачные пиксели контура
+        for (int i = 0; i < 6; i++)
         {
-            var p1 = points[i];
-            var p2 = points[(i + 1) % 6];
-            DrawLine(p1, p2, new Color(100, 90, 70));
+            double a0 = Math.PI / 3 * i, a1 = Math.PI / 3 * (i + 1);
+            DrawLine(
+                new Vector2(cx + r * (float)Math.Cos(a0), cy + 2 + r * (float)Math.Sin(a0)),
+                new Vector2(cx + r * (float)Math.Cos(a1), cy + 2 + r * (float)Math.Sin(a1)),
+                UiKit.Theme.Shadow);
         }
     }
 
@@ -466,7 +429,7 @@ public class SkillScreen
                 intersections.Sort();
                 int x0 = (int)intersections[0];
                 int x1 = (int)intersections[^1];
-                _sb.Draw(Blank, new Rectangle(x0, y, x1 - x0, 1), color);
+                Rect(new Rectangle(x0, y, x1 - x0, 1), color);
             }
         }
     }
@@ -488,72 +451,16 @@ public class SkillScreen
             float t = steps > 0 ? (float)i / steps : 0;
             int x = (int)(a.X + t * (b.X - a.X));
             int y = (int)(a.Y + t * (b.Y - a.Y));
-            _sb.Draw(Blank, new Rectangle(x, y, 1, 1), color);
+            Rect(new Rectangle(x, y, 1, 1), color);
         }
     }
 
-    private void DrawDottedLine(int x0, int y0, int x1, int y1, Color color)
+    private void DrawFilledCircle(int cx, int cy, int r, Color color)
     {
-        int dx = x1 - x0, dy = y1 - y0;
-        int dist = (int)Math.Sqrt(dx * dx + dy * dy);
-        int dashLen = 3, gapLen = 9;
-        int pos = 0;
-        while (pos < dist)
+        for (int dy = -r; dy <= r; dy++)
         {
-            int end = Math.Min(pos + dashLen, dist);
-            float t0 = (float)pos / dist;
-            float t1 = (float)end / dist;
-            int sx = (int)(x0 + t0 * dx);
-            int sy = (int)(y0 + t0 * dy);
-            int ex = (int)(x0 + t1 * dx);
-            int ey = (int)(x0 + t1 * dy);
-            DrawLine(new Vector2(sx, sy), new Vector2(ex, ey), color);
-            pos = end + gapLen;
-        }
-    }
-
-    private void DrawTooltip(string nodeKey, Player player, MouseState mouse)
-    {
-        if (_font == null) return;
-        var nodes = SkillTree.GetNodes(player);
-        var node = nodes.FirstOrDefault(n => n.Key == nodeKey);
-        if (node == null) return;
-
-        var lines = new List<string> { node.Name, node.Desc };
-
-        bool learned = player.LearnedNodes.Contains(node.Key);
-        if (learned)
-            lines.Add("Изучено");
-        else if (player.Level < node.Level)
-            lines.Add($"Требуется уровень {node.Level}");
-        else if (player.SkillPoints < 1)
-            lines.Add("Нет очков навыков");
-        else
-            lines.Add("Доступно — кликните, чтобы изучить");
-
-        int maxW = 0;
-        foreach (var line in lines)
-        {
-            var size = _font.MeasureString(line);
-            if (size.X > maxW) maxW = (int)size.X;
-        }
-        int ttW = maxW + 20;
-        int ttH = lines.Count * 24 + 14;
-        int ttX = mouse.X + 20;
-        int ttY = mouse.Y + 20;
-        if (ttX + ttW > AethelgardGame.ScreenW) ttX = mouse.X - ttW - 8;
-        if (ttY + ttH > AethelgardGame.ScreenH) ttY = mouse.Y - ttH - 8;
-
-        _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, ttH),
-            new Color(15, 13, 10, 230));
-        _sb.Draw(Blank, new Rectangle(ttX, ttY, ttW, 1), Config.ColGold);
-
-        for (int i = 0; i < lines.Count; i++)
-        {
-            var color = i == 0 ? Config.ColGold : Config.ColText;
-            if (i == lines.Count - 1 && learned) color = new Color(100, 200, 100);
-            _sb.DrawString(_font, lines[i],
-                new Vector2(ttX + 10, ttY + 7 + i * 24), color);
+            int w = (int)Math.Sqrt(r * r - dy * dy);
+            Rect(new Rectangle(cx - w, cy + dy, w * 2, 1), color);
         }
     }
 

@@ -41,6 +41,8 @@ public static class Config
 
     // ── Game parameters ──
     public const int FovRadius = 9;
+    /// <summary>Радиус (тайлы, чевров) включения сущностей в MP-снапшот.</summary>
+    public const int SnapshotRadius = 32;
     public const bool FogOfWarEnabled = false;
     public const int MaxDepth = 20;
     public static readonly int[] MerchantFloors = { 3, 6, 9, 12, 15, 18 };

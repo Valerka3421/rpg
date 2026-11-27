@@ -239,6 +239,8 @@ public sealed class ClientMsg
     public string? Sig { get; set; }
     // Monotonic counter пакета (anti-replay): строго +1 после hello
     public int Seq { get; set; }
+    // ECDH P-256 публичный ключ клиента (SPKI, base64) — передаётся в hello
+    public string? DhPublic { get; set; }
 
     // input
     public int? Dx { get; set; }
@@ -323,7 +325,8 @@ public sealed class ServerMsg
     public int? Pid { get; set; }
     public string? YourToken { get; set; }
     /// <summary>Сессионный ключ для HMAC-подписи сообщений (base64).</summary>
-    public string? SessionKey { get; set; }
+    // Публичный ключ ECDH сервера (SPKI, base64) — plaintext-ключ убран (v4)
+    public string? DhPublic { get; set; }
 
     // error
     public string? Msg { get; set; }

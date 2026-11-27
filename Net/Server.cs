@@ -34,6 +34,7 @@ public class GameServer
     private int _nextPid = 1;
     private readonly Dictionary<int, TcpClient> _clients = new();
     private readonly Dictionary<int, byte[]> _sessionKeys = new();
+    private readonly Dictionary<int, System.Security.Cryptography.ECDiffieHellman> _dhKeys = new();
     private readonly Dictionary<int, bool> _authenticated = new();
     // Ревизия карты, известная каждому клиенту (дельта-снапшоты: тайлы
     // включаются в снапшот только при устаревшей ревизии)
@@ -154,17 +155,21 @@ public class GameServer
             bool helloDone = false;
             int lastSeq = 0;
 
-            // Session key for HMAC message signing (os.urandom(32))
-            var sessionKey = RandomNumberGenerator.GetBytes(32);
-            lock (_lock) { _sessionKeys[pid] = sessionKey; _authenticated[pid] = false; }
+            // ECDH P-256: сессионный ключ HMAC выводится из общего секрета,
+            // plaintext-ключ в welcome больше не передаётся (v4)
+            var dh = System.Security.Cryptography.ECDiffieHellman.Create(
+                System.Security.Cryptography.ECCurve.NamedCurves.nistP256);
+            var dhPublic = Convert.ToBase64String(
+                dh.PublicKey.ExportSubjectPublicKeyInfo());
+            lock (_lock) { _dhKeys[pid] = dh; _authenticated[pid] = false; }
 
-            // Send welcome with pid, token, session key
+            // Send welcome with pid, token and server ECDH public key
             var welcome = new ServerMsg
             {
                 Type = "welcome",
                 Pid = pid,
                 YourToken = $"tok_{pid}_{DateTime.Now.Ticks}",
-                SessionKey = Convert.ToBase64String(sessionKey),
+                DhPublic = dhPublic,
             };
             SendMsg(stream, welcome);
 
@@ -310,6 +315,37 @@ public class GameServer
                                 Core.AddPlayer(pid, classKey);
                             if (!string.IsNullOrEmpty(msg.Token))
                                 _pidTokens[pid] = msg.Token;
+
+                            // Сессионный ключ HMAC = SHA256(ECDH(clientPub)).
+                            // Клиентский ключ обязателен: без него подписи
+                            // проверить не на чем.
+                            if (string.IsNullOrEmpty(msg.DhPublic))
+                            {
+                                SendMsg(stream, new ServerMsg
+                                {
+                                    Type = "error",
+                                    Msg = "hello without ECDH key"
+                                });
+                                break;
+                            }
+                            try
+                            {
+                                using var clientEcdh = System.Security.Cryptography.ECDiffieHellman.Create();
+                                clientEcdh.ImportSubjectPublicKeyInfo(
+                                    Convert.FromBase64String(msg.DhPublic), out _);
+                                var sessionKey = dh.DeriveKeyFromHash(clientEcdh.PublicKey,
+                                    System.Security.Cryptography.HashAlgorithmName.SHA256);
+                                _sessionKeys[pid] = sessionKey;
+                            }
+                            catch
+                            {
+                                SendMsg(stream, new ServerMsg
+                                {
+                                    Type = "error",
+                                    Msg = "invalid ECDH key"
+                                });
+                                break;
+                            }
                             _authenticated[pid] = true;
                         }
                         helloDone = true;
@@ -384,6 +420,7 @@ public class GameServer
                 Core.RemovePlayer(pid);
                 _clients.Remove(pid);
                 _sessionKeys.Remove(pid);
+                _dhKeys.Remove(pid);
                 _authenticated.Remove(pid);
                 _clientMapRev.Remove(pid);
             }

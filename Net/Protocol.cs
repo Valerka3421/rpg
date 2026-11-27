@@ -15,8 +15,12 @@ namespace Aethelgard.Net;
 public static class Protocol
 {
     /// <summary>Версия протокола. Несовпадение → сервер явно отклоняет клиента.
-    /// v3: обязательная HMAC-подпись после hello + monotonic Seq (anti-replay).</summary>
-    public const int Version = 3;
+    /// v3: обязательная HMAC-подпись после hello + monotonic Seq (anti-replay).
+    /// v4: сессионный ключ HMAC больше не летит plaintext'ом в welcome —
+    /// передаётся публичный ключ ECDH (P-256), обе стороны выводят общий
+    /// секрет. Защищает от пассивного прослушивания (активный MITM
+    /// по-прежнему возможен — сервер не аутентифицируется).</summary>
+    public const int Version = 4;
 
     public static readonly JsonSerializerOptions JsonOptions = new()
     {

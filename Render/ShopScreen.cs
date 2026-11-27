@@ -1,19 +1,21 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
+
 namespace Aethelgard.Render;
 
-/// <summary>Р”РµР№СЃС‚РІРёРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ РІ РјР°РіР°Р·РёРЅРµ.</summary>
+/// <summary>Действие пользователя в магазине.</summary>
 public readonly record struct ShopAction(
     int BuyIndex, int SellIndex, bool ToggleMode, bool Reroll, bool Close);
 
 /// <summary>
-/// Р­РєСЂР°РЅ РјР°РіР°Р·РёРЅР° вЂ” С‚РѕС‡РЅС‹Р№ РїРѕСЂС‚ python render/screens_renderer/_shop.py:
-/// РјРѕРґР°Р»СЊРЅР°СЏ РїР°РЅРµР»СЊ, РєСЂСѓРїРЅС‹Р№ Р·Р°РіРѕР»РѕРІРѕРє С‚РѕСЂРіРѕРІС†Р°, РєРЅРѕРїРєР°-РїРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ
-/// В«РџРћРљРЈРџРљРђ/РџР РћР”РђР–РђВ», СЃРµС‚РєР° С‚РѕРІР°СЂРѕРІ 3 РєРѕР»РѕРЅРєРё РІ СЃС‚РёР»Рµ РёРЅРІРµРЅС‚Р°СЂСЏ,
-/// С‚СѓР»С‚РёРїС‹ СЃ С…Р°СЂР°РєС‚РµСЂРёСЃС‚РёРєР°РјРё Рё С†РµРЅРѕР№.
+/// Экран магазина — новая реализация на UiKit (единая UI-база).
+/// Слева — список товаров/рюкзака, справа — «чек» выбранного предмета
+/// (характеристики, цена, сравнение с надетым), шапка — торговец, режим
+/// ПОКУПКА/ПРОДАЖА и золото. Клавиатурное управление (S/R/Q/E) не
+/// изменилось — обрабатывает GameController.
 /// </summary>
 public class ShopScreen
 {
@@ -21,26 +23,8 @@ public class ShopScreen
     private readonly SpriteBatch _sb;
     private readonly ItemRenderer _icons;
     private SpriteFont? _font;
-    private Texture2D? _blank;
 
-    private const int ShopCols = 3;
-    private const int ShopGap = 10;
-
-    private bool _clickArmed = true;
-
-    // в”Ђв”Ђ РџР°Р»РёС‚СЂР° theme.py в”Ђв”Ђ
-    private static readonly Color CText = new(222, 214, 198);
-    private static readonly Color CTextDim = new(150, 140, 120);
-    private static readonly Color CTextMuted = new(98, 90, 74);
-    private static readonly Color CTitleLight = new(238, 222, 188);
-    private static readonly Color CGold = new(206, 166, 82);
-    private static readonly Color CMerch = new(206, 170, 96);
-    private static readonly Color CBorder = new(78, 66, 48);
-    private static readonly Color CRowBorder = new(110, 91, 62);
-    private static readonly Color CHpCrit = new(220, 84, 64);
-    private static readonly Color CHeal = new(120, 172, 104);
-    private static readonly Color CBg = new(14, 12, 10);
-    private static readonly Color CKeyText = new(216, 206, 186);
+    private static readonly UiKit K = UiKit.Kit;
 
     public ShopScreen(GraphicsDevice device, SpriteBatch sb)
     {
@@ -51,311 +35,293 @@ public class ShopScreen
 
     public void LoadFont(SpriteFont font) => _font = font;
 
-    private SpriteFont F1 => Fonts.Ready ? Fonts.H1 : _font!;
-    private SpriteFont F2 => Fonts.Ready ? Fonts.H2 : _font!;
-    private SpriteFont FBody => _font!;
-    private SpriteFont FSmall => Fonts.Ready ? Fonts.Small : _font!;
-    private SpriteFont FTiny => Fonts.Ready ? Fonts.Tiny : _font!;
-
-    private static Rectangle PanelRect()
-    {
-        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
-        return new Rectangle(40, 20, sw - 80, sh - 40);
-    }
-
-    private static Rectangle CloseRect()
-    {
-        var p = PanelRect();
-        return new Rectangle(p.Right - 34 - 10, p.Y + 10, 34, 34);
-    }
-
-    private static int ModalRight()
-    {
-        var p = PanelRect();
-        return p.X + p.Width - 20 - 34 - 10 - 6;
-    }
-
     public ShopAction Draw(GameController game, MouseState mouse)
     {
         var player = game.Player;
-        var panel = PanelRect();
-        int cx0 = panel.X + 20;
-        int cy0 = panel.Y + 56;
-        int cw = panel.Width - 20 * 2 - 34 - 10;
-        int ch = panel.Height - 56 - 20;
+        K.Begin(_sb, _device, mouse);
 
-        bool freshClick = mouse.LeftButton == ButtonState.Pressed && _clickArmed;
-        if (mouse.LeftButton == ButtonState.Released) _clickArmed = true;
-        else if (freshClick) _clickArmed = false;
-
-        // в”Ђв”Ђ Р¤РѕРЅ в”Ђв”Ђ
-        _sb.Draw(Blank, new Rectangle(0, 0, AethelgardGame.ScreenW,
-            AethelgardGame.ScreenH), new Color(6, 5, 4, 165));
-        Fill(panel, new Color(30, 26, 21, 238), CBorder);
-
-        var close = CloseRect();
-        bool closeHover = close.Contains(mouse.X, mouse.Y);
-        Fill(close, closeHover ? new Color(72, 34, 28) : new Color(54, 26, 22),
-            new Color(160, 68, 58));
-        DrawCross(close, new Color(200, 74, 64));
-
-        if (_font == null) return default;
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
+        var panel = new Rectangle(sw / 2 - 620, 60, 1240, sh - 120);
+        K.Panel(panel);
 
         bool buying = game.ShopSubMode == "buy";
         bool cityShop = CityData.IsCityShopNpc(game.ActiveShopNpc);
         string header = (cityShop
-            ? CityData.NpcNames.GetValueOrDefault(game.ActiveShopNpc ?? "", "РўРѕСЂРіРѕРІРµС†")
-            : "РўРѕСЂРіРѕРІРµС†").ToUpperInvariant();
+            ? CityData.NpcNames.GetValueOrDefault(game.ActiveShopNpc ?? "", "Торговец")
+            : "Торговец").ToUpperInvariant();
 
-        // в”Ђв”Ђ Р—Р°РіРѕР»РѕРІРѕРє в”Ђв”Ђ
-        var headerSize = F1.MeasureString(header);
-        _sb.DrawString(F1, header, new Vector2(cx0, cy0), CMerch);
+        // ── Шапка ──
+        var headerRect = new Rectangle(panel.X, panel.Y, panel.Width, 72);
+        K.Text(header, new Vector2(headerRect.X + 20, headerRect.Y + 14),
+            UiKit.Theme.GoldBright, 2);
+        K.Text(cityShop ? "Город Этельгард" : $"Глубина {game.Depth}",
+            new Vector2(headerRect.X + 20, headerRect.Y + 48),
+            UiKit.Theme.TextDim, 4, shadow: false);
 
-        // в”Ђв”Ђ РџРµСЂРµРєР»СЋС‡Р°С‚РµР»СЊ СЂРµР¶РёРјР° в”Ђв”Ђ
-        const int bw = 150, bh = 30;
-        var modeRect = new Rectangle(cx0 + (int)headerSize.X + 16, cy0 + 2, bw, bh);
-        bool modeHover = modeRect.Contains(mouse.X, mouse.Y);
-        var modeBg = buying ? CMerch : CHpCrit;
-        if (modeHover)
-            modeBg = Shade(modeBg, 1.25f);
-        Fill(modeRect, modeBg, Shade(modeBg, 1.5f));
-        DrawCentered(FBody, buying ? "РџРћРљРЈРџРљРђ" : "РџР РћР”РђР–Рђ",
-            modeRect.X + modeRect.Width / 2, modeRect.Y + modeRect.Height / 2 - 11,
-            buying ? CBg : new Color(255, 245, 235));
+        var toggleRect = new Rectangle(panel.Center.X - 90, panel.Y + 18, 180, 36);
+        if (K.Button(toggleRect, buying ? "ПОКУПКА" : "ПРОДАЖА", state: 1))
+            buying = !buying;
 
-        // в”Ђв”Ђ РЎРїСЂР°РІР°: РјРµСЃС‚Рѕ Рё Р·РѕР»РѕС‚Рѕ в”Ђв”Ђ
-        string where = cityShop ? "Р“РѕСЂРѕРґ Р­С‚РµР»СЊРіР°СЂРґ" : $"Р“Р»СѓР±РёРЅР° {game.Depth}";
-        DrawRight(FBody, where, ModalRight(), cy0 + 8, CTextDim);
-        DrawRight(FBody, $"${player.Gold}", ModalRight(), cy0 + 34, CGold);
+        string goldText = $"Золото: {player.Gold}";
+        K.Text(goldText,
+            new Vector2(headerRect.Right - 60 - K.FontWidth(goldText, 3),
+                headerRect.Y + 24), UiKit.Theme.Gold, 3);
 
-        int y = cy0 + 62;
+        var closeRect = new Rectangle(panel.Right - 44, panel.Y + 12, 32, 32);
+        bool close = false;
+        if (K.Button(closeRect, "×", size: 3)) close = true;
+
+        int contentY = headerRect.Bottom + UiKit.Gap;
+        int contentH = panel.Bottom - contentY - 34;
+        int listW = 520;
+        int listX = panel.X + UiKit.Pad;
+        int detailX = listX + listW + UiKit.Gap;
+        int detailW = panel.Right - UiKit.Pad - detailX;
+
         var stock = game.CurrentShopStock();
-        int page = Math.Min(game.ShopPage, game.ShopPagesCount() - 1);
+        int page = Math.Min(game.ShopPage, Math.Max(0, game.ShopPagesCount() - 1));
         int pageStart = page * Config.ShopPageSize;
-        int buyIndex = -1, sellIndex = -1;
-        (string Key, int Price, string Mode)? hovered = null;
 
-        if (buying)
+        int buyIndex = -1, sellIndex = -1;
+        (string Key, int Price, bool Buy)? hovered = null;
+
+        // ── Список (товары или рюкзак) ──
+        var listRect = new Rectangle(listX, contentY, listW, contentH);
+        K.Section(listRect, buying ? "Товары торговца" : "Рюкзак — продать");
+
+        List<(string Key, int Count)> items = buying ? new() : player.InventoryStacks();
+        int pageCount = Math.Max(1, game.ShopPagesCount());
+        int rows = Config.ShopPageSize;
+        int rowH = 44;
+        int innerY = listRect.Y + 30;
+
+        for (int i = 0; i < rows; i++)
         {
-            y = Section(cx0, y, cw, "РўРѕРІР°СЂС‹");
-            var m = ComputeGrid(cx0, y, cw, ch, cy0);
-            for (int i = 0; i < Config.ShopPageSize; i++)
+            int idx = pageStart + i;
+            int ry = innerY + i * (rowH + 4);
+            if (ry + rowH > listRect.Bottom - (pageCount > 1 ? 34 : 6)) break;
+
+            if (buying)
             {
-                int idx = pageStart + i;
                 if (idx >= stock.Count) break;
                 var entry = stock[idx];
-                string key = entry.Key;
-                var (baseKey, _) = ItemData.ParseItemKey(key);
+                var (baseKey, _) = ItemData.ParseItemKey(entry.Key);
                 var def = ItemData.Get(baseKey);
-                bool learned = false;
-                if (def?.Kind == ItemData.ItemType.Book && IsPerkStat(def.Stat))
-                    learned = PerkLearned(player, def.Stat!);
-                var rect = SlotRect(i, m, y);
-                bool hover = rect.Contains(mouse.X, mouse.Y);
+                bool learned = def?.Kind == ItemData.ItemType.Book
+                    && IsPerkStat(def.Stat) && PerkLearned(player, def.Stat!);
                 bool dim = entry.Sold || learned;
-                string status = entry.Sold ? "РїСЂРѕРґР°РЅРѕ" : learned ? "РёР·СѓС‡РµРЅРѕ" : "";
-                DrawSlot(key, 1, rect, entry.Price, hover, dim, status);
-                if (hover && !dim) hovered = (key, entry.Price, "buy");
-                if (hover && !dim && freshClick) buyIndex = i;
-            }
-            if (hovered.HasValue)
-                DrawTooltip(game, hovered.Value.Key, hovered.Value.Price,
-                    hovered.Value.Mode, mouse);
-            if (game.ShopPagesCount() > 1)
-                DrawCentered(FSmall, $"РЎС‚СЂ. {page + 1}/{game.ShopPagesCount()}",
-                    cx0 + cw / 2, cy0 + ch - 44, CTextDim);
-        }
-        else
-        {
-            y = Section(cx0, y, cw, "РџСЂРѕРґР°С‚СЊ");
-            var items = player.InventoryStacks();
-            var m = ComputeGrid(cx0, y, cw, ch, cy0);
-            if (items.Count == 0)
-            {
-                DrawCentered(FBody, "Р СЋРєР·Р°Рє РїСѓСЃС‚", cx0 + cw / 2, y + 40, CTextMuted);
+                var rowRect = new Rectangle(listRect.X + 8, ry, listRect.Width - 16, rowH);
+                K.SlotIcon(rowRect, _icons.GetIcon(entry.Key), 34);
+                K.Text(ItemData.DisplayName(entry.Key),
+                    new Vector2(rowRect.X + 52, ry + 5),
+                    dim ? UiKit.Theme.TextMuted : ItemData.DisplayColor(entry.Key), 4);
+                K.Text(entry.Sold ? "продано" : learned ? "уже изучено" : $"{entry.Price} з.",
+                    new Vector2(rowRect.X + 52, ry + 24),
+                    dim ? UiKit.Theme.TextMuted : UiKit.Theme.Gold, 4, shadow: false);
+
+                if (K.Hoverable(rowRect) && !dim)
+                {
+                    hovered = (entry.Key, entry.Price, true);
+                    if (K.Clicked(rowRect)) buyIndex = i;
+                }
             }
             else
             {
-                for (int i = 0; i < Config.ShopPageSize; i++)
+                if (idx >= items.Count)
                 {
-                    int idx = pageStart + i;
-                    if (idx >= items.Count) break;
-                    var (key, count) = items[idx];
-                    int price = ItemData.SellPrice(key);
-                    var rect = SlotRect(i, m, y);
-                    bool hover = rect.Contains(mouse.X, mouse.Y);
-                    DrawSlot(key, count, rect, price, hover, false, "");
-                    if (hover) hovered = (key, price, "sell");
-                    if (hover && freshClick) sellIndex = i;
+                    if (idx == pageStart)
+                        K.TextCentered("Рюкзак пуст",
+                            new Rectangle(listRect.X, ry, listRect.Width, rowH),
+                            UiKit.Theme.TextMuted, 3);
+                    break;
                 }
-                if (hovered.HasValue)
-                    DrawTooltip(game, hovered.Value.Key, hovered.Value.Price,
-                        hovered.Value.Mode, mouse);
-                if (game.ShopPagesCount() > 1)
-                    DrawCentered(FSmall, $"РЎС‚СЂ. {page + 1}/{game.ShopPagesCount()}",
-                        cx0 + cw / 2, cy0 + ch - 44, CTextDim);
+                var (key, count) = items[idx];
+                int price = ItemData.SellPrice(key);
+                var rowRect = new Rectangle(listRect.X + 8, ry, listRect.Width - 16, rowH);
+                K.SlotIcon(rowRect, _icons.GetIcon(key), 34);
+                K.Text($"{ItemData.DisplayName(key)}{(count > 1 ? $" ×{count}" : "")}",
+                    new Vector2(rowRect.X + 52, ry + 5), ItemData.DisplayColor(key), 4);
+                K.Text($"{price} з.", new Vector2(rowRect.X + 52, ry + 24),
+                    UiKit.Theme.Gold, 4, shadow: false);
+
+                if (K.Hoverable(rowRect))
+                {
+                    hovered = (key, price, false);
+                    if (K.Clicked(rowRect)) sellIndex = i;
+                }
             }
         }
 
-        // в”Ђв”Ђ РџРѕРґСЃРєР°Р·РєР° в”Ђв”Ђ
-        string action = buying ? "РєСѓРїРёС‚СЊ" : "РїСЂРѕРґР°С‚СЊ";
-        string hint = $"S / РєРЅРѕРїРєР° вЂ” СЂРµР¶РёРј В· РєР»РёРє вЂ” {action} В· Q/E вЂ” СЃС‚СЂР°РЅРёС†С‹";
-        if (!cityShop) hint += " В· R вЂ” РѕР±РЅРѕРІРёС‚СЊ";
-        DrawCentered(FSmall, hint, cx0 + cw / 2, cy0 + ch - 22, CTextMuted);
+        // ── Пагинация ──
+        if (pageCount > 1)
+        {
+            var pageRect = new Rectangle(listX + 8, listRect.Bottom - 30, listW - 16, 24);
+            K.TextCentered($"Стр. {page + 1}/{pageCount}  (Q/E)", pageRect,
+                UiKit.Theme.TextMuted, 4);
+        }
 
-        bool toggle = freshClick && modeRect.Contains(mouse.X, mouse.Y);
-        bool reroll = false; // R РѕР±СЂР°Р±Р°С‚С‹РІР°РµС‚СЃСЏ РєР»Р°РІРёР°С‚СѓСЂРѕР№ РІ GameController
-        bool closeAction = freshClick && close.Contains(mouse.X, mouse.Y);
-        return new ShopAction(buyIndex, sellIndex, toggle, reroll, closeAction);
+        // ── Правая панель: «чек» выбранного предмета ──
+        var detailRect = new Rectangle(detailX, contentY, detailW, contentH);
+        K.Section(detailRect, "Описание");
+        if (hovered.HasValue)
+            DrawDetail(game, detailRect, hovered.Value.Key, hovered.Value.Price, hovered.Value.Buy);
+        else
+            K.TextCentered(buying
+                    ? "Наведите курсор на товар,\nчтобы увидеть характеристики"
+                    : "Наведите курсор на предмет\nрюкзака, чтобы продать",
+                new Rectangle(detailRect.X, detailRect.Y + 40, detailRect.Width, 80),
+                UiKit.Theme.TextMuted, 4);
+
+        // ── Подсказки внизу ──
+        string hint = buying
+            ? "Клик — купить · Q/E — страницы · S — режим · Esc — выход"
+            : "Клик — продать · Q/E — страницы · S — режим · Esc — выход";
+        if (!cityShop) hint += " · R — обновить сток";
+        K.TextCentered(hint,
+            new Rectangle(panel.X, panel.Bottom - 30, panel.Width, 24),
+            UiKit.Theme.TextMuted, 4);
+
+        K.End();
+        K.EndInputFrame();
+        return new ShopAction(buyIndex, sellIndex,
+            buying != (game.ShopSubMode == "buy"), false, close);
     }
 
-    private readonly record struct ShopGrid(
-        int Cols, int Rows, int Gap, int CellW, int CellH, int GridX);
-
-    private static ShopGrid ComputeGrid(int x0, int y, int cw, int ch, int cy0)
-    {
-        const int cols = ShopCols, gap = ShopGap;
-        int rows = Math.Max(1, (Config.ShopPageSize + cols - 1) / cols);
-        int availH = (cy0 + ch - 34) - y - 8;
-        int cellW = Math.Min(112, (cw - gap * (cols - 1)) / cols);
-        int cellH = Math.Min(96, Math.Max(64, (availH - gap * (rows - 1)) / rows));
-        int gridW = cols * cellW + gap * (cols - 1);
-        int gridX = x0 + (cw - gridW) / 2;
-        return new ShopGrid(cols, rows, gap, cellW, cellH, gridX);
-    }
-
-    private static Rectangle SlotRect(int i, ShopGrid m, int y)
-    {
-        int row = i / m.Cols, col = i % m.Cols;
-        return new Rectangle(m.GridX + col * (m.CellW + m.Gap),
-            y + row * (m.CellH + m.Gap), m.CellW, m.CellH);
-    }
-
-    private void DrawSlot(string key, int count, Rectangle rect, int price,
-        bool hover, bool dim, string status)
-    {
-        var bg = dim ? new Color(26, 24, 20)
-            : hover ? new Color(58, 49, 35) : new Color(32, 28, 22);
-        Fill(rect, bg, hover ? CRowBorder : CBorder);
-
-        int iconSize = Math.Max(24, Math.Min(52, rect.Height - 34));
-        var icon = _icons.GetIcon(key);
-        _sb.Draw(icon, new Rectangle(rect.X + (rect.Width - iconSize) / 2,
-            rect.Y + 5, iconSize, iconSize), Color.White);
-
-        var color = dim ? CTextMuted : ItemData.DisplayColor(key);
-        string label = FitText(ItemData.DisplayName(key), rect.Width - 8, FSmall);
-        DrawCentered(FSmall, label, rect.X + rect.Width / 2,
-            rect.Y + rect.Height - 30, color);
-        if (status.Length > 0)
-            DrawCentered(FTiny, status, rect.X + rect.Width / 2,
-                rect.Y + rect.Height - 14, CHpCrit);
-        else if (price > 0)
-            DrawCentered(FTiny, $"{price} Р·.", rect.X + rect.Width / 2,
-                rect.Y + rect.Height - 14, dim ? CTextMuted : CGold);
-        if (count > 1)
-            DrawRight(FTiny, $"Г—{count}", rect.Right - 6, rect.Y + 3, CText);
-    }
-
-    // в”Ђв”Ђ РўСѓР»С‚РёРї РјР°РіР°Р·РёРЅР° в”Ђв”Ђ
-    private void DrawTooltip(GameController game, string key, int price,
-        string mode, MouseState mouse)
+    /// <summary>Правая панель: характеристики, цена, сравнение с надетым.</summary>
+    private void DrawDetail(GameController game, Rectangle r, string key, int price, bool buy)
     {
         var player = game.Player;
         var (baseKey, rarity) = ItemData.ParseItemKey(key);
         var it = ItemData.Get(baseKey);
         if (it == null) return;
 
-        var lines = new List<(string Text, Color Color, SpriteFont Font)>
-        {
-            (ItemData.DisplayName(key), CTitleLight, FBody),
-        };
-        string? typeName = it.Type switch
-        {
-            "weapon" => "РћСЂСѓР¶РёРµ", "armor" => "Р‘СЂРѕРЅСЏ", "head" or "helmet" => "РЁР»РµРј",
-            "legs" or "leggings" => "РЁС‚Р°РЅС‹", "boots" => "РћР±СѓРІСЊ",
-            "heal" => "Р—РµР»СЊРµ Р»РµС‡РµРЅРёСЏ", "mana" => "Р—РµР»СЊРµ РјР°РЅС‹",
-            "poison" => "РЇРґ", "buff" => "Р­Р»РёРєСЃРёСЂ", "resource" => "Р РµСЃСѓСЂСЃ",
-            "book" => "РљРЅРёРіР°", "key" => "РљР»СЋС‡",
-            _ => null,
-        };
-        if (typeName != null) lines.Add((typeName, CTextDim, FSmall));
-        if (!string.IsNullOrEmpty(it.Desc)) lines.Add((it.Desc!, CTextMuted, FTiny));
+        int x = r.X + 12;
+        int y = r.Y + 32;
+        int w = r.Width - 24;
 
+        // Иконка + имя + тип
+        _sb.Draw(_icons.GetIcon(key), new Rectangle(x, y, 48, 48), Color.White);
+        K.Text(ItemData.DisplayName(key), new Vector2(x + 58, y + 2),
+            ItemData.DisplayColor(key), 3);
+        string typeName = it.Type switch
+        {
+            "weapon" => "Оружие", "armor" => "Броня", "head" or "helmet" => "Шлем",
+            "legs" or "leggings" => "Поножи", "boots" => "Обувь",
+            "heal" => "Зелье лечения", "mana" => "Зелье маны",
+            "poison" => "Яд", "buff" => "Эликсир", "resource" => "Ресурс",
+            "material" => "Материал", "book" => "Книга", "scroll" => "Свиток",
+            "rune" => "Руна", "key" => "Ключ", "blueprint" => "Чертёж",
+            "food" => "Еда", "gold" => "Золото", _ => "Предмет",
+        };
+        K.Text(typeName + (rarity > 0 ? $"  +{rarity}" : ""),
+            new Vector2(x + 58, y + 28), UiKit.Theme.TextDim, 4, shadow: false);
+        y += 62;
+
+        if (!string.IsNullOrEmpty(it.Desc))
+            y = DrawWrapped(it.Desc, x, y, w, UiKit.Theme.TextMuted) + 6;
+
+        // Характеристики снаряжения
         bool equipment = it.Type is "weapon" or "armor" or "head" or "helmet"
             or "legs" or "leggings" or "boots";
         if (equipment)
         {
             int bonus = it.IntValue + rarity;
-            string stat = it.Type == "weapon" ? "ATK" : "DEF";
-            if (bonus != 0) lines.Add(($"+{bonus} {stat}", CHeal, FSmall));
+            if (bonus != 0)
+            {
+                string stat = it.Type == "weapon" ? "ATK" : "DEF";
+                K.Text($"+{bonus} {stat}", new Vector2(x, y), UiKit.Theme.Xp, 4, shadow: false);
+                y += 20;
+            }
+            foreach (var (lbl, val) in ExtraStats(it))
+            {
+                K.Text($"{lbl} {val:+0;-0}", new Vector2(x, y), UiKit.Theme.Xp, 4, shadow: false);
+                y += 20;
+            }
+
+            // Сравнение с надетым
             string? slot = it.Type switch
             {
                 "weapon" => "weapon", "armor" => "armor",
-                "head" or "helmet" => "head",
-                "legs" or "leggings" => "legs",
-                _ => null,
+                "head" or "helmet" => "head", "legs" or "leggings" => "legs", _ => null,
             };
             if (slot != null)
             {
                 var deltas = InventoryScreen.CompareItem(player, key, slot);
-                if (deltas.Count > 0)
+                foreach (var (name, val, pct) in deltas)
                 {
-                    int total = 0;
-                    var parts = new List<string>();
-                    foreach (var (name, val, pct) in deltas)
-                    {
-                        if (!pct) total += val;
-                        string sign = val > 0 ? "+" : "в€’";
-                        parts.Add($"{name} {sign}{Math.Abs(val)}{(pct ? "%" : "")}");
-                    }
-                    bool positive = total > 0;
-                    lines.Add(($"{(positive ? "в–І" : "в–ј")} {string.Join(", ", parts)}",
-                        positive ? new Color(140, 212, 116) : new Color(210, 92, 74),
-                        FSmall));
+                    Color c = val > 0 ? UiKit.Theme.Xp : val < 0 ? UiKit.Theme.Danger : UiKit.Theme.TextMuted;
+                    string sign = val > 0 ? "▲ +" : val < 0 ? "▼ " : "   ";
+                    K.Text($"{sign}{name} {Math.Abs(val)}{(pct ? "%" : "")}",
+                        new Vector2(x, y), c, 4, shadow: false);
+                    y += 20;
                 }
+                y += 4;
             }
+        }
+        else if (it.Heal > 0 || it.Mana > 0)
+        {
+            if (it.Heal > 0) { K.Text($"+{it.Heal} HP", new Vector2(x, y), UiKit.Theme.Hp, 4, shadow: false); y += 20; }
+            if (it.Mana > 0) { K.Text($"+{it.Mana} маны", new Vector2(x, y), UiKit.Theme.Mana, 4, shadow: false); y += 20; }
         }
 
         if (it.LevelReq > 1)
         {
             bool ok = player.Level >= it.LevelReq;
-            lines.Add(($"РўСЂРµР±СѓРµС‚СЃСЏ СѓСЂРѕРІРµРЅСЊ {it.LevelReq}",
-                ok ? CTextDim : CHpCrit, FSmall));
+            K.Text($"Требуется уровень {it.LevelReq}", new Vector2(x, y),
+                ok ? UiKit.Theme.TextMuted : UiKit.Theme.Danger, 4, shadow: false);
+            y += 20;
         }
         var (canUse, why) = ClassData.CanUse(player.ClassKey, key);
-        if (!canUse) lines.Add(($"РљР»Р°СЃСЃ РЅРµ РјРѕР¶РµС‚: {why}", CHpCrit, FSmall));
+        if (!canUse)
+            y = DrawWrapped($"Класс не может носить: {why}", x, y, w, UiKit.Theme.Danger) + 4;
 
-        if (mode == "buy")
-        {
-            bool afford = player.Gold >= price;
-            lines.Add(($"Р¦РµРЅР°: {price} Р·.", afford ? CGold : CHpCrit, FBody));
-        }
-        else
-        {
-            lines.Add(($"РџСЂРѕРґР°Р¶Р°: {price} Р·.", CGold, FBody));
-        }
+        // Цена — внизу крупно
+        string priceText = buy ? $"Цена: {price} з." : $"Продажа: {price} з.";
+        bool afford = !buy || player.Gold >= price;
+        K.Text(priceText, new Vector2(x, r.Bottom - 44),
+            afford ? UiKit.Theme.GoldBright : UiKit.Theme.Danger, 3);
+        if (buy && !afford)
+            K.Text("Не хватает золота", new Vector2(x, r.Bottom - 22),
+                UiKit.Theme.Danger, 4, shadow: false);
+    }
 
-        int maxW = 0, totalH = 0;
-        var measured = new List<(string Text, Color Color, SpriteFont Font, int Dy)>();
-        foreach (var (text, color, font) in lines)
+    private static IEnumerable<(string Label, double Val)> ExtraStats(ItemData.Def it)
+    {
+        if (it.CritBonus != 0) yield return ("Крит", it.CritBonus * 100);
+        if (it.DodgeBonus != 0) yield return ("Уклонение", it.DodgeBonus * 100);
+        if (it.DfBonus != 0) yield return ("DEF", it.DfBonus);
+        if (it.HpBonus != 0) yield return ("HP", it.HpBonus);
+        if (it.ManaBonus != 0) yield return ("Мана", it.ManaBonus);
+    }
+
+    private int DrawWrapped(string text, int x, int y, int maxW, Color color)
+    {
+        var f = Fonts.Small;
+        foreach (var line in Wrap(text, maxW, f))
         {
-            string fitted = FitText(text, 380, font);
-            var size = font.MeasureString(fitted);
-            measured.Add((fitted, color, font, totalH));
-            maxW = Math.Max(maxW, (int)size.X);
-            totalH += (int)size.Y + 4;
+            _sb.DrawString(f, line, new Vector2(x, y), color);
+            y += 18;
         }
-        const int pad = 10;
-        int w = maxW + pad * 2;
-        int h = totalH + pad * 2 - 4;
-        int x = Math.Min(Math.Max(8, mouse.X + 18),
-            AethelgardGame.ScreenW - w - 8);
-        int ty = Math.Min(Math.Max(8, mouse.Y + 18),
-            AethelgardGame.ScreenH - h - 8);
-        Fill(new Rectangle(x, ty, w, h), new Color(18, 16, 13), CRowBorder);
-        foreach (var (text, color, font, dy) in measured)
-            _sb.DrawString(font, text, new Vector2(x + pad, ty + pad + dy), color);
+        return y;
+    }
+
+    private static IEnumerable<string> Wrap(string text, int maxW, SpriteFont f)
+    {
+        foreach (var paragraph in text.Split('\n'))
+        {
+            string line = "";
+            foreach (var word in paragraph.Split(' '))
+            {
+                string candidate = line.Length == 0 ? word : line + " " + word;
+                if (f.MeasureString(candidate).X > maxW && line.Length > 0)
+                {
+                    yield return line;
+                    line = word;
+                }
+                else line = candidate;
+            }
+            if (line.Length > 0) yield return line;
+        }
     }
 
     private static bool IsPerkStat(string? stat) => stat is
@@ -370,84 +336,4 @@ public class ShopScreen
         "greedy" => p.Greedy,
         _ => false,
     };
-
-    // в”Ђв”Ђ РџСЂРёРјРёС‚РёРІС‹ в”Ђв”Ђ
-    private int Section(int x, int y, int width, string title)
-    {
-        var f = F2;
-        string text = $"  {title}  ";
-        var size = f.MeasureString(text);
-        int cx = x + width / 2;
-        _sb.DrawString(f, text, new Vector2(cx - size.X / 2, y),
-            new Color(190, 172, 138));
-        int lineY = y + (int)size.Y / 2;
-        int side = (width - (int)size.X) / 2 - 6;
-        if (side > 0)
-        {
-            _sb.Draw(Blank, new Rectangle(x, lineY, side, 1), CBorder);
-            _sb.Draw(Blank, new Rectangle(cx + (int)size.X / 2, lineY, side, 1), CBorder);
-        }
-        return y + (int)size.Y + 6;
-    }
-
-    private void DrawCross(Rectangle rect, Color color)
-    {
-        int cx = rect.X + rect.Width / 2, cy = rect.Y + rect.Height / 2;
-        const int r = 9, th = 3;
-        for (int i = -r; i <= r; i++)
-        {
-            _sb.Draw(Blank, new Rectangle(cx + i, cy + i, th, th), color);
-            _sb.Draw(Blank, new Rectangle(cx + i, cy - i, th, th), color);
-        }
-    }
-
-    private void Fill(Rectangle r, Color bg, Color border)
-    {
-        _sb.Draw(Blank, r, bg);
-        _sb.Draw(Blank, new Rectangle(r.X, r.Y, r.Width, 2), border);
-        _sb.Draw(Blank, new Rectangle(r.X, r.Bottom - 2, r.Width, 2), border);
-        _sb.Draw(Blank, new Rectangle(r.X, r.Y, 2, r.Height), border);
-        _sb.Draw(Blank, new Rectangle(r.Right - 2, r.Y, 2, r.Height), border);
-    }
-
-    private void DrawCentered(SpriteFont font, string text, int cx, int y, Color color)
-    {
-        var size = font.MeasureString(text);
-        _sb.DrawString(font, text, new Vector2(cx - size.X / 2, y), color);
-    }
-
-    private void DrawRight(SpriteFont font, string text, int right, int y, Color color)
-    {
-        var size = font.MeasureString(text);
-        _sb.DrawString(font, text, new Vector2(right - size.X, y), color);
-    }
-
-    private static string FitText(string text, int maxW, SpriteFont font)
-    {
-        if (font.MeasureString(text).X <= maxW) return text;
-        string cut = text.TrimEnd();
-        while (cut.Length > 0 && font.MeasureString(cut + "вЂ¦").X > maxW)
-            cut = cut[..^1].TrimEnd();
-        return cut + "вЂ¦";
-    }
-
-    private static Color Shade(Color c, float k) => new(
-        Math.Clamp((int)(c.R * k), 0, 255),
-        Math.Clamp((int)(c.G * k), 0, 255),
-        Math.Clamp((int)(c.B * k), 0, 255));
-
-    private Texture2D Blank
-    {
-        get
-        {
-            if (_blank == null)
-            {
-                _blank = new Texture2D(_device, 1, 1);
-                _blank.SetData(new[] { Color.White });
-            }
-            return _blank;
-        }
-    }
 }
-
-

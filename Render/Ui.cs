@@ -28,6 +28,12 @@ public static class Fonts
 
 public static class Ui
 {
+    /// <summary>
+    /// Прямоугольник игрового изображения внутри окна (letterbox).
+    /// Заполняется в AethelgardGame.Draw; в дизайн-координатах окна.
+    /// </summary>
+    public static Rectangle ViewRect = new(0, 0, 1280, 720);
+
     /// <summary>Нарисовать текст по центру прямоугольника.</summary>
     public static void TextCentered(SpriteBatch sb, SpriteFont font, string text,
         Rectangle rect, Color color, bool shadow = true)

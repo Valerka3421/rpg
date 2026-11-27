@@ -153,6 +153,7 @@ public partial class GameController
         Dungeon = Overworld;
         _worldMode = "overworld";
         Depth = 0;
+        Modals.Clear();
         ScreenMode = Screens.Game;
         RunStart = DateTime.Now;
         // Полный сброс состояния забега: новая партия не продолжается
@@ -302,21 +303,21 @@ public partial class GameController
         // Toggle inventory
         if (keys.IsKeyDown(Keys.I) && !prevKeys.IsKeyDown(Keys.I))
         {
-            ScreenMode = ScreenMode == Screens.Inventory ? Screens.Game : Screens.Inventory;
+            if (ScreenMode == Screens.Inventory) CloseModal(); else OpenModal(Screens.Inventory);
             return;
         }
 
         // Toggle skills screen
         if (keys.IsKeyDown(Keys.N) && !prevKeys.IsKeyDown(Keys.N))
         {
-            ScreenMode = ScreenMode == Screens.Skills ? Screens.Game : Screens.Skills;
+            if (ScreenMode == Screens.Skills) CloseModal(); else OpenModal(Screens.Skills);
             return;
         }
 
         // Craft screen (K)
         if (keys.IsKeyDown(Keys.K) && !prevKeys.IsKeyDown(Keys.K))
         {
-            ScreenMode = ScreenMode == Screens.Craft ? Screens.Game : Screens.Craft;
+            if (ScreenMode == Screens.Craft) CloseModal(); else OpenModal(Screens.Craft);
             CraftPage = 0;
             return;
         }
@@ -324,7 +325,7 @@ public partial class GameController
         // Stats screen (C)
         if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C))
         {
-            ScreenMode = ScreenMode == Screens.Stats ? Screens.Game : Screens.Stats;
+            if (ScreenMode == Screens.Stats) CloseModal(); else OpenModal(Screens.Stats);
             return;
         }
 
@@ -337,7 +338,7 @@ public partial class GameController
                 || questNpc?.NpcType == "elder" || questNpc?.NpcType == "merchant";
             if (nearQuestGiver)
             {
-                ScreenMode = ScreenMode == Screens.Quests ? Screens.Game : Screens.Quests;
+                if (ScreenMode == Screens.Quests) CloseModal(); else OpenModal(Screens.Quests);
             }
             else
                 ShowMessage("Квесты доступны у доски поручений, старейшины или торговца");
@@ -347,7 +348,7 @@ public partial class GameController
         // Pause menu (Esc)
         if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
         {
-            ScreenMode = ScreenMode == Screens.Pause ? Screens.Game : Screens.Pause;
+            if (ScreenMode == Screens.Pause) CloseModal(); else OpenModal(Screens.Pause);
             return;
         }
 
@@ -389,7 +390,7 @@ public partial class GameController
             bool wasPressed = prevKeys.IsKeyDown(Keys.Enter) || prevKeys.IsKeyDown(Keys.T)
                 || prevKeys.IsKeyDown(Keys.Escape);
             if (anyPressed && !wasPressed)
-                ScreenMode = Screens.Game;
+                CloseModal();
             return;
         }
 
@@ -434,7 +435,7 @@ public partial class GameController
         if (keys.IsKeyDown(Keys.Tab) && !prevKeys.IsKeyDown(Keys.Tab)
             && ScreenMode == Screens.Game)
         {
-            ScreenMode = Screens.StatsRun;
+            OpenModal(Screens.StatsRun);
             return;
         }
 
@@ -451,7 +452,7 @@ public partial class GameController
         if ((keys.IsKeyDown(Keys.B) && !prevKeys.IsKeyDown(Keys.B))
             || (keys.IsKeyDown(Keys.M) && !prevKeys.IsKeyDown(Keys.M)))
         {
-            ScreenMode = ScreenMode == Screens.Bigmap ? Screens.Game : Screens.Bigmap;
+            if (ScreenMode == Screens.Bigmap) CloseModal(); else OpenModal(Screens.Bigmap);
             return;
         }
 
@@ -520,13 +521,13 @@ public partial class GameController
 
         if (keys.IsKeyDown(Keys.C) && !prevKeys.IsKeyDown(Keys.C)
             || keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = Screens.Game;
+            CloseModal();
     }
 
     private void HandlePauseInput(KeyboardState keys, KeyboardState prevKeys)
     {
         if (keys.IsKeyDown(Keys.Escape) && !prevKeys.IsKeyDown(Keys.Escape))
-            ScreenMode = Screens.Game;
+            CloseModal();
     }
 
     /// <summary>Вложить свободное очко в характеристику (0–5).</summary>
@@ -686,710 +687,6 @@ public partial class GameController
 
     /// <summary>
     /// Handle input in inventory mode.
-    /// </summary>
-    private void HandleInventoryInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        // Page navigation (Q/E), страницы по 100 (сетка 10×10)
-        if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-            CurrentPage = Math.Max(0, CurrentPage - 1);
-        if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-            CurrentPage++;
-
-        // U/V/H/B/N — снять weapon/armor/head/legs/boots
-        // (game/_input.py, экран инвентаря)
-        var unequips = new (Keys Key, string Slot, string Label)[]
-        {
-            (Keys.U, "weapon", "Оружие"),
-            (Keys.V, "armor", "Броня"),
-            (Keys.H, "head", "Шлем"),
-            (Keys.B, "legs", "Поножи"),
-            (Keys.N, "boots", "Обувь"),
-        };
-        foreach (var (key, slot, label) in unequips)
-        {
-            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-            {
-                if (Player.UnequipSlot(slot)) ShowMessage($"{label} снято.");
-                return;
-            }
-        }
-
-        // Shift+1–8: назначить предмет в хотбар
-        bool shift = keys.IsKeyDown(Keys.LeftShift) || keys.IsKeyDown(Keys.RightShift);
-        if (shift)
-        {
-            for (int i = 0; i < 8; i++)
-            {
-                var key = Keys.D1 + i;
-                if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                    AssignQuickbarFromInventory(i);
-            }
-            return;
-        }
-
-        // Number keys 1-8: use/equip item in slot
-        for (int i = 0; i < 8; i++)
-        {
-            var key = Keys.D1 + i;
-            if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-            {
-                UseItemByIndex(i);
-            }
-        }
-    }
-
-    private void AssignQuickbarFromInventory(int slot)
-    {
-        int pageStart = CurrentPage * Config.InventoryPageSize;
-        var items = Player.InventoryStacks();
-        int idx = pageStart + slot;
-        if (idx >= items.Count) return;
-        Player.AssignQuickbar(slot, items[idx].Key);
-        ShowMessage($"Слот {slot + 1}: {ItemData.DisplayName(items[idx].Key)}");
-    }
-
-    public int CurrentPage = 0;
-
-    /// <summary>
-    /// Handle input in skills screen mode.
-    /// </summary>
-    private void HandleSkillsInput(KeyboardState keys, KeyboardState prevKeys)
-    {
-        // Tab switching: Q/E
-        if (keys.IsKeyDown(Keys.Q) && !prevKeys.IsKeyDown(Keys.Q))
-            SkillTab = Math.Max(0, SkillTab - 1);
-        if (keys.IsKeyDown(Keys.E) && !prevKeys.IsKeyDown(Keys.E))
-            SkillTab = Math.Min(3, SkillTab + 1);
-
-        // Number keys 1-7: learn class skill node
-        if (SkillTab == 0)
-        {
-            for (int i = 0; i < 7; i++)
-            {
-                var key = Keys.D1 + i;
-                if (keys.IsKeyDown(key) && !prevKeys.IsKeyDown(key))
-                {
-                    TryLearnNode(i);
-                }
-            }
-        }
-
-        // Class promotion: P key (when available)
-        if (keys.IsKeyDown(Keys.P) && !prevKeys.IsKeyDown(Keys.P))
-        {
-            TryPromoteClass();
-        }
-    }
-
-    /// <summary>
-    /// Handle input in shop mode.
-    /// </summary>
-    private void TryLearnNode(int index)
-    {
-        if (ProgressionSystem.LearnNode(Player, index, out string message))
-        {
-            ShowMessage(message);
-            GameChat.Instance.Xp(message);   // изучение навыка — вкладка «Опыт»
-        }
-        else if (message.Length > 0)
-            ShowMessage(message);
-    }
-
-    /// <summary>Клик мышью по узлу древа навыков (из SkillScreen.Draw).
-    /// SkillScreen возвращает команду только на «свежий» клик (один раз
-    /// на нажатие), здесь остаётся только исполнить её.</summary>
-    public void HandleSkillClick(string? command)
-    {
-        if (string.IsNullOrEmpty(command)) return;
-
-        // Кнопка эволюции класса
-        if (command.StartsWith("promote:"))
-        {
-            string newKey = command["promote:".Length..];
-            if (ClassData.Promote(Player, newKey))
-            {
-                ShowMessage($"Новый класс: {ClassData.Get(newKey)?.Name}!");
-                GameChat.Instance.Level($"Класс сменён: {ClassData.Get(newKey)?.Name}!");
-            }
-            else
-                ShowMessage($"Смена класса доступна с уровня " +
-                    $"{ClassData.ClassChangeLevels[Math.Min(Player.ClassChanges, ClassData.ClassChangeLevels.Length - 1)]}.");
-            return;
-        }
-
-        // Изучение узла
-        if (command.StartsWith("learn:"))
-        {
-            string nodeKey = command["learn:".Length..];
-            var nodes = SkillTree.GetNodes(Player);
-            for (int i = 0; i < nodes.Length; i++)
-            {
-                if (nodes[i].Key == nodeKey)
-                {
-                    TryLearnNode(i);
-                    return;
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Try to promote to the first available class.
-    /// </summary>
-    private void TryPromoteClass()
-    {
-        if (ProgressionSystem.Promote(Player, out string message))
-        {
-            ShowMessage(message);
-            GameChat.Instance.Level(message);   // смена класса — вкладка «Опыт»
-        }
-        else if (message.Length > 0)
-            ShowMessage(message);
-    }
-
-    /// <summary>
-    /// Use or equip item at given index on current inventory page (сетка 10×10).
-    /// </summary>
-    private void UseItemByIndex(int index)
-    {
-        int pageStart = CurrentPage * Config.InventoryPageSize;
-        var items = Player.InventoryStacks();
-        int idx = pageStart + index;
-        if (idx >= items.Count) return;
-        UseItemByKey(items[idx].Key);
-    }
-
-    /// <summary>Клик по предмету в инвентаре (game/_input.py: use_item(key)).</summary>
-    public void UseInventoryItem(string key)
-    {
-        UseItemByKey(key);
-        CurrentPage = Math.Min(CurrentPage, InventoryPagesCount() - 1);
-    }
-
-    /// <summary>Клик по ячейке экипировки — снять предмет.</summary>
-    public void UnequipInventorySlot(string slot)
-    {
-        if (Player.UnequipSlot(slot))
-            ShowMessage("Предмет снят.");
-    }
-
-    public void ChangeInventoryPage(int delta)
-    {
-        if (delta < 0) CurrentPage = Math.Max(0, CurrentPage - 1);
-        else if (delta > 0)
-            CurrentPage = Math.Min(InventoryPagesCount() - 1, CurrentPage + 1);
-    }
-
-    public int InventoryPagesCount()
-    {
-        int n = Player.InventoryStacks().Count;
-        return Math.Max(1, (n + Config.InventoryPageSize - 1) / Config.InventoryPageSize);
-    }
-
-    private void UseItemByKey(string key)
-    {
-        var def = ItemData.Get(ItemData.ParseItemKey(key).Base);
-        if (def == null) return;
-
-        switch (def.Kind)
-        {
-            case ItemData.ItemType.Weapon:
-            case ItemData.ItemType.Armor:
-            case ItemData.ItemType.Helmet:
-            case ItemData.ItemType.Leggings:
-            case ItemData.ItemType.Boots:
-                if (Player.EquipItem(key))
-                    ShowMessage($"Надето: {ItemData.DisplayName(key)}");
-                break;
-            case ItemData.ItemType.Scroll:
-            case ItemData.ItemType.Rune:
-                if (Player.UseItem(key, CurrentMap))
-                {
-                    ShowMessage($"Применено: {def.Name}");
-                    GameChat.Instance.Item($"Применено: {def.Name}");
-                }
-                else
-                    ShowMessage($"Недостаточно маны ({def.ManaCost} MP).");
-                break;
-            case ItemData.ItemType.Blueprint:
-                if (Player.UseItem(key))
-                    ShowMessage($"Изучен чертёж: {def.Name}");
-                else
-                    ShowMessage("Уже известно.");
-                break;
-            default:
-                if (Player.UseItem(key, CurrentMap))
-                {
-                    ShowMessage($"Использовано: {def.Name}");
-                    GameChat.Instance.Item($"Использовано: {def.Name}");
-                    if (key.StartsWith("potion")) PotionsUsed++;
-                }
-                break;
-        }
-        // collect-квесты проверяем после любого использования
-        Quests.UpdateCollect(key, Player.Inventory);
-    }
-
-    /// <summary>
-    /// Try to move player by (dx, dy).
-    /// Stairs NO LONGER auto-trigger — press F to use them.
-    /// Boss arena: player locked inside while boss is alive.
-    /// </summary>
-    private void TryMove(int dx, int dy)
-    {
-        int nx = Player.X + dx;
-        int ny = Player.Y + dy;
-
-        // Set facing direction for ranged attacks
-        Player.Facing = (dx, dy);
-
-        if (nx < 0 || nx >= CurrentMap.W || ny < 0 || ny >= CurrentMap.H)
-            return;
-
-        // Check for monster — attack
-        var monster = CurrentMap.MonsterAt(nx, ny);
-        if (monster != null)
-        {
-            AttackTarget(monster);
-            return;
-        }
-
-        var tile = CurrentMap.Tiles[ny][nx];
-
-        // Locked door — try to unlock
-        if (tile == Tile.LockedDoor)
-        {
-            if (Rules.TryUnlockDoor(Player, CurrentMap, nx, ny))
-                ShowMessage("Дверь открыта ключом босса!");
-            else
-                ShowMessage("Заперто. Нужен ключ босса.");
-            return;
-        }
-
-        // Chest — open on walk
-        if (tile == Tile.Chest)
-        {
-            var loot = Rules.OpenChest(CurrentMap, Player, nx, ny);
-            if (loot != null)
-                ShowMessage($"Найдено: {ItemData.DisplayName(loot)}!");
-            return;
-        }
-
-        // Wall blocks
-        if (tile == Tile.Wall)
-            return;
-
-        // Boss arena check: player can't leave arena while boss is alive
-        if (IsInBossArena(Player.X, Player.Y) && !IsInBossArena(nx, ny))
-        {
-            ShowMessage("Босс не выпускает вас из арены!");
-            Audio?.Play("error");
-            return;
-        }
-
-        // Move
-        Player.X = nx;
-        Player.Y = ny;
-        Player.StepCounter++;
-
-        // Открыть туман войны вокруг новой позиции
-        CurrentMap.RevealAround(nx, ny, Config.RevealRadius);
-
-        // Gate — переход между локациями по F (UseStairs)
-        if (tile == Tile.Gate)
-        {
-            ShowMessage("A gate to another land... (press F to travel)");
-        }
-
-        // Auto-pickup items
-        if (CurrentMap.Items.TryGetValue((nx, ny), out var itemKey))
-        {
-            Player.AddItem(itemKey, 1);
-            CurrentMap.Items.Remove((nx, ny));
-            ShowMessage($"Поднято: {ItemData.DisplayName(itemKey)}");
-            Audio?.Play("pickup");
-            Quests.UpdateCollect(itemKey, Player.Inventory);
-        }
-    }
-
-    /// <summary>
-    /// Перейти через ворота (GATE) в другую локацию. Врата есть и на
-    /// оверворлде (края карты → биомы), и внутри локаций (назад в деревню).
-    /// </summary>
-    public void TravelThroughGate()
-    {
-        Projectiles.Clear();
-        var pos = (Player.X, Player.Y);
-        if (!CurrentMap.Transitions.TryGetValue(pos, out var transition))
-        {
-            ShowMessage("Врата закрыты.");
-            return;
-        }
-        var (to, entry) = transition;
-
-        if (to == "village" || to == "overworld")
-        {
-            // Возврат в деревню (оверворлд)
-            _currentLocation = null;
-            _worldMode = "overworld";
-            Player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
-            Player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
-            Overworld.RevealAround(Player.X, Player.Y, Config.RevealRadius);
-            ShowMessage("Вы вернулись в Город Этельгард.");
-            return;
-        }
-
-        if (!Locations.All.ContainsKey(to))
-        {
-            ShowMessage("Врата закрыты.");
-            return;
-        }
-
-        _worldMode = "overworld"; // локация — наземная карта
-        if (!_locationCache.TryGetValue(to, out var map))
-        {
-            map = Locations.GenerateLocation(to);
-            _locationCache[to] = map;
-        }
-        _currentLocation = map;
-        MarkVisited(to);
-        EnterLocationAt(map, entry);
-        ShowMessage($"Вы вошли в: {Locations.All[to].Name}.");
-    }
-
-    /// <summary>
-    /// Разместить игрока у точки входа локации. Раньше entry из перехода
-    /// выбрасывался и вход хардкодился в (1, H/2), хотя TransitionSave
-    /// честно сериализовал и восстанавливал EntryX/EntryY.
-    /// </summary>
-    private void EnterLocationAt(Dungeon map, (int X, int Y)? entry)
-    {
-        // Вход — у врат локации (врата в первый столбец, вход справа от них)
-        var (entryX, entryY) = entry ?? (1, map.H / 2);
-        entryX = Math.Clamp(entryX, 1, map.W - 2);
-        entryY = Math.Clamp(entryY, 1, map.H - 2);
-        if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
-            CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
-        Player.X = entryX;
-        Player.Y = entryY;
-        CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
-    }
-
-    /// <summary>
-    /// Check if a position is inside the boss arena (last room while boss is alive).
-    /// Ported from Python _boss_arena().
-    /// </summary>
-    private bool IsInBossArena(int x, int y)
-    {
-        if (_worldMode != "dungeon") return false;
-        bool bossAlive = CurrentMap.Monsters.Any(m => m.Boss && m.Alive);
-        if (!bossAlive) return false;
-        if (CurrentMap.Rooms.Count == 0) return false;
-        var arena = CurrentMap.Rooms[^1];
-        return x >= arena.X && x < arena.X + arena.W
-            && y >= arena.Y && y < arena.Y + arena.H;
-    }
-
-    /// <summary>
-    /// Use stairs — only by pressing F key (not auto-trigger).
-    /// Ported from Python use_stairs().
-    /// </summary>
-    public void UseStairs()
-    {
-        Projectiles.Clear();
-        var tile = CurrentMap.Tiles[Player.Y][Player.X];
-
-        // Ворота — переход между локациями
-        if (tile == Tile.Gate)
-        {
-            TravelThroughGate();
-            return;
-        }
-
-        if (_worldMode == "overworld")
-        {
-            if (tile != Tile.Stairs)
-            {
-                ShowMessage("Здесь нет лестницы.");
-                return;
-            }
-            EnterDungeon();
-            return;
-        }
-
-        // Dungeon mode
-        if (tile == Tile.Stairs)
-        {
-            if (Depth >= Config.MaxDepth)
-            {
-                ShowMessage("Нельзя спуститься глубже.");
-                return;
-            }
-            Audio?.Play("stairs");
-            DescendFloor();
-        }
-        else if (tile == Tile.UpStairs)
-        {
-            AscendFloor();
-        }
-        else if (tile == Tile.Exit)
-        {
-            ExitToOverworld();
-        }
-        else
-        {
-            ShowMessage("Здесь нет лестницы.");
-        }
-    }
-
-    /// <summary>
-    /// Enter dungeon from overworld stairs.
-    /// </summary>
-    private void EnterDungeon()
-    {
-        _worldMode = "dungeon";
-        Depth = 1;
-        Dungeon = GetOrGenerateFloor(1);
-        PlacePlayerAtEntry();
-        Quests.UpdateReach(Depth);
-        ShowMessage($"Вы вошли в подземелье, этаж {Depth}");
-    }
-
-    /// <summary>
-    /// Descend to next floor.
-    /// </summary>
-    private void DescendFloor()
-    {
-        // Cache current floor
-        _floorCache[Depth] = Dungeon;
-
-        Depth++;
-        if (Depth > Config.MaxDepth)
-        {
-            Depth = Config.MaxDepth;
-            ShowMessage("Это самый глубокий этаж.");
-            return;
-        }
-
-        Dungeon = GetOrGenerateFloor(Depth);
-        PlacePlayerAtEntry();
-        Quests.UpdateReach(Depth);
-        ShowMessage($"Спуск на этаж {Depth}");
-    }
-
-    /// <summary>
-    /// Ascend to previous floor.
-    /// </summary>
-    private void AscendFloor()
-    {
-        if (Depth <= 1)
-        {
-            // Если спускались из локации «Подземелье» — вернуться туда,
-            // иначе — на поверхность (оверворлд).
-            if (_currentLocation?.LocationKey == "dungeon")
-            {
-                _worldMode = "overworld";
-                Dungeon = _currentLocation;
-                Depth = 0;
-                if (Dungeon.StairsPos.HasValue)
-                {
-                    Player.X = Dungeon.StairsPos.Value.Item1;
-                    Player.Y = Dungeon.StairsPos.Value.Item2;
-                }
-                ShowMessage("Вы поднялись в зал подземелья.");
-            }
-            else
-            {
-                ExitToOverworld();
-            }
-            return;
-        }
-
-        // Cache current floor
-        _floorCache[Depth] = Dungeon;
-
-        Depth--;
-        Dungeon = GetOrGenerateFloor(Depth);
-        // Place at stairs-down position
-        if (Dungeon.StairsPos.HasValue)
-        {
-            Player.X = Dungeon.StairsPos.Value.Item1;
-            Player.Y = Dungeon.StairsPos.Value.Item2;
-        }
-        ShowMessage($"Подъём на этаж {Depth}");
-    }
-
-    /// <summary>
-    /// Exit dungeon back to overworld.
-    /// </summary>
-    private void ExitToOverworld()
-    {
-        _worldMode = "overworld";
-        Dungeon = Overworld;
-        Depth = 0;
-        // Place at dungeon entrance
-        Player.X = Aethelgard.World.Overworld.DungeonPos.Item1;
-        Player.Y = Aethelgard.World.Overworld.DungeonPos.Item2;
-        ShowMessage("Вы поднялись на поверхность.");
-    }
-
-    /// <summary>
-    /// Exit dungeon back to overworld (публичный вход для дев-консоли).
-    /// </summary>
-    public void GotoSurface()
-    {
-        if (_worldMode == "overworld" && _currentLocation == null) return;
-        ExitToOverworld();
-        _currentLocation = null;
-    }
-
-    /// <summary>
-    /// Телепорт в подземелье на этаж N (дев-консоль: depth <N>).
-    /// </summary>
-    public void GotoDungeonFloor(int depth)
-    {
-        depth = Math.Clamp(depth, 1, Config.MaxDepth);
-        _worldMode = "dungeon";
-        _currentLocation = null;
-        Depth = depth;
-        Dungeon = GetOrGenerateFloor(depth);
-        PlacePlayerAtEntry();
-        Quests.UpdateReach(Depth);
-        ShowMessage($"Телепорт: этаж {Depth}");
-    }
-
-    /// <summary>
-    /// Телепорт в локацию по ключу (дев-консоль: goto <loc>).
-    /// </summary>
-    public bool GotoLocation(string key)
-    {
-        if (!Locations.All.ContainsKey(key)) return false;
-        Projectiles.Clear();
-        _worldMode = "overworld";
-        if (!_locationCache.TryGetValue(key, out var map))
-        {
-            map = Locations.GenerateLocation(key);
-            _locationCache[key] = map;
-        }
-        _currentLocation = map;
-        MarkVisited(key);
-        EnterLocationAt(map, null);
-        ShowMessage($"Вы вошли в: {Locations.All[key].Name}.");
-        return true;
-    }
-
-    /// <summary>
-    /// Быстрый переход с большой карты — только в посещённые локации.
-    /// </summary>
-    public bool FastTravel(string key)
-    {
-        if (!Locations.All.ContainsKey(key) || !VisitedLocations.Contains(key)) return false;
-        if (key == "village")
-        {
-            Projectiles.Clear();
-            _worldMode = "overworld";
-            _currentLocation = null;
-            Player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
-            Player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
-            Overworld.RevealAround(Player.X, Player.Y, Config.RevealRadius);
-            ShowMessage("Вы вернулись в Город Этельгард.");
-            return true;
-        }
-        return GotoLocation(key);
-    }
-
-    /// <summary>
-    /// Get floor from cache or generate new.
-    /// </summary>
-    private Dungeon GetOrGenerateFloor(int depth)
-    {
-        if (_floorCache.TryGetValue(depth, out var floor))
-            return floor;
-        var newFloor = DungeonGen.Generate(depth);
-        _floorCache[depth] = newFloor;
-        return newFloor;
-    }
-
-    // ── Save/load hooks ──
-
-    /// <summary>Доступ к кэшу этажей для SaveSystem.</summary>
-    public Dictionary<int, Dungeon> GetFloorCache() => _floorCache;
-
-    /// <summary>Доступ к кэшу локаций для SaveSystem.</summary>
-    public Dictionary<string, Dungeon> GetLocationCache() => _locationCache;
-
-    /// <summary>
-    /// Восстановить карту в кэш (SaveSystem.ApplyLoad). Карты с
-    /// LocationKey попадают в кэш локаций, остальные — в кэш этажей.
-    /// </summary>
-    public void SetFloorCache(int depth, Dungeon floor, string? locationKey)
-    {
-        if (!string.IsNullOrEmpty(locationKey))
-        {
-            floor.LocationKey = locationKey;
-            _locationCache[locationKey] = floor;
-        }
-        else
-        {
-            _floorCache[depth] = floor;
-        }
-    }
-
-    /// <summary>Восстановить режим мира и текущую локацию (SaveSystem.ApplyLoad).</summary>
-    public void SetWorldMode(string mode, int depth, string? locationKey = null)
-    {
-        _worldMode = mode;
-        Depth = depth;
-        if (mode == "dungeon" && depth >= 1)
-        {
-            _currentLocation = null;
-            Dungeon = GetOrGenerateFloor(depth);
-            PlacePlayerAtEntry();
-        }
-        else
-        {
-            _currentLocation = string.IsNullOrEmpty(locationKey)
-                ? null
-                : GetOrGenerateLocation(locationKey);
-            Dungeon = Overworld;
-        }
-    }
-
-    private Dungeon GetOrGenerateLocation(string key)
-    {
-        if (_locationCache.TryGetValue(key, out var map))
-            return map;
-        map = Locations.GenerateLocation(key);
-        _locationCache[key] = map;
-        return map;
-    }
-
-    /// <summary>
-    /// Place player at entry point of current dungeon floor.
-    /// </summary>
-    private void PlacePlayerAtEntry()
-    {
-        // Find Exit or UpStairs tile
-        for (int y = 0; y < Dungeon.H; y++)
-        {
-            for (int x = 0; x < Dungeon.W; x++)
-            {
-                var t = Dungeon.Tiles[y][x];
-                if (t == Tile.Exit || t == Tile.UpStairs)
-                {
-                    Player.X = x;
-                    Player.Y = y;
-                    return;
-                }
-            }
-        }
-        // Fallback: center
-        Player.X = Dungeon.W / 2;
-        Player.Y = Dungeon.H / 2;
-    }
-
-    /// <summary>
-    /// Attack nearest monster (или дальнобойным оружием — по взгляду).
     /// </summary>
     private void Attack()
     {

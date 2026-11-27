@@ -25,8 +25,11 @@ namespace Aethelgard.Audio;
 /// </summary>
 public class AudioSystem : IDisposable
 {
-    private DynamicSoundEffectInstance? _instance;
-    private readonly Queue<byte[]> _soundQueue = new();
+    // Пул голосов: раньше был один DynamicSoundEffectInstance с очередью
+    // буферов — звуки игрались строго по очереди (короткий «клик» откладывал
+    // удар). Пул позволяет одновременные звуки.
+    private const int VoiceCount = 6;
+    private readonly List<DynamicSoundEffectInstance> _voices = new();
     private readonly object _lock = new();
     private float _volume = 0.5f;
     private bool _enabled = true;
@@ -36,10 +39,13 @@ public class AudioSystem : IDisposable
     {
         try
         {
-            _instance = new DynamicSoundEffectInstance(_sampleRate, AudioChannels.Mono);
-            _instance.BufferNeeded += OnBufferNeeded;
-            _instance.Volume = _volume;
-            _instance.IsLooped = false;
+            for (int i = 0; i < VoiceCount; i++)
+            {
+                var v = new DynamicSoundEffectInstance(_sampleRate, AudioChannels.Mono);
+                v.Volume = _volume;
+                v.IsLooped = false;
+                _voices.Add(v);
+            }
         }
         catch
         {
@@ -53,8 +59,9 @@ public class AudioSystem : IDisposable
         set
         {
             _volume = Math.Clamp(value, 0f, 1f);
-            if (_instance != null)
-                _instance.Volume = _volume;
+            lock (_lock)
+                foreach (var v in _voices)
+                    v.Volume = _volume;
         }
     }
 
@@ -64,8 +71,6 @@ public class AudioSystem : IDisposable
         set
         {
             _enabled = value;
-            if (!value)
-                lock (_lock) { _soundQueue.Clear(); }
         }
     }
 
@@ -74,42 +79,13 @@ public class AudioSystem : IDisposable
     /// </summary>
     public void Start()
     {
-        if (_instance != null && _enabled)
-        {
-            try { _instance.Play(); }
-            catch { _enabled = false; }
-        }
-    }
-
-    private void OnBufferNeeded(object? sender, EventArgs e)
-    {
-        PlayNext();
-    }
-
-    private void PlayNext()
-    {
-        if (!_enabled || _instance == null) return;
-
-        byte[]? data = null;
+        if (!_enabled) return;
         lock (_lock)
         {
-            if (_soundQueue.Count > 0)
-                data = _soundQueue.Dequeue();
-        }
-
-        if (data != null)
-        {
-            // SubmitBuffer под общим _lock: он вызывается и из аудио-потока
-            // (OnBufferNeeded), и из Play() любого потока (хост дёргает звук
-            // из серверного UpdateLoop) — параллельные SubmitBuffer не
-            // потокобезопасны
-            lock (_lock)
+            foreach (var v in _voices)
             {
-                try
-                {
-                    _instance.SubmitBuffer(data, 0, data.Length);
-                }
-                catch { }
+                try { if (v.State != SoundState.Playing) v.Play(); }
+                catch { _enabled = false; return; }
             }
         }
     }
@@ -147,15 +123,40 @@ public class AudioSystem : IDisposable
             _ => null,
         };
 
-        if (data != null)
+        if (data == null) return;
+
+        // SubmitBuffer под общим _lock: он может вызываться из любого потока
+        // (хост дёргает звук из серверного UpdateLoop) — параллельные
+        // SubmitBuffer на одном инстансе не потокобезопасны. Голос берём
+        // с наименьшим числом ожидающих буферов (иначе обрываем самый
+        // «длинный» — пусть новые звуки не копятся в очереди).
+        lock (_lock)
         {
-            lock (_lock)
+            DynamicSoundEffectInstance? best = null;
+            int bestPending = int.MaxValue;
+            foreach (var v in _voices)
             {
-                _soundQueue.Enqueue(data);
-                if (_soundQueue.Count > 5)
-                    _soundQueue.Dequeue();  // drop oldest if too many
+                int pending = v.PendingBufferCount;
+                if (pending < bestPending)
+                {
+                    bestPending = pending;
+                    best = v;
+                }
             }
-            PlayNext();
+            if (best == null) return;
+            try
+            {
+                if (bestPending > 2)
+                {
+                    // Все голоса заняты — сбрасываем и перезапускаем,
+                    // чтобы новый звук не ждал конца старого.
+                    best.Stop();
+                    best.Play();
+                }
+                best.SubmitBuffer(data, 0, data.Length);
+                if (best.State != SoundState.Playing) best.Play();
+            }
+            catch { }
         }
     }
 
@@ -444,13 +445,15 @@ public class AudioSystem : IDisposable
 
     public void Dispose()
     {
-        // Под _lock: OnBufferNeeded может быть в PlayNext с _instance,
-        // который уже диспоузнут (ObjectDisposedException вне try)
+        // Под _lock: буферы могут отправляться из любого потока
         lock (_lock)
         {
             _enabled = false;
-            _instance?.Dispose();
-            _instance = null;
+            foreach (var v in _voices)
+            {
+                try { v.Dispose(); } catch { }
+            }
+            _voices.Clear();
         }
     }
 }
