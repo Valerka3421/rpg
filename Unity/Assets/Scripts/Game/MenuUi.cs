@@ -47,7 +47,7 @@ namespace Aethelgard
             var bg = NewImage(_canvas.transform, "bg", new UColor(0.07f, 0.06f, 0.05f));
             Stretch(bg);
 
-            _main = Panel("Этельгард", new[] { "Новая игра", "Загрузить (скоро)", "Мультиплеер (скоро)", "Выход" });
+            _main = Panel("Этельгард", new[] { "Новая игра", "Загрузить (скоро)", "Мультиплеер", "Выход" });
             _classSel = Panel("Выбор класса", ClassNames);
 
             _hint = NewText(_canvas.transform, "hint", "", 20, new UColor(1f, 0.9f, 0.7f));
@@ -100,6 +100,9 @@ namespace Aethelgard
                     case 0: // Новая игра
                         _classSel.SetActive(true);
                         _main.SetActive(false);
+                        break;
+                    case 2: // Мультиплеер → экран хост/джойн (MpUi)
+                        _game.ScreenMode = Screens.MenuMultiplayer;
                         break;
                     case 3: Application.Quit(); break;
                 }
