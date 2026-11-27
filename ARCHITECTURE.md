@@ -7,64 +7,65 @@
 
 ## 1. Слои и каталоги
 
+Ядро игры (BaseClass/Entities/Structs/Data/World/Systems) живёт в
+Unity-проекте (`Unity/Assets/Scripts/Core/`) и линкуется в MonoGame-сборку
+через `Compile Include` в `Aethelgard.csproj` — двойная компиляция: один и
+тот же код работает и на desktop (MonoGame), и в Unity (через shim
+`Core/Compat/`).
+
 ```
 Aethelgard/
-├── Program.cs                  — точка входа (namespace Aethelgard)
-├── GlobalUsings.cs             — глобальные using всех слоёв
-├── BaseClass/                  — БАЗОВЫЙ КЛАСС существа (в стиле «Пример»)
-│   └── Specific.cs             — private protected поля (_hp, _name…) + свойства
-│                                  (Hp, Name…), статусы, таймеры, TickStatuses()
-├── Entities/                   — сущности
-│   ├── Entity.cs               — Entity : Specific (MonsterKey, флаги NPC, таймеры)
-│   ├── Player.cs               — игрок: классы, статы, инвентарь, опыт, UseItem()
-│   ├── Npc.cs                  — фабрика NPC города из CityData.NpcDef
-│   └── Monsters/               — 24 вида монстров, по файлу на вид (как в «Пример»)
-│       ├── Monster.cs          — Monster : Entity, InitFromDef(def, depth)
-│       ├── MonsterFactory.cs   — Create(key) → экземпляр нужного вида
-│       ├── Rat.cs … Turtle.cs  — обычные и overworld-монстры
-│       └── GoblinKing.cs …     — 4 босса (глубины 5/10/15/20)
-├── Structs/                    — структуры и перечисления (как Structs/ в «Пример»)
-│   ├── Tile.cs                 — enum Tile (раньше жил внутри Config.cs)
-│   ├── Room.cs                 — единый класс комнаты (был объявлен дважды)
-│   ├── FloatText.cs            — FloatText + Message
-│   ├── HarvestRecord.cs        — сборный ресурс карты
-│   └── ItemInstance.cs         — типизированный ключ предмета
-├── World/                      — мир и игровой цикл
-│   ├── Game.cs                 — AethelgardGame : XnaGame (цикл MonoGame)
-│   ├── Dungeon.cs              — карта: тайлы, сущности, предметы
-│   ├── WorldGen.cs             — генерация открытого мира (класс World → WorldGen)
-│   ├── DungeonGen.cs           — генерация этажей, боссовые арены
-│   ├── Overworld.cs            — константы раскладки мира
-│   ├── Locations.cs            — 13 именованных карт
-│   └── Projectiles.cs          — Projectile + ProjectileSystem
-├── Systems/                    — правила и контроллер (бывший Core/Game)
-│   ├── GameController.cs       — состояние + ввод + апдейт (SP)
-│   ├── CharacterFactory.cs     — создание игрока и бонусы класса (SP/MP)
-│   ├── CombatSystem.cs         — поиск цели, удары, награда за килл (SP/MP)
-│   ├── PlayerActions.cs        — навыки, магазин, статы, прогресс, зелья
-│   ├── MonsterAI.cs            — общий ИИ монстров (SP/MP)
-│   ├── DevConsole.cs           — dev-консоль
-│   ├── Rules.cs                — бой, лут, награды
-│   ├── Config.cs               — константы, палитра, XP-кривая
-│   ├── SkillTree.cs            — древо навыков + Aggregate()
-│   ├── QuestLog.cs             — квесты + PopulateBoard()
-│   ├── HarvestSystem.cs        — сбор ресурсов
-│   ├── SaveSystem.cs           — сохранения в JSON-слоты
-│   ├── Settings.cs, Modes.cs
-├── Data/                       — данные игры (замена Core/Data/*.g.cs)
-│   ├── ItemData.cs … StatusData.cs — логика поверх таблиц (API сохранён)
-│   └── *Defs.cs                — 7 таблиц в C#: items, classes, monsters,
-│                                  recipes, city, quests, statuses
-├── Render/                     — экраны и рендеры MonoGame (без изменений логики)
-├── Net/                        — кооператив: Client/Server/GameCore/Snapshot/Protocol
-├── Audio/                      — процедурный синтез звука
-├── tests/Aethelgard.Tests/     — xUnit-тесты (сохранения, сеть, эффекты, мир)
-└── .github/workflows/ci.yml    — сборка и тесты на windows-latest
+├── Program.cs                  — точка входа desktop (namespace Aethelgard)
+├── GlobalUsings.cs             — глобальные using всех слоёв desktop
+├── Aethelgard.csproj/.sln      — MonoGame-сборка (ядро линкуется из Unity)
+├── Desktop/                    — MonoGame-хост (namespace Aethelgard.Desktop)
+│   └── Game.cs                 — AethelgardGame : XnaGame (цикл, режимы экранов)
+├── Systems/                    — desktop-частъ GameController (partial-файлы
+│   │                             GameController.*.cs — SP/MP/город/инвентарь/
+│   │                             магазин/крафт/навыки) + DevConsole
+├── Render/                     — экраны и рендеры MonoGame (UiKit, SpriteStore,
+│   │                             RuntimeFont, MpRenderer, ChatPanel…)
+│   ├── icons/, tiles/          — процедурные иконки/тайлы
+├── Audio/                      — процедурный синтез звука (AudioSystem.cs)
+├── Content/fonts/              — шрифты DejaVu (свободная лицензия)
+├── assets/                     — иконки навыков, спрайты, иконка приложения
+├── tools/                      — gen_glyph_atlas.py (атлас глифов для Unity)
+├── tests/
+│   ├── Aethelgard.Tests/       — xUnit-тесты (сохранения, сеть, чат, данные)
+│   └── HangProbe/              — диагностический хост (проверка зависаний)
+└── Unity/                      — Unity-проект (6000.x)
+    ├── Assets/Scripts/Core/    — ЯДРО (двойная компиляция, см. выше):
+    │   ├── BaseClass/          — Specific: приватные поля + свойства, статусы
+    │   ├── Entities/           — Entity : Specific, Player, Npc, Monsters/ (24)
+    │   ├── Structs/            — Tile, Room, FloatText, HarvestRecord, ItemInstance
+    │   ├── World/              — Dungeon/DungeonGen/WorldGen/Overworld/
+    │   │                          Locations/Projectiles
+    │   ├── Systems/            — GameController (ядро логики), CombatSystem,
+    │   │                          Rules, MonsterAI, PlayerActions, SkillTree,
+    │   │                          QuestLog, SaveSystem, Settings, Modes, …
+    │   ├── Data/               — таблицы в C#: *Defs.cs + логика *Data.cs
+    │   ├── Net/                — кооп: Client/Server/GameCore/Snapshot/
+    │   │                          Protocol/EcdhInterop
+    │   ├── Render/             — PixelCanvas/TileArt (процедурные текстуры)
+    │   └── Compat/             — shim Xna/ввода (только Unity-сборка)
+    └── Assets/Scripts/Game/    — движковый слой Unity (asmdef Aethelgard.Game):
+        ├── GameApp.cs          — драйвер (ввод, камера) + WorldView (спрайты,
+        │                          HP-бары, MP-снапшоты) + Hud
+        ├── GameController*.cs  — partial-продолжения (дословный порт Systems/)
+        ├── UiKitCanvas.cs      — uGUI-порт UiKit + UiInput (хит-тесты)
+        ├── MenuUi/MpUi/ChatUi  — меню, MP-меню, чат (uGUI)
+        ├── InventoryUi …       — экраны: инвентарь, магазин, навыки, крафт,
+        │                          квесты, характеристики, диалог, пауза
+        ├── AudioSystem.cs      — процедурный звук (AudioClip + AudioSource-пул)
+        ├── ChatPanel.cs        — геометрия журнала чата (мост для GameController)
+        ├── EngineBridge.cs     — AethelgardGame (статика окна)
+        └── DevConsole.cs       — dev-консоль Unity
 ```
 
 Направление зависимостей: `BaseClass → (Entities, Data) → (World, Systems) →
-(Render, Net, Audio)`. Циклы namespace между Entities и Data допустимы в одном
-сборке и остаются из-за API оригинала (MonsterData.CreateEntity ↔ Entity).
+(Render, Net, Audio) → Desktop / Unity Game`. Циклы namespace между Entities
+и Data допустимы в одной сборке и остаются из-за API оригинала
+(MonsterData.CreateEntity ↔ Entity).
 
 ## 2. Что сделано в стиле «Пример»
 
@@ -74,7 +75,7 @@ Aethelgard/
 | Наследники с собственными файлами | `Entities/Player.cs`, `Entities/Monsters/*.cs` (24 файла), `Entities/Npc.cs` |
 | Фабрика `Spawn(lvl, список)` у каждого моба | `Monster.Spawn(depth, list)` + `InitFromDef` + `MonsterFactory.Create` |
 | `Structs/` со структурами и перечислениями | `Structs/Tile.cs`, `Room.cs`, `HarvestRecord.cs`, `ItemInstance.cs` |
-| `World/` с точкой входа и меню | `World/Game.cs` (игровой цикл), `World/DungeonGen.cs` и др. |
+| `World/` с миром и циклом | мир — `Unity/Assets/Scripts/Core/World/` (Dungeon/WorldGen/…), игровой цикл — `Desktop/Game.cs` |
 | Единые namespace по папкам | `Aethelgard.BaseClass / .Entities / .Structs / .World / .Systems / .Data` |
 
 ## 3. Исправленные проблемы оригинала
@@ -290,9 +291,9 @@ platemail) — все ключи сверены с ItemDefs.
 синхронизации. Общие правила при этом вынесены в `Systems`: бой и награды
 (`CombatSystem`, `Rules`), создание персонажа (`CharacterFactory`), ИИ
 монстров (`MonsterAI`), навыки/магазин/статы/прогресс (`PlayerActions`).
-`World/Projectiles.cs` подключён к активному циклу и в SP, и в MP
+`World/Projectiles.cs` (ядро, `Unity/Assets/Scripts/Core/World/`) подключён к активному циклу и в SP, и в MP
 (визуальные снаряды передаются в снапшоте и рисуются `MpRenderer`), а
-`Systems/Modes.cs` — единый источник констант экранов для `World/Game.cs`
+`Systems/Modes.cs` — единый источник констант экранов для `Desktop/Game.cs`
 и `GameController`.
 
 ## 17. Общая симуляция синглплеера и MP
@@ -360,3 +361,40 @@ platemail) — все ключи сверены с ItemDefs.
 - **Декомпозиция GameController завершена**: main 1079 строк + частичные
   файлы Mp (740), World (470), City (345), Inventory (163), Craft (147),
   Skills (109), Shop (126) — ввод, мир, город, крафт и сеть разделены.
+
+## 20. Unity-порт (двойная компиляция)
+
+Ядро (BaseClass/Entities/Structs/Data/World/Systems/Data/Net, см. раздел 1)
+компилируется дважды: в MonoGame-сборку (линком из `Aethelgard.csproj`,
+без `Core/Compat/`) и в Unity-asmdef `Aethelgard.Core` (с shim
+`Core/Compat/XnaShim.cs` + `InputShim.cs`, подменяющими Microsoft.Xna.Framework).
+
+Движковый слой Unity — asmdef `Aethelgard.Game` (`Unity/Assets/Scripts/Game/`):
+
+- **Драйвер**: `GameApp.cs` (перевод Unity-ввода в shim KeyboardState/MouseState,
+  камера, фокус InputField), `WorldView` (спрайтовый рендер тайлов/сущностей,
+  HP-бары монстров, кольца боссов, игроки из MP-снапшота), `Hud` (HP/мана/XP).
+- **UI**: порт immediate-mode UiKit на retained-mode uGUI — `UiKitCanvas.cs`
+  (палитра/панели/бары/вкладки/тултипы) + `UiInput` (хит-тесты по shim-мыши в
+  координатах дизайна 1920×1080). Экраны: InventoryUi, ShopUi, SkillsUi,
+  CraftUi, QuestUi, StatsUi, DialogueUi, PauseUi, MenuUi, MpUi, ChatUi.
+  Логика действий — в GameController (дословный порт), экраны только
+  отображают состояние и вызывают его публичные методы (как desktop
+  `Desktop/Game.cs`).
+- **Сейвы**: `SaveSystem.SaveDir` на Unity — `Application.persistentDataPath/saves`,
+  на desktop — AppData (условная компиляция `UNITY_5_3_OR_NEWER`).
+- **Звук**: `AudioSystem.cs` — те же процедурные генераторы, что и на desktop,
+  но byte[] → `AudioClip.Create` (лениво, с кешем) + пул из 6 AudioSource.
+- **MP**: Net-стек (`Core/Net/`) портирован целиком, включая ручной экспорт
+  ASN.1 DER SPKI для ECDH в Unity-профиле; `GameApp` тикает `UpdateMp(dt)`.
+- **Шрифт UI**: глиф-атлас `Resources/GlyphAtlas` (генерируется
+  `tools/gen_glyph_atlas.py`), uGUI-текст — LegacyRuntime.ttf.
+
+## 21. Гигиена репозитория
+
+- Папки desktop-слоя в PascalCase: `Desktop/`, `Render/`, `Audio/`,
+  `Systems/`; ядро живёт в `Unity/Assets/Scripts/Core/` (BaseClass,
+  Entities, Structs, Data, World, Systems, Net, Render, Compat).
+- Локальные артефакты (settings.json, сейвы, кэши pytest, логи Unity CLI)
+  не коммитятся — см. `.gitignore`.
+- `unity_create.log` и пустые python-каталоги (core/, game/) удалены.

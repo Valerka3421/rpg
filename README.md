@@ -36,15 +36,16 @@
 
 ## Архитектура
 
+Ядро (BaseClass/Entities/Structs/Data/World/Systems/Net) живёт в
+`Unity/Assets/Scripts/Core/` и линкуется в MonoGame-сборку (двойная
+компиляция desktop + Unity). Подробности — [ARCHITECTURE.md](ARCHITECTURE.md).
+
 | Слой | Каталог | Содержимое |
 |---|---|---|
-| BaseClass | `BaseClass/` | `Specific` — база любого существа |
-| Entities | `Entities/`, `Entities/Monsters/` | `Player`, `Npc`, 24 вида монстров + фабрика |
-| Structs | `Structs/` | `Tile`, `Room`, `HarvestRecord`, `ItemInstance`, `Message` |
-| World | `World/` | игровой цикл, карты, генераторы |
-| Systems | `Systems/` | общий слой SP/MP (`CharacterFactory`, `CombatSystem`, `MonsterAI`, `PlayerActions`), контроллер, квесты, сохранения |
-| Data | `Data/` | таблицы в коде (предметы, классы, монстры, квесты…) |
-| Presentation | `Render/`, `Net/`, `Audio/` | экраны, кооператив, звук |
+| Ядро | `Unity/Assets/Scripts/Core/` | BaseClass/Entities/Structs/Data/World/Systems/Net (общие для desktop и Unity) |
+| Хост desktop | `Desktop/` | `AethelgardGame` — цикл MonoGame, режимы экранов |
+| Desktop-слой | `Systems/`, `Render/`, `Audio/` | GameController (partial), экраны UiKit, процедурный звук |
+| Unity-слой | `Unity/Assets/Scripts/Game/` | GameApp/WorldView/Hud, uGUI-экраны (UiKitCanvas), MP-меню, чат, звук |
 
 ## Сборка и запуск
 
@@ -65,8 +66,14 @@ dotnet test Aethelgard.sln -c Release
 38 xUnit-тестов (включая валидатор ссылочной целостности данных) проверяют сохранения и `FloorData`, сетевой протокол и HMAC,
 PBKDF2-пароли, эффекты классов/узлов, детерминизм генерации мира и общую
 симуляцию SP/MP (создание персонажа, бой, магазин, статы, навыки).
-GitHub Actions (`.github/workflows/ci.yml`) собирает решение с
-`-warnaserror` и запускает тесты на `windows-latest`.
+
+## Unity-версия
+
+Параллельная сборка под Unity 6000.x — проект `Unity/` (открывается через
+Unity Hub). Тот же геймплей: uGUI-экраны (инвентарь/навыки/крафт/
+характеристики/квесты/магазин/диалоги), процедурный звук, сейвы в
+`Application.persistentDataPath`, кооператив по LAN с чатом. Детали —
+раздел 20 [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Пароли
 

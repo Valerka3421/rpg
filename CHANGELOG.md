@@ -8,6 +8,32 @@
 ## [Unreleased]
 
 ### Added
+- **Unity-версия: полный набор игровых экранов на uGUI** (порт UiKit-подхода):
+  инвентарь, магазин, навыки, крафт, квесты, характеристики, диалоги, пауза,
+  чат MP (вкладки) и меню хост/джойн. Общий слой — `UiKitCanvas.cs` (палитра,
+  панели/бары/вкладки/тултипы) + `UiInput` (хит-тесты в координатах дизайна).
+- **Настоящий звук в Unity**: полный порт процедурных генераторов
+  `AudioSystem` — синтез 22050 Гц → `AudioClip` (лениво, с кешем) + пул
+  из 6 `AudioSource`.
+- **HP-бары монстров в Unity** (`WorldView`): полоса над глифом при
+  уроне (ширина boss?40:24×3, цвета desktop), красное кольцо-обводка боссов,
+  игроки из MP-снапшота с HP-барами.
+- **Сейвы Unity в `Application.persistentDataPath/saves`** (desktop остаётся
+  на AppData; условная компиляция).
+
+### Changed
+- **Архитектура**: MonoGame-хост вынесен из `World/` в `Desktop/`
+  (namespace `Aethelgard.Desktop`) — namespace `Aethelgard.World` теперь
+  принадлежит только мировой модели ядра (`Unity/Assets/Scripts/Core/World/`).
+  `EngineBridge.cs` разбит: `AethelgardGame`, `AudioSystem.cs`, `ChatPanel.cs`.
+- **Гигиена**: папки desktop-слоя приведены к PascalCase (`Render/`, `Audio/`);
+  удалены `unity_create.log`, пустые python-каталоги (`core/`, `game/`),
+  локальные артефакты; `.gitignore` почищен от остатка конфликт-маркера,
+  добавлены `.pytest_cache/`, `.test_tmp/`, `unity_*.log`.
+- Документация (README/ARCHITECTURE) приведена к фактической структуре
+  репозитория (двойная компиляция ядра из Unity, разделы 20–21).
+
+### Added
 - **Новая единая UI-база `Render/UiKit.cs`** (замена разнобою собственных
   панелей/палитр каждого экрана): Theme-палитра, Panel/Section/Button/
   Row/Tabs/ItemSlot/Bar/KeyHint, hover/press-фидбек на каждом интерактивном
