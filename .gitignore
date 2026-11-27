@@ -13,7 +13,14 @@ settings.json
 .DS_Store
 Thumbs.db
 desktop.ini
-=======
+
+# Python-наследие (pytest-тесты удалены, кэши могли остаться)
+.pytest_cache/
+.test_tmp/
+
+# Логи Unity CLI
+unity_*.log
+
 bin/
 obj/
 *.user
@@ -38,3 +45,4 @@ Unity/Builds/
 Unity/.vsconfig/
 *.pdb
 *.mdb
+.zcode/

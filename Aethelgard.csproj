@@ -14,7 +14,7 @@
     <Description>Tactical RPG — refactored layered architecture (BaseClass/Entities/Structs/World/Systems/Data)</Description>
     <!-- Unity-проект не должен попадать в дефолтную глоб-компиляцию:
          ядро подключается линком явно, движковый слой Unity — никогда -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);Unity/**;Library/**;Temp/**;Logs/**;Obj/**;UserSettings/**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Unity/**;Library/**;Temp/**;Logs/**;obj/**;UserSettings/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
