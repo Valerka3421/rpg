@@ -3,6 +3,8 @@ using Aethelgard.Render;
 using Aethelgard.Systems;
 using Microsoft.Xna.Framework.Input;
 using UnityEngine;
+using UnityEngine.EventSystems;
+using UnityEngine.UI;
 using UColor = UnityEngine.Color;
 using UColor32 = UnityEngine.Color32;
 using UObject = UnityEngine.Object;
@@ -20,12 +22,22 @@ namespace Aethelgard
     /// </summary>
     public class GameApp : MonoBehaviour
     {
-        private GameController _game = null!;
-        private WorldView _world = null!;
-        private Hud _hud = null!;
-        private MenuUi _menu = null!;
-        private Camera _camera = null!;
-        private bool _worldStarted;
+    private GameController _game = null!;
+    private WorldView _world = null!;
+    private Hud _hud = null!;
+    private MenuUi _menu = null!;
+    private InventoryUi _inventory = null!;
+    private SkillsUi _skills = null!;
+    private ShopUi _shop = null!;
+    private CraftUi _craft = null!;
+    private StatsUi _stats = null!;
+    private QuestUi _quests = null!;
+    private DialogueUi _dialogue = null!;
+    private PauseUi _pause = null!;
+    private ChatUi _chat = null!;
+    private MpUi _mp = null!;
+    private Camera _camera = null!;
+    private bool _worldStarted;
 
         private float _diag;
         private KeyboardState _prevKeys;
@@ -60,11 +72,52 @@ namespace Aethelgard
             _menu = MenuUi.Create(_game);
             _menu.OnClassPicked = classKey =>
             {
-                _game.NewGame(classKey);
+                // Ветка «Создать игру (MP)»: выбор класса запускает хоста,
+                // как в desktop World/Game.cs:511-527.
+                if (_game.PendingMpHost)
+                {
+                    bool fresh = _game.PendingMpFresh;
+                    _game.PendingMpHost = false;
+                    _game.PendingMpFresh = false;
+                    if (!_game.StartMpHost(fresh, classKey))
+                    {
+                        _game.ScreenMode = Screens.Menu;
+                        _menu.ShowMain();
+                        _game.ShowMessage("Не удалось запустить сервер мультиплеера");
+                        return;
+                    }
+                }
+                else
+                {
+                    _game.NewGame(classKey);
+                }
                 _worldStarted = true;
                 Debug.Log($"[Aethelgard] NewGame({classKey}) ok: map={_game.CurrentMap.W}x{_game.CurrentMap.H}, player=({_game.Player.X},{_game.Player.Y})");
             };
+
+            // uGUI-экраны (порт render/*.cs). Создаются один раз, показываются
+            // по ScreenMode в Update.
+            _inventory = InventoryUi.Create(_game);
+            _skills = SkillsUi.Create(_game);
+            _shop = ShopUi.Create(_game);
+            _craft = CraftUi.Create(_game);
+            _stats = StatsUi.Create(_game);
+            _quests = QuestUi.Create(_game);
+            _dialogue = DialogueUi.Create(_game);
+            _pause = PauseUi.Create(_game, ApplyPauseChoice);
+            _chat = ChatUi.Create(_game);
+            _mp = MpUi.Create(_game);
+            // Успешный хост/джойн из MpUi запускает мир без выбора класса.
+            _mp.OnMpStarted = () => _worldStarted = true;
             Debug.Log("[Aethelgard] boot ok, menu shown");
+
+            // uGUI-кнопкам (MenuUi/MpUi InputField) нужен EventSystem.
+            if (FindObjectOfType<EventSystem>() == null)
+            {
+                var es = new GameObject("EventSystem");
+                es.AddComponent<EventSystem>();
+                es.AddComponent<StandaloneInputModule>();
+            }
 
             Mouse.Provider = () =>
             {
@@ -89,6 +142,16 @@ namespace Aethelgard
             {
                 if (_game.ScreenMode == Screens.ClassSelect) _menu.ShowClassSelect();
                 else if (_game.ScreenMode == Screens.Menu) _menu.ShowMain();
+                else _menu.Hide();
+                // MP-меню доступно и до старта мира (хост/джойн → выбор класса)
+                bool mpMenu = _game.ScreenMode == Screens.MenuMultiplayer
+                           || _game.ScreenMode == Screens.MenuMpJoin;
+                _mp.SetVisible(mpMenu);
+                if (mpMenu)
+                {
+                    UiInput.Tick();
+                    _mp.Refresh();
+                }
                 // Esc в выборе класса — назад в меню; Enter — подтвердить
                 if (_game.ScreenMode == Screens.ClassSelect && Input.GetKeyDown(KeyCode.Escape))
                     _game.ScreenMode = Screens.Menu;
@@ -102,16 +165,85 @@ namespace Aethelgard
             AethelgardGame.MouseScaleX = 1080f / Screen.height;
             AethelgardGame.MouseScaleY = 1080f / Screen.height;
 
-            _keys = ReadKeyboard();
-            _game.HandleInput(_keys, _prevKeys, dt);
-            _game.Update(dt);
-            _prevKeys = _keys;
+            // Срез edge кликов UI (UiKitCanvas/экраны читают UiInput).
+            UiInput.Tick();
 
+            // Фокус в InputField (MP-меню) — не гоняем игровой ввод.
+            bool typing = _mp.InputFocused || _chat.InputFocused;
+            if (!typing)
+            {
+                _keys = ReadKeyboard();
+                _game.HandleInput(_keys, _prevKeys, dt);
+                _game.Update(dt);
+                if (_game.ScreenMode == Screens.MpGame) _game.UpdateMp(dt);
+                _prevKeys = _keys;
+            }
+
+            RefreshScreens();
             _world.Refresh();
             _hud.Refresh();
             UpdateCamera();
             _diag += dt;
             if (_diag >= 3f) { _diag = 0f; Debug.Log($"[Aethelgard] cam={_camera.transform.position} ortho={_camera.orthographicSize} player=({_game.Player.X},{_game.Player.Y}) tiles={_world.TileCount} ents={_world.EntityCount}"); }
+        }
+
+        private void RefreshScreens()
+        {
+            var mode = _game.ScreenMode;
+            _inventory.SetVisible(mode == Screens.Inventory);
+            _skills.SetVisible(mode == Screens.Skills);
+            _shop.SetVisible(mode == Screens.Shop || mode == Screens.Trade);
+            _craft.SetVisible(mode == Screens.Craft);
+            _stats.SetVisible(mode == Screens.Stats);
+            _quests.SetVisible(mode == Screens.Quests);
+            _dialogue.SetVisible(mode == Screens.Dialogue);
+            _pause.SetVisible(mode == Screens.Pause);
+            _mp.SetVisible(mode == Screens.MenuMultiplayer || mode == Screens.MenuMpJoin);
+            _chat.SetVisible(_game.MpClient != null || _game.ScreenMode == Screens.MpGame);
+
+            if (mode == Screens.Inventory) _inventory.Refresh();
+            else if (mode == Screens.Skills) _skills.Refresh();
+            else if (mode == Screens.Shop || mode == Screens.Trade) _shop.Refresh();
+            else if (mode == Screens.Craft) _craft.Refresh();
+            else if (mode == Screens.Stats) _stats.Refresh();
+            else if (mode == Screens.Quests) _quests.Refresh();
+            else if (mode == Screens.StatsRun) _quests.RefreshRunStats();
+            else if (mode == Screens.Dialogue) _dialogue.Refresh();
+            else if (mode == Screens.Pause) _pause.Refresh();
+            else if (mode == Screens.MenuMultiplayer || mode == Screens.MenuMpJoin) _mp.Refresh();
+            if (_game.MpClient != null || _game.ScreenMode == Screens.MpGame) _chat.Refresh();
+        }
+
+        private void ApplyPauseChoice(int choice)
+        {
+            // Порты действий pause-меню desktop World/Game.cs:430-449,
+            // без несуществующих в Unity меню сейвов/настроек.
+            switch (choice)
+            {
+                case 0: _game.CloseModal(); break;                       // продолжить
+                case 1:                                                   // сохранить
+                    bool ok = SaveSystem.Save(_game, _game.CurrentSlot);
+                    _game.ShowMessage(ok
+                        ? $"Сохранено в слот {_game.CurrentSlot}"
+                        : "Ошибка сохранения!");
+                    break;
+                case 2:                                                   // загрузить
+                    var data = SaveSystem.Load(_game.CurrentSlot);
+                    if (data == null) _game.ShowMessage($"Слот {_game.CurrentSlot} пуст");
+                    else if (!SaveSystem.ApplyLoad(_game, data))
+                        _game.ShowMessage($"Ошибка загрузки: {SaveSystem.LastError}");
+                    else _game.ShowMessage($"Загружено из слота {_game.CurrentSlot}");
+                    break;
+                case 3: ExitToMenu(); break;                              // в меню
+            }
+        }
+
+        private void ExitToMenu()
+        {
+            _game.CloseModal();
+            _game.ScreenMode = Screens.Menu;
+            _worldStarted = false;
+            _menu.ShowMain();
         }
 
         private void UpdateCamera()
@@ -337,6 +469,9 @@ namespace Aethelgard
         private void RefreshEntities(Dungeon map)
         {
             int needed = 0;
+            int barsNeeded = 0;
+            int ringsNeeded = 0;
+            HideBossRings();
             void Draw(char ch, UColor color, Vector3 pos, int layer)
             {
                 var sr = needed < _entityPool.Count ? _entityPool[needed] : AddEntity();
@@ -350,7 +485,11 @@ namespace Aethelgard
             }
 
             foreach (var m in map.Monsters)
+            {
                 Draw(m.Ch, m.Color, TilePos(map, m.X, m.Y), 10);
+                if (m.Boss) DrawBossRing(m, map, ringsNeeded++);
+                if (m.Hp < m.MaxHp) DrawHpBar(m, map, barsNeeded++);
+            }
             foreach (var kv in map.Items)
                 Draw('?', new UColor(0.94f, 0.78f, 0.27f), TilePos(map, kv.Key.Item1, kv.Key.Item2), 9);
             foreach (var kv in map.Harvestables)
@@ -359,11 +498,152 @@ namespace Aethelgard
             var p = _game.Player;
             Draw(p.Ch, p.Color, TilePos(map, p.X, p.Y), 20);
 
+            // Другие игроки из MP-снапшота (порт части render/MpRenderer.cs):
+            // глиф игрока своим цветом + HP-бар как у монстров.
+            var snap = _game.MpSnapshot;
+            if (snap != null && _game.ScreenMode == Screens.MpGame)
+            {
+                int myPid = _game.MpClient?.MyPid ?? -1;
+                foreach (var pl in snap.Players)
+                {
+                    if (pl.Pid == myPid || !pl.Alive) continue;
+                    var pos = TilePos(map, pl.X, pl.Y);
+                    Draw(pl.Ch != default ? pl.Ch : '@', pl.Color, pos, 19);
+                    if (pl.Hp < pl.MaxHp)
+                        DrawStateBar(pos, pl.Hp, pl.MaxHp, false, barsNeeded++);
+                }
+            }
+
             for (int i = _entityPool.Count - 1; i >= needed; i--)
             {
                 Destroy(_entityPool[i].gameObject);
                 _entityPool.RemoveAt(i);
             }
+            TrimPool(_barBgPool, barsNeeded);
+            TrimPool(_barFillPool, barsNeeded);
+        }
+
+        private void TrimPool(List<SpriteRenderer> pool, int needed)
+        {
+            for (int i = pool.Count - 1; i >= needed; i--)
+            {
+                Destroy(pool[i].gameObject);
+                pool.RemoveAt(i);
+            }
+        }
+
+        // ── HP-бары и метка босса (порт DrawMonster из render/GameRenderer.cs:
+        //    бар только когда Hp < MaxHp, над глифом; босс — красная обводка) ──
+
+        private readonly List<SpriteRenderer> _barBgPool = new();
+        private readonly List<SpriteRenderer> _barFillPool = new();
+        private readonly List<SpriteRenderer> _bossRingPool = new();
+        private Texture2D? _whiteTex;
+        private Texture2D? _ringTex;
+
+        private Texture2D WhiteTex
+        {
+            get
+            {
+                if (_whiteTex == null)
+                {
+                    _whiteTex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+                    _whiteTex.SetPixel(0, 0, UColor.white);
+                    _whiteTex.Apply(false, true);
+                }
+                return _whiteTex;
+            }
+        }
+
+        /// <summary>Кольцо-обводка босса (генерируется один раз, 64×64).</summary>
+        private Texture2D RingTex
+        {
+            get
+            {
+                if (_ringTex == null)
+                {
+                    const int size = 64;
+                    _ringTex = new Texture2D(size, size, TextureFormat.RGBA32, false);
+                    var c = UColor.red;
+                    for (int y = 0; y < size; y++)
+                        for (int x = 0; x < size; x++)
+                        {
+                            float dx = x - size / 2 + 0.5f, dy = y - size / 2 + 0.5f;
+                            float d = Mathf.Sqrt(dx * dx + dy * dy);
+                            bool onRing = d is >= 29f and <= 31f;
+                            _ringTex.SetPixel(x, y, onRing ? new UColor(c.r, c.g, c.b, 0.85f) : UColor.clear);
+                        }
+                    _ringTex.Apply(false, true);
+                }
+                return _ringTex;
+            }
+        }
+
+        private Sprite FlatSprite(Texture2D tex, int px)
+            => Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height),
+                new Vector2(0.5f, 0.5f), tex.width / (float)px);
+
+        private SpriteRenderer BarSprite(List<SpriteRenderer> pool, int idx, int sorting)
+        {
+            SpriteRenderer sr;
+            if (idx < pool.Count) sr = pool[idx];
+            else
+            {
+                var go = new GameObject("bar");
+                go.transform.SetParent(_entitiesRoot, false);
+                sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = FlatSprite(WhiteTex, 1);
+                pool.Add(sr);
+            }
+            sr.sortingOrder = sorting;
+            return sr;
+        }
+
+        private void DrawHpBar(Entity m, Dungeon map, int idx)
+        {
+            DrawStateBar(TilePos(map, m.X, m.Y), m.Hp, m.MaxHp, m.Boss, idx);
+        }
+
+        /// <summary>HP-бар над глифом (геометрия из render/GameRenderer.DrawMonster):
+        /// bg Color(40,20,20) + fill Config.ColHp, ширина boss?40:24, высота 3.</summary>
+        private void DrawStateBar(Vector3 pos, int hp, int maxHp, bool boss, int idx)
+        {
+            float barW = boss ? 40 : 24, barH = 3;
+            float up = boss ? 32 : 26;   // над глифом (мир: y вверх)
+
+            var bg = BarSprite(_barBgPool, idx, 12);
+            bg.color = new UColor(40f / 255f, 20f / 255f, 20f / 255f);
+            bg.transform.position = new Vector3(pos.x, pos.y + up, 0f);
+            bg.transform.localScale = new Vector3(barW, barH, 1f);
+
+            var fill = BarSprite(_barFillPool, idx, 13);
+            fill.color = Config.ColHp;   // implicit XNA Color -> UColor в шиме
+            float frac = maxHp <= 0 ? 0f : Mathf.Clamp01(hp / (float)maxHp);
+            fill.transform.position = new Vector3(
+                pos.x - barW / 2f + barW * frac / 2f, pos.y + up, 0f);
+            fill.transform.localScale = new Vector3(barW * frac, barH - 1f, 1f);
+        }
+
+        private void DrawBossRing(Entity m, Dungeon map, int idx)
+        {
+            SpriteRenderer sr;
+            if (idx < _bossRingPool.Count) sr = _bossRingPool[idx];
+            else
+            {
+                var go = new GameObject("boss_ring");
+                go.transform.SetParent(_entitiesRoot, false);
+                sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = FlatSprite(RingTex, 64);
+                _bossRingPool.Add(sr);
+            }
+            sr.sortingOrder = 11;
+            sr.transform.position = TilePos(map, m.X, m.Y);
+            sr.gameObject.SetActive(true);
+        }
+
+        private void HideBossRings()
+        {
+            foreach (var sr in _bossRingPool) sr.gameObject.SetActive(false);
         }
 
         private void SetGlyph(SpriteRenderer sr, char ch)
