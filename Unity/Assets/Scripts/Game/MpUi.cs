@@ -1,7 +1,7 @@
 // uGUI-порт MP-веток render/MainMenuScreen.cs (Mode.Multiplayer и Mode.MpJoin):
 // экран menu_multiplayer — «Хост» / «Подключиться» / «Назад», экран
 // menu_mp_join — поле адреса «host:port» и пароля. Действия — те же вызовы,
-// что desktop World/Game.cs ожидает от меню:
+// что desktop Desktop/Game.cs ожидает от меню:
 //   «Продолжить/Новая игра (хост)» → GameController.StartMpHost(fresh, "warrior")
 //     (desktop OnMpHost; хост-класс «warrior», desktop тоже не выбирает класс здесь);
 //   «Подключиться» → GameController.StartMpJoin("host:port") (desktop OnMpJoin).
@@ -305,7 +305,7 @@ namespace Aethelgard
             }
         }
 
-        // ── Действия (desktop World/Game.cs WireMenu) ──
+        // ── Действия (desktop Desktop/Game.cs WireMenu) ──
 
         private void HostGame(bool fresh)
         {

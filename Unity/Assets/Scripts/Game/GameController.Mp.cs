@@ -153,7 +153,7 @@ public partial class GameController
     }
 
     /// <summary>
-    /// Единая обработка ESC для SP (вызывается из World/Game.cs): модал —
+    /// Единая обработка ESC для SP (вызывается из Desktop/Game.cs): модал —
     /// шаг вверх; в игре — открыть паузу. Возвращает true, если ESC был
     /// обработан здесь.
     /// </summary>

@@ -1,7 +1,7 @@
 namespace Aethelgard;
 
 /// <summary>
-/// Точка входа. Цикл игры обрабатывает AethelgardGame (World/Game.cs).
+/// Точка входа. Цикл игры обрабатывает AethelgardGame (Desktop/Game.cs).
 /// </summary>
 public static class Program
 {

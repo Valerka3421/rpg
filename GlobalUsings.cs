@@ -8,6 +8,7 @@ global using Aethelgard.Entities;
 global using Aethelgard.Entities.Monsters;
 global using Aethelgard.Structs;
 global using Aethelgard.World;
+global using Aethelgard.Desktop;
 global using Aethelgard.Systems;
 global using Aethelgard.Data;
 global using Aethelgard.Render;

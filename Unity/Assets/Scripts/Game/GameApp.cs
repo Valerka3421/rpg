@@ -73,7 +73,7 @@ namespace Aethelgard
             _menu.OnClassPicked = classKey =>
             {
                 // Ветка «Создать игру (MP)»: выбор класса запускает хоста,
-                // как в desktop World/Game.cs:511-527.
+                // как в desktop Desktop/Game.cs:511-527.
                 if (_game.PendingMpHost)
                 {
                     bool fresh = _game.PendingMpFresh;
@@ -216,7 +216,7 @@ namespace Aethelgard
 
         private void ApplyPauseChoice(int choice)
         {
-            // Порты действий pause-меню desktop World/Game.cs:430-449,
+            // Порты действий pause-меню desktop Desktop/Game.cs:430-449,
             // без несуществующих в Unity меню сейвов/настроек.
             switch (choice)
             {

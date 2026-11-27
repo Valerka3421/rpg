@@ -9,7 +9,7 @@ namespace Aethelgard.Render;
 /// <summary>
 /// Базовая рамка модального окна. Панели/текст/полосы рисует UiKit —
 /// база хранит только устройство, спрайт-батч и шрифт (LoadFont —
-/// внешний контракт, вызывается World/Game.cs для всех экранов).
+/// внешний контракт, вызывается Desktop/Game.cs для всех экранов).
 /// </summary>
 public abstract class ModalScreenBase
 {

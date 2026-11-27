@@ -28,7 +28,7 @@ public class InventoryScreen
     public const int GridCols = 10;
     public const int GridRows = 10;
 
-    /// <summary>Синхронизируется с GameController.CurrentPage (World/Game.cs).</summary>
+    /// <summary>Синхронизируется с GameController.CurrentPage (Desktop/Game.cs).</summary>
     public int CurrentPage = 0;
 
     public InventoryScreen(GraphicsDevice device, SpriteBatch sb)

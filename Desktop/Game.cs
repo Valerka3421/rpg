@@ -4,7 +4,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 
-namespace Aethelgard.World;
+namespace Aethelgard.Desktop;
 
 /// <summary>
 /// MonoGame game loop. Delegates to GameController (state/input)

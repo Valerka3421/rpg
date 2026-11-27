@@ -14,8 +14,8 @@ public static class Program
         string outDir = Environment.GetEnvironmentVariable("SHOTS_DIR") ?? "/tmp/shots";
         Directory.CreateDirectory(outDir);
 
-        var game = new Aethelgard.World.AethelgardGame();
-        Aethelgard.World.AethelgardGame.CaptureHook = gd => Capture(gd, outDir);
+        var game = new Aethelgard.Desktop.AethelgardGame();
+        Aethelgard.Desktop.AethelgardGame.CaptureHook = gd => Capture(gd, outDir);
 
         var t = new Thread(() =>
         {
