@@ -88,8 +88,11 @@ public class GameController
     public bool MinimapVisible = true;
     private int _lastRevealX = -1, _lastRevealY = -1; // последняя открытая туманом позиция
 
-    // Run statistics (Tab)
+    // Run statistics (Tab) — parity python run_summary (game.run_summary)
     public int KillsTotal, GoldEarned, ItemsCrafted, QuestsDone;
+    public int BossKills, PotionsUsed;
+    public Dictionary<string, int> KillsByCh = new();
+    public DateTime RunStart = DateTime.Now;
     public bool Victory;
 
     // Active dungeon shop (торговец на этаже)
@@ -146,6 +149,10 @@ public class GameController
         _worldMode = "overworld";
         Depth = 0;
         ScreenMode = Screens.Game;
+        RunStart = DateTime.Now;
+        KillsTotal = 0; BossKills = 0; PotionsUsed = 0;
+        GoldEarned = 0; ItemsCrafted = 0; QuestsDone = 0;
+        KillsByCh.Clear();
         _floorCache.Clear();
 
         // Initialize craft levels
@@ -366,6 +373,14 @@ public class GameController
         if (keys.IsKeyDown(Keys.Space) && !prevKeys.IsKeyDown(Keys.Space))
             Attack();
 
+        // Статистика забега (Tab — python stats_run.open)
+        if (keys.IsKeyDown(Keys.Tab) && !prevKeys.IsKeyDown(Keys.Tab)
+            && ScreenMode == Screens.Game)
+        {
+            ScreenMode = Screens.StatsRun;
+            return;
+        }
+
         // F — use stairs/exit/gate (no longer auto-trigger)
         if (keys.IsKeyDown(Keys.F) && !prevKeys.IsKeyDown(Keys.F))
             UseStairs();
@@ -405,7 +420,10 @@ public class GameController
             {
                 var itemKey = Player.Quickbar[i];
                 if (itemKey != null && Player.UseItem(itemKey, CurrentMap))
+                {
                     ShowMessage($"Использовано: {ItemData.DisplayName(itemKey)}");
+                    if (itemKey.StartsWith("potion")) PotionsUsed++;
+                }
             }
         }
 
@@ -413,7 +431,10 @@ public class GameController
         if (keys.IsKeyDown(Keys.H) && !prevKeys.IsKeyDown(Keys.H))
         {
             if (ItemSystem.UseBestPotion(Player, CurrentMap) != null)
+            {
                 ShowMessage("Выпито зелье лечения");
+                PotionsUsed++;
+            }
             else
                 ShowMessage("Нет зелий лечения!");
         }
@@ -1060,7 +1081,10 @@ public class GameController
                 break;
             default:
                 if (Player.UseItem(key, CurrentMap))
+                {
                     ShowMessage($"Использовано: {def.Name}");
+                    if (key.StartsWith("potion")) PotionsUsed++;
+                }
                 break;
         }
         // collect-квесты проверяем после любого использования
@@ -1538,6 +1562,8 @@ public class GameController
         CombatSystem.AwardKill(Player, CurrentMap, target, Depth);
         Audio?.Play(target.Boss ? "boss" : "death_monster");
         KillsTotal++;
+        if (target.Boss) BossKills++;
+        KillsByCh[target.Name] = KillsByCh.GetValueOrDefault(target.Name) + 1;
 
         // Quest kill tracking
         Quests.UpdateKill(target.Ch);

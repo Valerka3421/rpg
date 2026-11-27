@@ -307,6 +307,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                     break;
                 case ScreenMode.Inventory: case ScreenMode.Skills: case ScreenMode.Shop: case ScreenMode.Quests:
                 case ScreenMode.Dialogue: case ScreenMode.Craft: case ScreenMode.Stats: case ScreenMode.Bigmap:
+                case ScreenMode.StatsRun:
                     _game.ScreenMode = ScreenMode.Game;
                     escConsumed = true;
                     break;
@@ -480,6 +481,7 @@ public class AethelgardGame : Microsoft.Xna.Framework.Game
                 case ScreenMode.Bigmap: _bigmap.Draw(_game); break;
                 case ScreenMode.Craft: _craft.Draw(_game, mouse); break;
                 case ScreenMode.Stats: _stats.Draw(_game, mouse); break;
+                case ScreenMode.StatsRun: _quests.DrawRunStats(_game); break;
             }
             // Dev console overlay (always on top)
             if (_game.Console.Open)

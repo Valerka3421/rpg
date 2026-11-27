@@ -130,6 +130,78 @@ public class QuestScreen
                 new Color(200, 180, 100));
     }
 
+    /// <summary>
+    /// Статистика забега (Tab) — parity python _quests.py:draw_run_stats.
+    /// </summary>
+    public void DrawRunStats(GameController game)
+    {
+        int sw = AethelgardGame.ScreenW, sh = AethelgardGame.ScreenH;
+
+        _sb.Draw(Blank, new Rectangle(0, 0, sw, sh), new Color(0, 0, 0, 180));
+
+        int panelW = 980, panelH = 600;
+        int px = (sw - panelW) / 2, py = (sh - panelH) / 2;
+        _sb.Draw(Blank, new Rectangle(px, py, panelW, panelH), new Color(20, 18, 14, 240));
+        _sb.Draw(Blank, new Rectangle(px, py, panelW, 2), Config.ColGold);
+        _sb.Draw(Blank, new Rectangle(px, py + panelH - 2, panelW, 2), Config.ColGold);
+
+        if (_font == null) return;
+
+        _sb.DrawString(_font, "СТАТИСТИКА ЗАБЕГА", new Vector2(px + 20, py + 12),
+            Config.ColGold);
+
+        var ts = DateTime.Now - game.RunStart;
+        int mins = (int)ts.TotalSeconds / 60, secs = (int)ts.TotalSeconds % 60;
+        var questsActive = game.Quests.Active.Count;
+
+        (string, string)[] left =
+        {
+            ("Время", $"{mins}:{secs:D2}"),
+            ("Убито мобов", game.KillsTotal.ToString()),
+            ("Боссов", game.BossKills.ToString()),
+            ("Уровень", game.Player.Level.ToString()),
+            ("Глубина", game.Depth.ToString()),
+            ("Золото сейчас", game.Player.Gold.ToString()),
+            ("Золото добыто", game.GoldEarned.ToString()),
+            ("Зелий", game.PotionsUsed.ToString()),
+            ("Крафтов", game.ItemsCrafted.ToString()),
+            ("Квестов сдано", game.QuestsDone.ToString()),
+            ("Квестов активно", questsActive.ToString()),
+        };
+
+        int lx = px + 20, rx = px + panelW / 2 + 30;
+        int y = py + 52;
+        _sb.DrawString(_font, "─── ОБЩЕЕ ───", new Vector2(lx, y), new Color(190, 172, 138));
+        _sb.DrawString(_font, "─── УБИТО ПО ТИПАМ ───", new Vector2(rx, y),
+            new Color(190, 172, 138));
+        y += 34;
+
+        foreach (var (name, val) in left)
+        {
+            _sb.DrawString(_font, name, new Vector2(lx, y), Config.ColDim);
+            _sb.DrawString(_font, val, new Vector2(lx + 220, y), Config.ColText);
+            y += 30;
+        }
+
+        y = py + 86;
+        bool has = false;
+        foreach (var kv in game.KillsByCh.OrderByDescending(kv => kv.Value))
+        {
+            if (kv.Value == 0) continue;
+            has = true;
+            _sb.DrawString(_font, $"{kv.Key}:", new Vector2(rx, y), Config.ColDim);
+            _sb.DrawString(_font, kv.Value.ToString(), new Vector2(rx + 260, y),
+                Config.ColText);
+            y += 30;
+            if (y > py + panelH - 30) break;
+        }
+        if (!has)
+            _sb.DrawString(_font, "(пока никого)", new Vector2(rx, y), Config.ColDim);
+
+        _sb.DrawString(_font, "Tab/Esc — закрыть",
+            new Vector2(px + 20, py + panelH - 26), Config.ColDim);
+    }
+
     private Texture2D Blank
     {
         get

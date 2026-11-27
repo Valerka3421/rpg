@@ -412,6 +412,7 @@ public static class SaveSystem
             p.Str = pd.Str; p.Agi = pd.Agi; p.Vit = pd.Vit;
             p.Luk = pd.Luk; p.DfStat = pd.DfStat; p.IntStat = pd.IntStat;
             p.ClassKey = pd.ClassKey; p.ClassName = pd.ClassName;
+            game.RunStart = DateTime.Now;   // статистика забега начинается заново
             p.ClassTier = pd.ClassTier;
             p.ClassBase = string.IsNullOrEmpty(pd.ClassBase) ? pd.ClassKey : pd.ClassBase;
             p.ClassChanges = pd.ClassChanges;
