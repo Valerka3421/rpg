@@ -12,6 +12,9 @@
     <Company>Valerka3421</Company>
     <Product>Aethelgard</Product>
     <Description>Tactical RPG — refactored layered architecture (BaseClass/Entities/Structs/World/Systems/Data)</Description>
+    <!-- Unity-проект не должен попадать в дефолтную глоб-компиляцию:
+         ядро подключается линком явно, движковый слой Unity — никогда -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Unity/**;Library/**;Temp/**;Logs/**;Obj/**;UserSettings/**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -41,5 +44,15 @@
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
     <None Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- Unity-проект лежит внутри репо (Unity/). В MonoGame-сборку включается
+       ТОЛЬКО чистое ядро (Unity/Assets/Scripts/Core), кроме Compat/:
+       shim подменяет Microsoft.Xna.Framework на Unity-версии и использует
+       UnityEngine, недоступный здесь; GlobalUsings ядра не дублирует
+       корневой. Движковый слой Unity (Unity/Assets/Scripts/Game) в
+       MonoGame-сборку не попадает. -->
+  <ItemGroup>
+    <Compile Include="Unity/Assets/Scripts/Core/**/*.cs" Exclude="Unity/Assets/Scripts/Core/Compat/**;Unity/Assets/Scripts/Core/GlobalUsings.cs" />
   </ItemGroup>
 </Project>

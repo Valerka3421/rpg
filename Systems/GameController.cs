@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Microsoft.Xna.Framework;
@@ -12,8 +12,16 @@ namespace Aethelgard.Systems;
 ///
 /// Modes: "overworld" (surface), "dungeon" (underground), "inventory" (modal).
 /// </summary>
-public partial class GameController
+public partial class GameController : ISaveableGame
 {
+    // Явная реализация ISaveableGame: поля Player/Depth/Overworld/Quests/
+    // RunStart не удовлетворяют свойствам интерфейса неявно.
+    Player ISaveableGame.Player { get => Player; }
+    int ISaveableGame.Depth { get => Depth; }
+    Dungeon ISaveableGame.Overworld { get => Overworld; set => Overworld = value; }
+    QuestLog ISaveableGame.Quests { get => Quests; }
+    DateTime ISaveableGame.RunStart { get => RunStart; set => RunStart = value; }
+
     public Dungeon Overworld;
     public Dungeon Dungeon;
     public Dungeon CurrentMap =>

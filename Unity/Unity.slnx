@@ -1,0 +1,5 @@
+﻿<Solution>
+  <Project Path="Aethelgard.Core.csproj" />
+  <Project Path="Aethelgard.Game.csproj" />
+  <Project Path="Assembly-CSharp-Editor.csproj" />
+</Solution>

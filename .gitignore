@@ -20,3 +20,21 @@ obj/
 .vs/
 *.xnb
 /Binaries/
+
+# Unity (Library/Temp/Logs создались в корне из-за кириллицы в пути проекта)
+/Library/
+/Temp/
+/Logs/
+/Obj/
+/UserSettings/
+/Packages/
+/ProjectSettings/
+/unity_build.log
+/unity_import.log
+/unity_run.log
+
+# Unity-билды и кэши
+Unity/Builds/
+Unity/.vsconfig/
+*.pdb
+*.mdb
