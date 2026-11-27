@@ -26,9 +26,17 @@ namespace Aethelgard.Systems;
 public static partial class SaveSystem
 {
     public const int SaveVersion = Config.SaveVersion;  // 8
+
+    // На Unity сейвы идут в persistentDataPath (песочница платформы),
+    // desktop-сборка продолжает хранить их в AppData.
+#if UNITY_5_3_OR_NEWER
+    public static readonly string SaveDir = Path.Combine(
+        UnityEngine.Application.persistentDataPath, "saves");
+#else
     public static readonly string SaveDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
         "Aethelgard", "saves");
+#endif
 
     /// <summary>
     /// Единые опции сериализации. Свойства (а не поля) выбраны осознанно:
