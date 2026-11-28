@@ -26,3 +26,6 @@ crashlytics-build.properties
 ExportedObj/
 *.apk.meta
 *.aab.meta
+
+# Восстановление после сбоя Editor (мусор)
+Assets/_Recovery/

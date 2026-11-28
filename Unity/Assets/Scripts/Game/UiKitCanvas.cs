@@ -52,7 +52,7 @@ namespace Aethelgard
         public const int Pad = 16;
         public const int Gap = 10;
         public const int RowH = 26;
-        public const int Slot = 56;
+        public const int SlotSize = 56;
         public const int TabH = 34;
 
         // ── Палитра (значения из UiKit.Theme) ──
