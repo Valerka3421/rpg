@@ -1,0 +1,7 @@
+{
+    "name": "Aethelgard.Core",
+    "rootNamespace": "Aethelgard",
+    "references": [],
+    "noEngineReferences": true,
+    "autoReferenced": true
+}

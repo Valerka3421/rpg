@@ -1,0 +1,17 @@
+# Unity transient / generated
+Library/
+Temp/
+Logs/
+Obj/
+obj/
+UserSettings/
+Build/
+_Recovery/
+
+# Logs and results
+*.log
+testresults.xml
+
+# IDE
+.vs/
+.idea/

@@ -1,0 +1,45 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 0}
+  m_Name: UITheme
+  m_EditorClassIdentifier: Aethelgard.Game:Aethelgard.UI:UITheme
+  WindowBg: {r: 0.066, g: 0.055, b: 0.039, a: 1}
+  WindowBgTop: {r: 0.11, g: 0.09, b: 0.063, a: 1}
+  Inset: {r: 0.094, g: 0.078, b: 0.059, a: 1}
+  RowHover: {r: 0.204, g: 0.169, b: 0.118, a: 1}
+  RowSelect: {r: 0.259, g: 0.208, b: 0.118, a: 1}
+  Bronze: {r: 0.376, g: 0.306, b: 0.18, a: 1}
+  BronzeHi: {r: 0.62, g: 0.502, b: 0.282, a: 1}
+  Gold: {r: 0.878, g: 0.761, b: 0.471, a: 1}
+  GoldSoft: {r: 0.808, g: 0.651, b: 0.322, a: 1}
+  Ink: {r: 0.878, g: 0.839, b: 0.761, a: 1}
+  InkDim: {r: 0.588, g: 0.549, b: 0.471, a: 1}
+  InkFaint: {r: 0.408, g: 0.373, b: 0.306, a: 1}
+  Life: {r: 0.745, g: 0.243, b: 0.227, a: 1}
+  Mana: {r: 0.376, g: 0.573, b: 0.847, a: 1}
+  Experience: {r: 0.329, g: 0.612, b: 0.863, a: 1}
+  Danger: {r: 0.816, g: 0.361, b: 0.282, a: 1}
+  Success: {r: 0.549, g: 0.745, b: 0.471, a: 1}
+  FontName: Segoe UI
+  H1Size: 40
+  H2Size: 22
+  BodySize: 18
+  SmallSize: 14
+  TinySize: 12
+  FrameThickness: 2
+  Padding: 20
+  RowHeight: 46
+  ButtonHeight: 52
+  PanelShadow: 1
+  MenuSkyTop: {r: 0.1, g: 0.09, b: 0.14, a: 1}
+  MenuSkyBottom: {r: 0.24, g: 0.14, b: 0.1, a: 1}
+  MenuEmbers: 40
