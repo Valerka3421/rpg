@@ -4,6 +4,18 @@ using UnityEngine;
 
 namespace Aethelgard.EditorTools
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Aethelgard.BaseClass;
+    using Aethelgard.Entities;
+    using Aethelgard.Entities.Monsters;
+    using Aethelgard.Structs;
+    using Aethelgard.World;
+    using Aethelgard.Systems;
+    using Aethelgard.Data;
+    using Aethelgard.Net;
+    using Aethelgard.Audio;
     /// <summary>Сборка standalone-версии игры (Aethelgard → Build Game).</summary>
     public static class BuildGame
     {

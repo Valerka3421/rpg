@@ -11,6 +11,18 @@ using Object = UnityEngine.Object;
 
 namespace Aethelgard.EditorTools
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Aethelgard.BaseClass;
+    using Aethelgard.Entities;
+    using Aethelgard.Entities.Monsters;
+    using Aethelgard.Structs;
+    using Aethelgard.World;
+    using Aethelgard.Systems;
+    using Aethelgard.Data;
+    using Aethelgard.Net;
+    using Aethelgard.Audio;
     /// <summary>
     /// Инструменты редактора для правки интерфейса БЕЗ кода:
     ///
@@ -173,7 +185,7 @@ namespace Aethelgard.EditorTools
                     $"({panel.transform.childCount} элементов верхнего уровня)");
             }
 
-            Object.DestroyImmediate(canvasGo);
+            UnityEngine.Object.DestroyImmediate(canvasGo);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("Готово: экраны в Resources/Screens — правь их в Editor, " +
@@ -232,7 +244,7 @@ namespace Aethelgard.EditorTools
         private static void PreviewScreen(string screenName, string mode)
         {
             if (GameObject.Find("Aethelgard UI Preview") != null)
-                Object.DestroyImmediate(GameObject.Find("Aethelgard UI Preview"));
+                UnityEngine.Object.DestroyImmediate(GameObject.Find("Aethelgard UI Preview"));
 
             var canvasGo = new GameObject("Aethelgard UI Preview", typeof(RectTransform));
             canvasGo.AddComponent<Canvas>().renderMode = RenderMode.ScreenSpaceOverlay;
@@ -299,7 +311,7 @@ namespace Aethelgard.EditorTools
             var go = new GameObject(name, typeof(RectTransform));
             build((RectTransform)go.transform);
             PrefabUtility.SaveAsPrefabAsset(go, path);
-            Object.DestroyImmediate(go);
+            UnityEngine.Object.DestroyImmediate(go);
         }
 
         private static UITheme LoadOrCreateTheme()

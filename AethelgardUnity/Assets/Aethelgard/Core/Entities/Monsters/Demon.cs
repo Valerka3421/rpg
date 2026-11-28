@@ -1,49 +1,63 @@
-namespace Aethelgard.Entities.Monsters;
-
-/// <summary>
-/// Демон — поджигает цель (burning). Все данные вида перенесены из data/monsters.json
-/// прямо в класс (архитектура «Пример»: данные живут в классе).
-/// </summary>
-public class Demon : Monster
-{
-    public const string Key = "demon";
-
-    /// <summary>Данные вида до масштабирования (статический конструктор ниже).</summary>
-    private static readonly MonsterData.Def _def;
-
-    static Demon()
+namespace Aethelgard.Entities.Monsters
     {
-        _def = new MonsterData.Def
+    
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using Aethelgard.BaseClass;
+    using Aethelgard.Entities;
+    using Aethelgard.Entities.Monsters;
+    using Aethelgard.Structs;
+    using Aethelgard.World;
+    using Aethelgard.Systems;
+    using Aethelgard.Data;
+    using Aethelgard.Net;
+    using Aethelgard.Audio;
+    /// <summary>
+    /// Демон — поджигает цель (burning). Все данные вида перенесены из data/monsters.json
+    /// прямо в класс (архитектура «Пример»: данные живут в классе).
+    /// </summary>
+    public class Demon : Monster
+    {
+        public const string Key = "demon";
+    
+        /// <summary>Данные вида до масштабирования (статический конструктор ниже).</summary>
+        private static readonly MonsterData.Def _def;
+    
+        static Demon()
         {
-            Key = "demon",
-            Name = "Демон",
-            Ch = "D",
-            Hp = 50,
-            Atk = 12,
-            Df = 4,
-            Xp = 70,
-            Color = new Microsoft.Xna.Framework.Color(200,70,70),
-            MinDepth = 6,
-            Ability = "burning",
-            Boss = false,
-            BossDepth = 0,
-            OverworldOnly = false,
-            Passive = false,
-            Flees = false,
-            Gold = true,
-        };
-    }
-
-    public Demon()
-    {
-    }
-
-    /// <summary>Данные вида (перенесены из таблицы монстров в класс).</summary>
-    public override MonsterData.Def Def => _def;
-
-    public override void Spawn(int depth, List<Entity> list)
-    {
-        InitFromDef(_def, depth);
-        list.Add(this);
+            _def = new MonsterData.Def
+            {
+                Key = "demon",
+                Name = "Демон",
+                Ch = "D",
+                Hp = 50,
+                Atk = 12,
+                Df = 4,
+                Xp = 70,
+                Color = new Microsoft.Xna.Framework.Color(200,70,70),
+                MinDepth = 6,
+                Ability = "burning",
+                Boss = false,
+                BossDepth = 0,
+                OverworldOnly = false,
+                Passive = false,
+                Flees = false,
+                Gold = true,
+            };
+        }
+    
+        public Demon()
+        {
+        }
+    
+        /// <summary>Данные вида (перенесены из таблицы монстров в класс).</summary>
+        public override MonsterData.Def Def => _def;
+    
+        public override void Spawn(int depth, List<Entity> list)
+        {
+            InitFromDef(_def, depth);
+            list.Add(this);
+        }
     }
 }
