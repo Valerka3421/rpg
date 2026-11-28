@@ -23,7 +23,7 @@ public class AudioSystem : AudioSystemCore
     public AudioSystem()
     {
         _root = new GameObject("AethelgardAudio");
-        UnityEngine.Object.DontDestroyOnLoad(_root);
+        if (Application.isPlaying) UnityEngine.Object.DontDestroyOnLoad(_root);
         for (int i = 0; i < 4; i++)
         {
             var src = _root.AddComponent<AudioSource>();

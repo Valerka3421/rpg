@@ -122,10 +122,12 @@ public class QuestsUI
         return "";
     }
 
+    private static int _rowIdx;
+
     private void DrawQuest(Transform parent, int y, string name, string desc,
         string reward, string action, System.Action? onClick, bool selected)
     {
-        var row = UiKit.Panel(parent, 40, y, 1020, 76, _t, "QuestRow_" + y);
+        var row = UiKit.Panel(parent, 40, y, 1020, 76, _t, "QuestRow" + _rowIdx++);
         if (selected) UiKit.Solid(row.transform, 0, 0, 1020, 76, _t.RowSelect, "Sel");
         UiKit.Solid(row.transform, 0, 0, 6, 76, selected ? _t.GoldSoft : _t.Bronze, "Stripe");
         UiKit.Label(row.transform, 20, 8, 500, 24, name, _t.BodySize,

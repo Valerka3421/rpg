@@ -166,6 +166,7 @@ public class ConsoleUI
 
     public void Draw()
     {
+        Root.gameObject.SetActive(true); // консоль рисуется поверх всего
         var c = _game.Console;
         if (_panel == null)
         {

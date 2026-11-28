@@ -13,6 +13,7 @@ namespace Aethelgard.EditorTools
             PlayerSettings.defaultScreenWidth = 1920;
             PlayerSettings.defaultScreenHeight = 1080;
             PlayerSettings.fullScreenMode = FullScreenMode.Windowed;
+            PlayerSettings.runInBackground = true;
 
             var scenes = new[] { "Assets/Scenes/Empty.unity" };
             var report = BuildPipeline.BuildPlayer(scenes,

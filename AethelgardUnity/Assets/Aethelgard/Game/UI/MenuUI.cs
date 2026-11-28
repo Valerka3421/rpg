@@ -207,11 +207,22 @@ public class MenuUI
     {
         for (int i = 0; i < _selButtons.Count && i < _labels.Count; i++)
         {
+            var btn = _selButtons[i];
+            if (btn == null) continue; // кнопка уже уничтожена (перестройка)
             bool sel = i == _sel;
-            UiKit.SetKeyboardSelected(_selButtons[i], sel);
-            var txt = _selButtons[i].GetComponentInChildren<Text>();
-            if (txt != null)
-                txt.text = sel ? "▶  " + _labels[i] : _labels[i];
+            UiKit.SetKeyboardSelected(btn, sel);
+            // Текст перезаписывается кодом, только если префаб его не
+            // переопределяет узлом «!» (правка из Unity Editor)
+            if (!ScreenPrefabs.OverridesText("Menu", "Button_" + _labels[i]))
+            {
+                var txt = btn.GetComponentInChildren<Text>();
+                if (txt != null)
+                    txt.text = sel ? "▶  " + _labels[i] : _labels[i];
+            }
+            else if (sel)
+            {
+                UiKit.SetKeyboardSelected(btn, true);
+            }
         }
     }
 
@@ -220,6 +231,8 @@ public class MenuUI
         foreach (var b in _buttons) UnityEngine.Object.Destroy(b);
         _buttons.Clear();
         _buttonList.Clear();
+        _labels.Clear();
+        _selButtons.Clear();
     }
 
     private void Rebuild(string mode)
@@ -301,6 +314,8 @@ public class MenuUI
 
     public void DrawPause(float dt)
     {
+        if (_pausePanel == null) RebuildPause(); // ленивая сборка (для превью/генерации)
+
         var keys = InputState.Keys;
         var prevKeys = InputState.PrevKeys;
         bool up = keys.IsKeyDown(XnaKeys.Up) && !prevKeys.IsKeyDown(XnaKeys.Up);

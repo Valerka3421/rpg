@@ -121,7 +121,7 @@ public class UIManager : MonoBehaviour
     public void Show(string mode)
     {
         bool menu = System.Array.IndexOf(MenuModes, mode) >= 0;
-        SetActive(_menu.Root, menu);
+        SetActive(_menu.Root, menu || mode == Screens.Pause);
         SetActive(_classSelect.Root, mode == Screens.ClassSelect);
         SetActive(_hud.Root, mode == Screens.Game || mode == Screens.MpGame ||
             mode == Screens.Dialogue || mode == Screens.StatsRun ||
@@ -151,6 +151,14 @@ public class UIManager : MonoBehaviour
     /// GameController не должен обрабатывать этот кадр.
     /// </summary>
     public bool Tick(XnaMouse mouse, XnaMouse prevMouse, float dt)
+    {
+        bool consumed = TickInner(mouse, prevMouse, dt);
+        // Слой редактируемости применяется в любом режиме, в конце кадра
+        ApplyScreenPrefabs();
+        return consumed;
+    }
+
+    private bool TickInner(XnaMouse mouse, XnaMouse prevMouse, float dt)
     {
         var keys = InputState.Keys;
         var prevKeys = InputState.PrevKeys;
@@ -244,7 +252,63 @@ public class UIManager : MonoBehaviour
         // Всплывающее сообщение
         _message.Draw();
 
+        // ── Слой редактируемости: раскладка/тексты из префабов экранов ──
+        ApplyScreenPrefabs();
+
         return false;
+    }
+
+    /// <summary>
+    /// Накладывает префабы (Resources/Screens/*.prefab) на построенные
+    /// экраны В КОНЦЕ кадра — после того как код построил содержимое.
+    /// Правка раскладки и текстов (узлы «!») делается в Editor:
+    /// Aethelgard → Generate Screen Prefabs / Preview Screen / Apply.
+    /// </summary>
+    private void ApplyScreenPrefabs()
+    {
+        foreach (Transform root in Root)
+        {
+            if (!root.gameObject.activeSelf) continue;
+            switch (root.name)
+            {
+                case "Menu":
+                    TryApply(root, "MenuPanel", "Menu");
+                    TryApply(root, "PausePanel", "Pause");
+                    break;
+                case "Quests":
+                    TryApply(root, "QuestPanel", "Quests");
+                    TryApply(root, "RunStatsPanel", "RunStats");
+                    break;
+                case "DevConsole":
+                    TryApply(root, "ConsolePanel", "Console");
+                    break;
+                case "DeathVictory":
+                    TryApply(root, "OverlayPanel", "Death");
+                    break;
+                case "Hud":
+                    ScreenPrefabs.Apply(root.gameObject, "Hud");
+                    break;
+                case "ClassSelect":
+                    TryApply(root, "ClassPanel", "ClassSelect");
+                    break;
+                case "Inventory":
+                    TryApply(root, "InvPanel", "Inventory");
+                    break;
+                case "Message":
+                    TryApply(root, "MsgPanel", "Message");
+                    break;
+                default:
+                    TryApply(root, root.name + "Panel", root.name);
+                    break;
+            }
+        }
+    }
+
+    private static void TryApply(Transform root, string panelName, string prefabName)
+    {
+        var panel = root.Find(panelName);
+        if (panel != null && panel.gameObject.activeInHierarchy)
+            ScreenPrefabs.Apply(panel.gameObject, prefabName);
     }
 
     // ── Колбэки меню (порт WireMenu) ──
