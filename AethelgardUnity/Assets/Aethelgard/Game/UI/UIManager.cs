@@ -425,7 +425,10 @@ using Aethelgard.Runtime;
 
         public void OnVolume() => Game.ApplySettings();
 
-        public void HandleClassSelection(string? selected)
+        // Включение/выключение миникарты и FPS из настроек меню
+    public void ApplyHudSettings() => _hud.ApplySettingsVisibility();
+
+    public void HandleClassSelection(string? selected)
         {
             // selected == null — «назад» (ClassSelectUI.«←» / Esc в выборщике)
             if (selected != null)

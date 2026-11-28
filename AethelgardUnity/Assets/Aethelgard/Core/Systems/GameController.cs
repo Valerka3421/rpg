@@ -145,7 +145,10 @@ using System;
         /// </summary>
         public void NewGame(string classKey = "warrior")
         {
-            Overworld = WorldGen.GenerateOverworld();
+            // Начальная локация — ДЕРЕВНЯ 100×70 (python VILLAGE_W/H):
+            // раньше здесь был оверворлд 140×70 — «больше задуманного»
+            Overworld = Locations.GenerateLocation("village");
+            _locationCache["village"] = Overworld;
             Player = CharacterFactory.Create(classKey);
 
             var (cx, cy) = Aethelgard.World.Overworld.VillageCenter;
@@ -1187,8 +1190,10 @@ using System;
         }
 
         /// <summary>
-        /// Перейти через ворота (GATE) в другую локацию. Врата есть и на
-        /// оверворлде (края карты → биомы), и внутри локаций (назад в деревню).
+        /// Перейти через ворота (GATE) в другую локацию. Врата есть в деревне
+        /// (4 стороны света → биомы), в биомах (между собой и назад в деревню),
+        /// в шахту (rock) и в деревню гоблинов (swamp). Точка появления берётся
+        /// из перехода (transition.entry) — как в python locations.py.
         /// </summary>
         public void TravelThroughGate()
         {
@@ -1203,12 +1208,17 @@ using System;
 
             if (to == "village" || to == "overworld")
             {
-                // Возврат в деревню (оверворлд)
+                // Возврат в деревню (стартовая локация 100×70)
                 _currentLocation = null;
                 _worldMode = "overworld";
-                Player.X = Aethelgard.World.Overworld.VillageCenter.Item1;
-                Player.Y = Aethelgard.World.Overworld.VillageCenter.Item2;
-                Overworld.RevealAround(Player.X, Player.Y, Config.RevealRadius);
+                var village = Overworld;
+                int ex = Math.Min(village.W - 1, Math.Max(0, entry.Item1));
+                int ey = Math.Min(village.H - 1, Math.Max(0, entry.Item2));
+                if (village.Tiles[ey][ex] == Tile.Wall)
+                    village.Tiles[ey][ex] = Tile.Floor;
+                Player.X = ex;
+                Player.Y = ey;
+                village.RevealAround(ex, ey, Config.RevealRadius);
                 ShowMessage("Вы вернулись в Город Этельгард.");
                 return;
             }
@@ -1226,13 +1236,14 @@ using System;
                 _locationCache[to] = map;
             }
             _currentLocation = map;
-            // Вход — у врат локации (врата в первый столбец, вход справа от них)
-            var (entryX, entryY) = (1, map.H / 2);
-            if (CurrentMap.Tiles[entryY][entryX] == Tile.Wall)
-                CurrentMap.Tiles[entryY][entryX] = Tile.Floor;
+            // Точка появления — из перехода (SIDE_ENTRY/VILLAGE_GATE_ENTRY и т.п.)
+            int entryX = Math.Min(map.W - 1, Math.Max(0, entry.Item1));
+            int entryY = Math.Min(map.H - 1, Math.Max(0, entry.Item2));
+            if (map.Tiles[entryY][entryX] == Tile.Wall)
+                map.Tiles[entryY][entryX] = Tile.Floor;
             Player.X = entryX;
             Player.Y = entryY;
-            CurrentMap.RevealAround(entryX, entryY, Config.RevealRadius);
+            map.RevealAround(entryX, entryY, Config.RevealRadius);
             ShowMessage($"Вы вошли в: {Locations.All[to].Name}.");
         }
 

@@ -189,11 +189,67 @@ using System;
         public static string TileKindAt(Dungeon d, int x, int y)
         {
             var tile = d.TileAt(x, y);
-            if (tile == Tile.Wall) return Overworld.WallKind(x, y);
+            if (tile == Tile.Wall) return WallKindFor(d, x, y);
             if (tile == Tile.Stairs) return "stairs";
             if (tile == Tile.Exit) return "exit";
             if (tile == Tile.Gate) return "gate";
-            return Overworld.GroundKind(x, y);
+            return GroundKindFor(d, x, y);
+        }
+
+        // ── Виды поверхности по локации (LocationKey из карты) ──
+
+        private static string WallKindFor(Dungeon d, int x, int y)
+        {
+            switch (d.LocationKey)
+            {
+                case null:
+                case "village":
+                    return Overworld.WallKind(x, y);
+                case "goblin_village":
+                    return "tree_dark";
+                case "mine":
+                case "ruins":
+                    return "rock";
+                default:
+                    return d.LocationKey switch
+                    {
+                        "pine" => "tree_pine",
+                        "birch" => "tree_birch",
+                        "rock" => "rock",
+                        "autumn" => "tree_autumn",
+                        "swamp" => "tree_swamp",
+                        "meadow" => "tree_meadow",
+                        "dead" => "tree_dead",
+                        "beach" => "tree_pine",
+                        "graveyard" => "tree_dead",
+                        _ => "wall",
+                    };
+            }
+        }
+
+        private static string GroundKindFor(Dungeon d, int x, int y)
+        {
+            switch (d.LocationKey)
+            {
+                case null:
+                    return Overworld.GroundKind(x, y);
+                case "village":
+                    if (Locations.RoadCells("village").Contains((x, y)) ||
+                        Overworld.IsRoad(x, y)) return "road";
+                    return Overworld.InVillage(x, y) ? "village_floor"
+                        : Overworld.GroundKind(x, y);
+                case "goblin_village":
+                    return "grass_goblin";
+                case "mine":
+                    return "floor";
+                case "ruins":
+                    return "village_floor";
+                case "beach":
+                    return "grass_beach";
+                default:
+                    return Locations.RoadCells(d.LocationKey).Contains((x, y))
+                        ? "road" : $"grass_{d.LocationKey}";
+            }
         }
     }
 }

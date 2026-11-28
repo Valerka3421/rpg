@@ -138,7 +138,7 @@ using System;
                 TextAnchor.MiddleCenter, "Title");
 
             // Карта — RawImage с текстурой, сгенерированной из MapPalette
-            int mw = Config.MapW, mh = Config.MapH;
+            int mw = map.W, mh = map.H; // размеры текущей локации, не глобальные
             var tex = _mapTex = new Texture2D(mw, mh, TextureFormat.RGBA32, false);
             tex.filterMode = FilterMode.Point;
             var colors = new Color32[mw * mh];

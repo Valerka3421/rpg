@@ -33,6 +33,36 @@ using System;
     
         // ── City wall gate ──
         public const int CityGateWidth = 3;
+
+        // ── Живая деревня: декор и горожане (python overworld.py, 1:1) ──
+
+        /// <summary>Дома города — сплошные стены-крыши (декорации, не интерьеры).</summary>
+        public static readonly (int X, int Y, int W, int H)[] VillageHouses =
+        {
+            (36, 25, 5, 4), (43, 25, 6, 4), (53, 25, 6, 4), (61, 25, 4, 4),
+            (36, 40, 5, 4), (44, 40, 6, 4), (54, 40, 6, 4), (61, 40, 4, 4),
+        };
+
+        public static readonly (int X, int Y) WellPos = (VillageCenter.Item1, VillageCenter.Item2 - 3);
+        public static readonly (int X, int Y) ElderPos = (VillageCenter.Item1 + 2, VillageCenter.Item2);
+
+        /// <summary>Рыночные прилавки, статуи героев и факельные столбы.</summary>
+        public static readonly (int X, int Y)[] VillageStalls = { (40, 30), (58, 30) };
+        public static readonly (int X, int Y)[] VillageStatues = { (46, 30) };
+        public static readonly (int X, int Y)[] VillageTorches = { (42, 33), (57, 33) };
+
+        /// <summary>Посты стражников — в самих воротах; южный — «главный».</summary>
+        public static readonly (int X, int Y) GuardPos = (50, 44);
+        public static readonly Dictionary<string, (int X, int Y)> CityNpcPos = new()
+        {
+            ["guard"] = GuardPos,
+            ["blacksmith"] = (40, 32),
+            ["alchemist"] = (60, 32),
+            ["innkeeper"] = (48, 31),
+        };
+
+        /// <summary>Доска поручений в деревне.</summary>
+        public static readonly (int X, int Y) QuestBoardVillagePos = (48, 37);
     
         // ── Dungeon entrance ──
         public static readonly (int, int) DungeonPos = (83, 10);

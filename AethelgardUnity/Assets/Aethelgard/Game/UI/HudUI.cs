@@ -27,7 +27,7 @@ using XnaKeys = Microsoft.Xna.Framework.Input.Keys;
     /// лог-панель справа («ЛОГ», строки 20px), хотбар 10 слотов 44px gap 6
     /// над полосой, миникарта справа сверху (scale 2, рамка).
     /// </summary>
-    public class HudUI
+    public partial class HudUI
     {
         private readonly UIManager _ui;
         private readonly UITheme _t;
@@ -155,8 +155,52 @@ using XnaKeys = Microsoft.Xna.Framework.Input.Keys;
             _minimap = rawGo.AddComponent<RawImage>();
             _minimap.raycastTarget = false;
             _playerDot = UiKit.Solid(miniFrame.transform, 0, 0, 4, 4, Color.white, "PlayerDot").rectTransform;
+
+            // ── FPS-счётчик слева сверху (настройка «FPS» в меню) ──
+            var fps = UiKit.Label(Root, 8, 8, 120, 22, "", _t.SmallSize,
+                _t.Text, _t, TextAnchor.UpperLeft, "Fps");
+            fps.gameObject.AddComponent<FpsCounter>();
+
+            // Видимость по настройкам (переключаются в «Настройки» меню)
+            miniFrame.SetActive(_game.Settings.ShowMinimap);
+            fps.gameObject.SetActive(_game.Settings.ShowFps);
         }
 
+        /// <summary>Обновить видимость миникарты/FPS после смены настроек.</summary>
+        public void ApplySettingsVisibility()
+        {
+            var mini = Root.Find("Minimap");
+            if (mini != null) mini.gameObject.SetActive(_game.Settings.ShowMinimap);
+            var fps = Root.Find("Fps");
+            if (fps != null) fps.gameObject.SetActive(_game.Settings.ShowFps);
+        }
+    }
+
+    /// <summary>Счётчик FPS (простое усреднение за полсекунды).</summary>
+    public class FpsCounter : MonoBehaviour
+    {
+        private Text _txt = null!;
+        private int _frames;
+        private float _time;
+
+        private void OnEnable() => _txt = GetComponent<Text>();
+
+        private void Update()
+        {
+            _frames++;
+            _time += Time.unscaledDeltaTime;
+            if (_time >= 0.5f && _txt != null)
+            {
+                _txt.text = $"FPS {Mathf.RoundToInt(_frames / _time)}";
+                _frames = 0;
+                _time = 0f;
+            }
+        }
+    }
+
+    // Продолжение HudUI после вставленного счётчика FPS
+    public partial class HudUI
+    {
         private static Microsoft.Xna.Framework.Input.KeyboardState Pressed(XnaKeys k) =>
             new(new[] { k });
 

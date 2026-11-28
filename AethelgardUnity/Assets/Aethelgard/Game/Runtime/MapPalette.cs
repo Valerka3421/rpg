@@ -35,6 +35,7 @@ using UnityEngine;
                 ["meadow"] = new(108, 148, 76, 255),
                 ["dead"] = new(74, 70, 60, 255),
                 ["beach"] = new(222, 204, 152, 255),
+            ["goblin"] = new(66, 88, 54, 255),
             };
 
         // ── GROUND_COLORS ──
