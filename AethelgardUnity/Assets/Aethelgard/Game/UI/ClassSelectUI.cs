@@ -85,28 +85,63 @@ public class ClassSelectUI
         if (cls == null) return;
         var color = cls.Color.U();
 
-        _panel = UiKit.Panel(Root, 560, 120, 800, 860, _t, "ClassPanel");
+        // python-final: слева карточки 380×96 (x=70, y=118, шаг 110),
+        // справа превью-панель с рамкой цвета класса
+        for (int i = 0; i < StarterClasses.Length; i++)
+        {
+            var cardCls = ClassData.Get(StarterClasses[i]);
+            if (cardCls == null) continue;
+            var cColor = cardCls.Color.U();
+            var card = UiKit.Node("ClassCard" + i, null);
+            UiKit.Place(card, Root, 70, 118 + i * 110, 380, 96);
+            UiKit.Img(card, i == Selected ? UITheme.Shade(cColor, 0.25f) : _t.Panel);
+            UiKit.Frame((RectTransform)card.transform,
+                i == Selected ? _t.Gold : _t.PanelBorder, 2);
+            var cardBtn = card.AddComponent<Button>();
+            cardBtn.targetGraphic = card.GetComponent<Image>();
+            int captured = i;
+            cardBtn.onClick.AddListener(() => { Selected = captured; _sig = ""; });
+            // Портрет-миниатюра в карточке
+            var thumb = UiKit.Node("Thumb", null);
+            UiKit.Place(thumb, card.transform, 8, 8, 80, 80);
+            var thumbImg = thumb.AddComponent<Image>();
+            thumbImg.sprite = Aethelgard.Render.SpriteStore.Get(
+                "player_" + StarterClasses[i], cardCls.Color);
+            thumbImg.preserveAspect = true;
+            UiKit.Label(card.transform, 100, 12, 270, 28, cardCls.Name, _t.H2Size,
+                cColor, _t, TextAnchor.UpperLeft, "CardName");
+            UiKit.Label(card.transform, 100, 44, 270, 44, $"{cardCls.Tier}-я ступень · {cardCls.Base}",
+                _t.TinySize, _t.TextDim, _t, TextAnchor.UpperLeft, "CardTier");
+        }
+
+        // Правая панель превью (26,22,18,α236) + рамка цвета класса (α90)
+        _panel = UiKit.Node("ClassPanel", null);
+        UiKit.Place(_panel, Root, 520, 60, 1340, 960);
+        var pImg = UiKit.Img(_panel, _t.CardPreviewFill);
+        UiKit.Frame((RectTransform)_panel.transform, UITheme.Shade(color, 0.9f), 2);
         var parent = _panel.transform;
 
-        UiKit.Label(parent, 0, 30, 800, 52, cls.Name, _t.H1Size, color, _t,
+        UiKit.Label(parent, 0, 30, 1340, 52, cls.Name, _t.H1Size, color, _t,
             TextAnchor.MiddleCenter, "ClassName");
-        UiKit.Label(parent, 0, 92, 800, 24, $"{cls.Tier}-я ступень · {cls.Base}",
-            _t.SmallSize, _t.InkDim, _t, TextAnchor.MiddleCenter, "Tier");
-        UiKit.Separator(parent, 80, 130, 640);
-        UiKit.Label(parent, 60, 150, 680, 90, cls.Desc, _t.BodySize, _t.Ink, _t,
+        UiKit.Label(parent, 0, 92, 1340, 24, $"{cls.Tier}-я ступень · {cls.Base}",
+            _t.SmallSize, _t.TextDim, _t, TextAnchor.MiddleCenter, "Tier");
+        UiKit.Separator(parent, 80, 130, 640, _t);
+        UiKit.Label(parent, 60, 150, 1200, 90, cls.Desc, _t.BodySize, _t.Text, _t,
             TextAnchor.UpperLeft, "Desc");
 
-        // Портрет — процедурный спрайт класса
-        var portrait = UiKit.Slot(parent, 320, 250, 160, _t, "Portrait");
-        UiKit.Frame((RectTransform)portrait.transform, color, 2);
+        // Портрет 180 + рамка цвета класса (α120)
+        var portrait = UiKit.Node("Portrait", null);
+        UiKit.Place(portrait, parent, 320, 250, 180, 180);
+        UiKit.Img(portrait, _t.PortraitFill);
+        UiKit.Frame((RectTransform)portrait.transform, UITheme.Shade(color, 0.47f), 2);
         var imgGo = UiKit.Node("Sprite", null);
-        UiKit.Place(imgGo, portrait.transform, 8, 8, 144, 144);
+        UiKit.Place(imgGo, portrait.transform, 10, 10, 160, 160);
         var img = imgGo.AddComponent<Image>();
         img.sprite = Aethelgard.Render.SpriteStore.Get(
             "player_" + key, cls.Color);
         img.preserveAspect = true;
 
-        // Производные статы
+        // Производные статы — чипы (34,29,23)/(70,60,46), цвета python
         var stats = Aethelgard.Entities.Player.ComputeStats(
             cls.Stats.GetValueOrDefault("str", 5), cls.Stats.GetValueOrDefault("agi", 5),
             cls.Stats.GetValueOrDefault("vit", 5), cls.Stats.GetValueOrDefault("luk", 5),
@@ -115,40 +150,42 @@ public class ClassSelectUI
             cls.Effects ?? new System.Collections.Generic.Dictionary<string, double>());
         (string, string, Color)[] chips =
         {
-            ("ATK", stats.Atk.ToString(), new Color(0.87f, 0.59f, 0.43f)),
-            ("DEF", stats.Df.ToString(), new Color(0.59f, 0.67f, 0.78f)),
-            ("HP", stats.MaxHp.ToString(), new Color(0.86f, 0.33f, 0.25f)),
-            ("MP", stats.MaxMana.ToString(), new Color(0.47f, 0.63f, 1f)),
-            ("Уклон", $"{Mathf.Round(stats.Dodge * 100)}%", new Color(0.59f, 0.65f, 0.7f)),
-            ("Крит", $"{Mathf.Round(stats.Crit * 100)}%", new Color(0.91f, 0.7f, 0.29f)),
+            ("ATK", stats.Atk.ToString(), _t.AttrAtk),
+            ("DEF", stats.Df.ToString(), _t.AttrDef),
+            ("HP", stats.MaxHp.ToString(), _t.AttrHp),
+            ("MP", stats.MaxMana.ToString(), _t.AttrMp),
+            ("Уклон", $"{Mathf.Round(stats.Dodge * 100)}%", _t.AttrDodge),
+            ("Крит", $"{Mathf.Round(stats.Crit * 100)}%", _t.AttrCrit),
         };
         int cx0 = 100, cy0 = 430;
         for (int i = 0; i < chips.Length; i++)
         {
             int col = i % 3, row = i / 3;
-            var chip = UiKit.Panel(parent, cx0 + col * 210, cy0 + row * 62, 196, 52, _t,
-                "Chip" + i);
+            var chip = UiKit.Node("Chip" + i, null);
+            UiKit.Place(chip, parent, cx0 + col * 210, cy0 + row * 62, 196, 48);
+            UiKit.Img(chip, _t.ChipFill);
+            UiKit.Frame((RectTransform)chip.transform, _t.ChipBorder, 1);
             UiKit.Label(chip.transform, 10, 6, 100, 20, chips[i].Item1, _t.TinySize,
-                _t.InkFaint, _t, TextAnchor.UpperLeft, "CL");
-            UiKit.Label(chip.transform, 10, 24, 176, 24, chips[i].Item2, _t.H2Size,
+                _t.TextMuted, _t, TextAnchor.UpperLeft, "CL");
+            UiKit.Label(chip.transform, 10, 22, 176, 24, chips[i].Item2, _t.H2Size,
                 chips[i].Item3, _t, TextAnchor.LowerLeft, "CV");
         }
 
-        // Атрибуты полосками
+        // Атрибуты полосками (цвета python, фон (20,18,15), максимум 12)
         const int maxVal = 12;
         (string, int, Color)[] attrs =
         {
-            ("STR", cls.Stats.GetValueOrDefault("str", 5), new Color(0.86f, 0.47f, 0.39f)),
-            ("AGI", cls.Stats.GetValueOrDefault("agi", 5), new Color(0.55f, 0.78f, 0.51f)),
-            ("VIT", cls.Stats.GetValueOrDefault("vit", 5), new Color(0.86f, 0.47f, 0.43f)),
-            ("LUK", cls.Stats.GetValueOrDefault("luk", 5), new Color(0.86f, 0.78f, 0.43f)),
-            ("DEF", cls.Stats.GetValueOrDefault("df_stat", 5), new Color(0.59f, 0.67f, 0.82f)),
-            ("INT", cls.Stats.GetValueOrDefault("int", 5), new Color(0.51f, 0.67f, 0.94f)),
+            ("STR", cls.Stats.GetValueOrDefault("str", 5), _t.BarStr),
+            ("AGI", cls.Stats.GetValueOrDefault("agi", 5), _t.BarAgi),
+            ("VIT", cls.Stats.GetValueOrDefault("vit", 5), _t.BarVit),
+            ("LUK", cls.Stats.GetValueOrDefault("luk", 5), _t.BarLuk),
+            ("DEF", cls.Stats.GetValueOrDefault("df_stat", 5), _t.BarDef),
+            ("INT", cls.Stats.GetValueOrDefault("int", 5), _t.BarInt),
         };
         int ay = 570;
         foreach (var (label, val, barColor) in attrs)
         {
-            UiKit.Label(parent, 100, ay, 60, 22, label, _t.SmallSize, _t.Ink, _t,
+            UiKit.Label(parent, 100, ay, 60, 22, label, _t.SmallSize, _t.Text, _t,
                 TextAnchor.UpperLeft, "A" + label);
             var bar = UiKit.Bar(parent, 180, ay + 3, 380, 13, _t, barColor);
             bar.fill.rectTransform.anchorMax = new Vector2(
@@ -160,28 +197,39 @@ public class ClassSelectUI
 
         // Стартовый набор
         UiKit.Label(parent, 100, ay + 14, 600, 22, "СТАРТОВЫЙ НАБОР", _t.SmallSize,
-            _t.GoldSoft, _t, TextAnchor.UpperLeft, "GearTitle");
+            _t.Section, _t, TextAnchor.UpperLeft, "GearTitle");
         int gy = ay + 42;
         var gear = StartGear(cls);
         foreach (var line in gear.Take(4))
         {
             UiKit.Label(parent, 110, gy, 640, 20, "◆ " + line, _t.SmallSize,
-                _t.InkDim, _t, TextAnchor.UpperLeft, "G" + gy);
+                _t.TextDim, _t, TextAnchor.UpperLeft, "G" + gy);
             gy += 22;
         }
 
         // Особенность
         UiKit.Label(parent, 100, gy + 10, 600, 22, "ОСОБЕННОСТЬ", _t.SmallSize,
-            _t.GoldSoft, _t, TextAnchor.UpperLeft, "PerkTitle");
+            _t.Section, _t, TextAnchor.UpperLeft, "PerkTitle");
         UiKit.Label(parent, 100, gy + 38, 640, 60,
             string.IsNullOrEmpty(cls.Perk) ? cls.Desc : cls.Perk, _t.SmallSize,
-            _t.Ink, _t, TextAnchor.UpperLeft, "Perk");
+            _t.Text, _t, TextAnchor.UpperLeft, "Perk");
 
-        // Кнопка старт + назад
-        var start = UiKit.WidgetButton(parent, 200, 780, 400, 52,
-            $"ИГРАТЬ ЗА {cls.Name.ToUpperInvariant()}", _t.BodySize, _t);
-        start.onClick.AddListener(() => _startClicked = true);
-        var back = UiKit.WidgetButton(Root, 40, 30, 120, 60, "←", _t.H2Size, _t);
+        // Кнопка «Начать» в цвете класса (фон ×0.92, рамка ×1.4 — python)
+        var start = UiKit.Node("StartButton", null);
+        UiKit.Place(start, parent, 200, 880, 400, 56);
+        UiKit.Img(start, UITheme.Shade(color, 0.92f));
+        UiKit.Frame((RectTransform)start.transform, UITheme.Shade(color, 1.4f), 2);
+        // Тёмный или светлый текст по яркости цвета класса
+        float lum = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+        var stTxt = UiKit.Label(start.transform, 0, 0, 400, 56,
+            $"ИГРАТЬ ЗА {cls.Name.ToUpperInvariant()}", _t.BodySize,
+            lum > 0.5f ? UITheme.C(20, 16, 12) : UITheme.C(250, 246, 238), _t,
+            TextAnchor.MiddleCenter, "StartText");
+        var startBtn = start.AddComponent<Button>();
+        startBtn.targetGraphic = start.GetComponent<Image>();
+        startBtn.onClick.AddListener(() => _startClicked = true);
+
+        var back = UiKit.WidgetButton(Root, 34, 28, 52, 48, "←", _t.H2Size, _t);
         back.onClick.AddListener(() => _ui.HandleClassSelection(null));
     }
 

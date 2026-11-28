@@ -90,25 +90,32 @@ public class SkillUI
         var parent = _panel.transform;
 
         // Шапка: название, очки, бейдж
-        UiKit.Label(parent, 0, 24, 1560, 40, "НАВЫКИ",
-            _t.H2Size, _t.Gold, _t, TextAnchor.MiddleCenter, "Title");
+        UiKit.Label(parent, 0, 20, 1560, 44, "ДРЕВО НАВЫКОВ",
+            _t.H1Size, _t.Title, _t, TextAnchor.MiddleCenter, "Title");
         var badge = UiKit.Panel(parent, 1290, 24, 240, 44, _t, "PointsBadge");
         UiKit.Label(badge.transform, 0, 0, 240, 44,
             $"ОЧКОВ: {p.SkillPoints}", _t.BodySize,
-            p.SkillPoints > 0 ? _t.Gold : _t.InkFaint, _t,
+            p.SkillPoints > 0 ? _t.Gold : _t.TextMuted, _t,
             TextAnchor.MiddleCenter, "BadgeText");
+        UiKit.CloseButton(parent, 1560 - 10, 10, () => _close = true, _t);
 
-        // Табы
+        // Табы (28px, активный с золотой рамкой — _skills.py)
         var tabs = new[] { "КЛАСС", "КОВКА", "АЛХИМИЯ", "ИНЖЕНЕРИЯ" };
         int tx = 80;
         for (int i = 0; i < tabs.Length; i++)
         {
             int idx = i;
             bool active = _game.SkillTab == i;
-            var btn = UiKit.WidgetButton(parent, tx, 80, 340, 46,
-                active ? tabs[i] : tabs[i].ToLowerInvariant(), _t.BodySize, _t);
-            btn.onClick.AddListener(() => { _game.SkillTab = idx; _sig = ""; });
-            if (active) UiKit.Solid(btn.transform, 0, 0, 340, 6, _t.GoldSoft, "ActiveLine");
+            var tab = UiKit.Node("Tab" + i, null);
+            UiKit.Place(tab, parent, tx, 84, 340, 28);
+            UiKit.Img(tab, active ? UITheme.C(66, 54, 38) : _t.SlotFill);
+            UiKit.Frame((RectTransform)tab.transform,
+                active ? _t.Gold : _t.PanelBorder, 1);
+            var tabBtn = tab.AddComponent<Button>();
+            tabBtn.targetGraphic = tab.GetComponent<Image>();
+            tabBtn.onClick.AddListener(() => { _game.SkillTab = idx; _sig = ""; });
+            UiKit.Label(tab.transform, 0, 0, 340, 28, tabs[i], _t.SmallSize,
+                active ? _t.Gold : _t.TextDim, _t, TextAnchor.MiddleCenter, "TabT");
             tx += 360;
         }
 
@@ -140,9 +147,6 @@ public class SkillUI
             }
         }
 
-        var close = UiKit.WidgetButton(parent, 630, 900, 300, 46, "Закрыть (Esc)",
-            _t.SmallSize, _t);
-        close.onClick.AddListener(() => _close = true);
     }
 
     // ── Классовое дерево: центральный узел + 12 вокруг, линии-связи ──
@@ -169,13 +173,16 @@ public class SkillUI
                 cx + Mathf.Cos(rad) * ring,
                 cy + Mathf.Sin(rad) * ring));
         }
-        // Линии между соседними узлами по уровням
+        // Линии между соседними узлами по уровням:
+        // изучено — сплошное золото (198,162,74) w3, иначе пунктир-цвет (92,79,56)
         for (int i = 1; i < positions.Length; i++)
         {
             var a = positions[i - 1].pos;
             var b = positions[i].pos;
+            bool learnedLink = p.LearnedNodes.Contains(nodes[i].Key);
             DrawLine(parent, a, b,
-                p.LearnedNodes.Contains(nodes[i].Key) ? accent : _t.Bronze, 2);
+                learnedLink ? _t.LinkLearned : _t.LinkLocked,
+                learnedLink ? 3 : 2);
         }
 
         // Узлы
@@ -192,40 +199,53 @@ public class SkillUI
         bool canLearn = !learned && p.Level >= node.Level && p.SkillPoints > 0;
         bool blocked = !learned && p.Level < node.Level;
 
-        const int size = 96;
+        // Гексагон python-final (_skills.py): внешняя тень, фаска, рамка
+        const float r = 46;
+        Color fill = learned ? _t.HexLearnedFill
+            : canLearn ? _t.HexAvailFill : _t.HexLockedFill;
+        Color border = learned ? _t.HexLearnedBorder
+            : canLearn ? _t.HexAvailBorder : _t.HexLockedBorder;
+        Color glyph = learned ? _t.HexLearnedGlyph
+            : canLearn ? _t.HexAvailGlyph : _t.HexLockedGlyph;
+
+        const int size = 128; // r+pad
         var holder = UiKit.Node("Node_" + node.Key, null);
         UiKit.Place(holder, parent, (int)(pos.x - size / 2),
             (int)(1000 - pos.y - size / 2), size, size);
-        UiKit.Img(holder, learned ? _t.RowSelect : blocked ? _t.Inset : _t.RowHover);
-        UiKit.Frame((RectTransform)holder.transform,
-            learned ? accent : canLearn ? _t.GoldSoft : _t.Bronze,
-            learned || canLearn ? 2 : 1);
+        var hexImg = holder.AddComponent<Image>();
+        hexImg.sprite = UiKit.Hex(r, 3, fill, border, outer: _t.HexOuter);
+        hexImg.type = Image.Type.Simple;
+        hexImg.raycastTarget = true;
+        if (canLearn)
+        {
+            // Доступный — светящееся кольцо-выделение не нужно постоянно,
+            // но рамка золотая уже задана; добавим мягкую пульсацию нельзя —
+            // оставляем статичный вид как в python (selected ring по hover).
+        }
 
         // Иконка из Resources (parity: assets/skills/class/<class>_<idx>.png)
         var icon = LoadSkillIcon(p.ClassKey, node.Position);
         if (icon != null)
         {
             var imgGo = UiKit.Node("Icon", null);
-            var irt = UiKit.Place(imgGo, holder.transform, 18, 18, 60, 60);
+            var irt = UiKit.Place(imgGo, holder.transform, 34, 34, 60, 60);
             var img = imgGo.AddComponent<Image>();
             img.sprite = icon;
             img.preserveAspect = true;
-            img.color = blocked
-                ? new Color(0.4f, 0.4f, 0.4f)
-                : Color.white;
+            img.color = blocked ? _t.HexLockedGlyph : glyph;
             img.raycastTarget = false;
         }
         else
         {
             UiKit.Label(holder.transform, 0, 0, size, size,
-                node.Level.ToString(), _t.H2Size,
-                blocked ? _t.InkFaint : accent, _t, TextAnchor.MiddleCenter, "Lvl");
+                node.Level.ToString(), _t.H2Size, glyph, _t,
+                TextAnchor.MiddleCenter, "Lvl");
         }
 
         // Имя под узлом
         UiKit.Label(holder.transform, -60, size, 220, 20,
             learned ? node.Name : $"{node.Name} (ур.{node.Level})",
-            _t.TinySize, learned ? _t.Ink : _t.InkDim, _t,
+            _t.TinySize, learned ? _t.Text : _t.TextDim, _t,
             TextAnchor.MiddleCenter, "NodeName");
 
         // Клик — изучить

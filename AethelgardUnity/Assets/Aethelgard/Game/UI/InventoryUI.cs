@@ -68,32 +68,37 @@ public class InventoryUI
     private void Rebuild(Player p)
     {
         if (_panel != null) UnityEngine.Object.Destroy(_panel);
-        _panel = UiKit.Panel(Root, 310, 100, 1300, 880, _t, "InvPanel");
+        // Модальное окно python-final (_base.py): scrim + панель + крестик
+        UiKit.Scrim(Root, _t);
+        _panel = UiKit.Panel(Root, 240, 100, 1440, 880, _t, "InvPanel");
         var parent = _panel.transform;
 
-        UiKit.Label(parent, 0, 26, 1300, 44, "ИНВЕНТАРЬ", _t.H2Size, _t.Gold, _t,
+        UiKit.Label(parent, 0, 20, 1440, 44, "ИНВЕНТАРЬ", _t.H1Size, _t.Title, _t,
             TextAnchor.MiddleCenter, "Title");
-        UiKit.Label(parent, 24, 80, 400, 24,
+        UiKit.CloseButton(parent, 1440 - 10, 10, () => _pendingAction = (null, null, 0, true), _t);
+        UiKit.Label(parent, 24, 74, 400, 24,
             $"Золото: {_game.Player!.Gold}    Стр. {_game.CurrentPage + 1}/{_game.InventoryPagesCount()}",
-            _t.SmallSize, _t.GoldSoft, _t, TextAnchor.UpperLeft, "Gold");
+            _t.SmallSize, _t.Gold, _t, TextAnchor.UpperLeft, "Gold");
 
-        // Сетка 8×4 слота
+        // Сетка 10×10 (python-final): ячейка 64, gap 4
         var slots = new List<string>();
         foreach (var kv in p.Inventory)
             for (int i = 0; i < kv.Value; i++) slots.Add(kv.Key);
-        int slotSize = 92, gap = 8;
-        int startX = 24, startY = 120;
-        for (int i = 0; i < 32; i++)
+        int slotSize = 64, gap = 4, cols = 10;
+        int startX = 24, startY = 110;
+        for (int i = 0; i < 100; i++)
         {
             string? key = i < slots.Count ? slots[i] : null;
-            int col = i % 8, row = i / 8;
+            int col = i % cols, row = i / cols;
             var slot = UiKit.Slot(parent, startX + col * (slotSize + gap),
                 startY + row * (slotSize + gap), slotSize, _t, "Slot" + i);
+            UiKit.Frame((RectTransform)slot.transform,
+                key != null ? _t.PanelBorder : _t.SlotBorderEmpty, 1);
             if (key != null)
             {
                 var def = ItemData.GetItemData(key);
                 var name = UiKit.Label(slot.transform, 0, 0, slotSize, slotSize,
-                    def.Name, _t.TinySize, ItemData.DisplayColor(key).U(), _t,
+                    def.Name, 11, ItemData.DisplayColor(key).U(), _t,
                     TextAnchor.MiddleCenter, "Item");
                 int captured = i;
                 var btn = slot.AddComponent<Button>();
@@ -102,21 +107,21 @@ public class InventoryUI
             }
         }
 
-        // Экипировка
-        int ex = 820;
-        UiKit.Label(parent, ex, 120, 400, 24, "ЭКИПИРОВКА", _t.SmallSize, _t.GoldSoft, _t,
+        // Экипировка — левая колонка (36% ширины в python)
+        int ex = startX + cols * (slotSize + gap) + 40;
+        UiKit.Label(parent, ex, 110, 380, 24, "ЭКИПИРОВКА", _t.SmallSize, _t.Section, _t,
             TextAnchor.UpperLeft, "EqTitle");
         string[] eqNames = { "Оружие", "Броня", "Шлем", "Ноги", "Обувь" };
         string?[] eqKeys = { p.Weapon, p.Armor, p.Head, p.Legs, p.Boots };
-        int ey = 150;
+        int ey = 146;
         for (int i = 0; i < eqKeys.Length; i++)
         {
             string? k = eqKeys[i];
             UiKit.Label(parent, ex, ey + i * 46, 110, 22, eqNames[i], _t.SmallSize,
-                _t.InkDim, _t, TextAnchor.UpperLeft, "EqN" + i);
-            var val = UiKit.Label(parent, ex + 120, ey + i * 46, 240, 22,
+                _t.TextDim, _t, TextAnchor.UpperLeft, "EqN" + i);
+            var val = UiKit.Label(parent, ex + 120, ey + i * 46, 260, 22,
                 k != null ? ItemData.DisplayName(k) : "—", _t.SmallSize,
-                k != null ? ItemData.DisplayColor(k).U() : _t.InkFaint, _t,
+                k != null ? ItemData.DisplayColor(k).U() : _t.TextMuted, _t,
                 TextAnchor.UpperLeft, "EqV" + i);
             if (k != null)
             {
@@ -127,23 +132,20 @@ public class InventoryUI
             }
         }
 
-        // Кнопки страниц и закрытия
-        int by = 120 + 4 * (slotSize + gap) + 20;
-        var prev = UiKit.WidgetButton(parent, 24, by, 200, 44, "← Страница",
-            _t.SmallSize, _t);
+        // Кнопки страниц «‹ ›» 38×28 (python) + закрытие
+        int by = startY + 10 * (slotSize + gap) + 16;
+        var prev = UiKit.WidgetButton(parent, startX, by, 38, 28, "‹",
+            _t.BodySize, _t);
         prev.onClick.AddListener(() => _pendingAction = (null, null, -1, false));
-        var next = UiKit.WidgetButton(parent, 236, by, 200, 44, "Страница →",
-            _t.SmallSize, _t);
+        var next = UiKit.WidgetButton(parent, startX + 50, by, 38, 28, "›",
+            _t.BodySize, _t);
         next.onClick.AddListener(() => _pendingAction = (null, null, 1, false));
-        var close = UiKit.WidgetButton(parent, 980, by, 260, 44, "Закрыть (Esc)",
-            _t.SmallSize, _t);
-        close.onClick.AddListener(() => _pendingAction = (null, null, 0, true));
 
         // Панель действий по выбору
         if (_useSel >= 0 && _selKey != null)
         {
             var def = ItemData.GetItemData(_selKey);
-            var actions = UiKit.Panel(parent, 400, 700, 500, 130, _t, "Actions");
+            var actions = UiKit.Panel(parent, ex - 20, 420, 460, 130, _t, "Actions");
             UiKit.Label(actions.transform, 0, 12, 500, 26, def.Name, _t.BodySize,
                 _t.Gold, _t, TextAnchor.MiddleCenter, "SelName");
             if (ItemData.IsStackable(def) || ItemData.IsEquipment(def))

@@ -207,56 +207,68 @@ public class DeathUI
     {
         if (_rootPanel != null) return;
         bool victory = _game.Victory;
-        _rootPanel = UiKit.Panel(Root, 560, 260, 800, 560, _t, "OverlayPanel");
+        // overlay_renderer.py: dim (7,6,5,225); смерть — панель 700×480
+        // PANEL_DARK с рамкой HP_CRIT; победа — 520×170 с рамкой WIN
+        UiKit.Solid(Root, 0, 0, 1920, 1080, UITheme.C(7, 6, 5, 225f / 255f), "Dim");
+        _rootPanel = UiKit.Panel(Root, victory ? 700 : 610, victory ? 430 : 260,
+            victory ? 520 : 700, victory ? 170 : 480, _t, "OverlayPanel");
         var parent = _rootPanel.transform;
 
-        UiKit.Label(parent, 0, 30, 800, 60, victory ? "ПОБЕДА!" : "ВЫ ПОГИБЛИ",
-            _t.H1Size, victory ? _t.Gold : _t.Danger, _t, TextAnchor.MiddleCenter,
+        UiKit.Label(parent, 0, 30, victory ? 520 : 700, 60, victory ? "ПОБЕДА!" : "ВЫ ПОГИБЛИ",
+            _t.H1Size, victory ? _t.Win : _t.HpCrit, _t, TextAnchor.MiddleCenter,
             "BigTitle");
 
-        var ts = DateTime.Now - _game.RunStart;
-        int mins = (int)ts.TotalSeconds / 60, secs = (int)ts.TotalSeconds % 60;
-        var p = _game.Player!;
-        var stats = new (string, string)[]
+        if (!victory)
         {
-            ("Убито мобов", _game.KillsTotal.ToString()),
-            ("Боссов", _game.BossKills.ToString()),
-            ("Уровень", p.Level.ToString()),
-            ("Золото добыто", _game.GoldEarned.ToString()),
-            ("Время", $"{mins}:{secs:D2}"),
-        };
-        int y = 130;
-        foreach (var (name, val) in stats)
-        {
-            UiKit.Label(parent, 120, y, 340, 24, name, _t.BodySize, _t.InkDim, _t,
-                TextAnchor.UpperLeft, "S" + y);
-            UiKit.Label(parent, 460, y, 220, 24, val, _t.BodySize, _t.Ink, _t,
-                TextAnchor.UpperRight, "Sv" + y);
-            y += 34;
-        }
+            var ts = DateTime.Now - _game.RunStart;
+            int mins = (int)ts.TotalSeconds / 60, secs = (int)ts.TotalSeconds % 60;
+            var p = _game.Player!;
+            var stats = new (string, string)[]
+            {
+                ("Убито мобов", _game.KillsTotal.ToString()),
+                ("Боссов", _game.BossKills.ToString()),
+                ("Уровень", p.Level.ToString()),
+                ("Золото добыто", _game.GoldEarned.ToString()),
+                ("Время", $"{mins}:{secs:D2}"),
+            };
+            int y = 130;
+            foreach (var (name, val) in stats)
+            {
+                UiKit.Label(parent, 120, y, 340, 24, name, _t.BodySize, _t.TextDim, _t,
+                    TextAnchor.UpperLeft, "S" + y);
+                UiKit.Label(parent, 460, y, 220, 24, val, _t.BodySize, _t.Text, _t,
+                    TextAnchor.UpperRight, "Sv" + y);
+                y += 34;
+            }
 
-        var restart = UiKit.WidgetButton(parent, 140, y + 40, 250, 50,
-            "R — Заново", _t.BodySize, _t);
-        restart.onClick.AddListener(() =>
-        {
-            _game.Victory = false;
-            _game.NewGame(p.ClassKey);
-            Clear();
-        });
-        var load = UiKit.WidgetButton(parent, 420, y + 40, 250, 50,
-            "F9 — Загрузить", _t.BodySize, _t);
-        load.onClick.AddListener(() =>
-        {
-            var data = SaveSystem.Load(_game.CurrentSlot);
-            if (data != null)
+            var restart = UiKit.WidgetButton(parent, 140, y + 40, 250, 50,
+                "R — Заново", _t.BodySize, _t);
+            restart.onClick.AddListener(() =>
             {
                 _game.Victory = false;
-                SaveSystem.ApplyLoad(_game, data);
-                _game.ScreenMode = Screens.Game;
+                _game.NewGame(p.ClassKey);
                 Clear();
-            }
-            else _game.ShowMessage("Слот пуст");
-        });
+            });
+            var load = UiKit.WidgetButton(parent, 420, y + 40, 250, 50,
+                "F9 — Загрузить", _t.BodySize, _t);
+            load.onClick.AddListener(() =>
+            {
+                var data = SaveSystem.Load(_game.CurrentSlot);
+                if (data != null)
+                {
+                    _game.Victory = false;
+                    SaveSystem.ApplyLoad(_game, data);
+                    _game.ScreenMode = Screens.Game;
+                    Clear();
+                }
+                else _game.ShowMessage("Слот пуст");
+            });
+        }
+        else
+        {
+            UiKit.Label(parent, 0, 100, 520, 30, "Esc — продолжить", _t.SmallSize,
+                _t.TextDim, _t, TextAnchor.MiddleCenter, "Hint");
+        }
     }
 
     private GameObject? _rootPanel;

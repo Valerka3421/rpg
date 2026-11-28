@@ -53,18 +53,20 @@ public class QuestsUI
     private void Rebuild(QuestLog quests)
     {
         if (_panel != null) UnityEngine.Object.Destroy(_panel);
+        UiKit.Scrim(Root, _t);
         _panel = UiKit.Panel(Root, 410, 120, 1100, 840, _t, "QuestPanel");
         var parent = _panel.transform;
 
-        UiKit.Label(parent, 0, 26, 1100, 44, "ДОСКА ЗАДАНИЙ", _t.H2Size, _t.Gold,
+        UiKit.Label(parent, 0, 20, 1100, 44, "ДОСКА ЗАДАНИЙ", _t.H1Size, _t.Title,
             _t, TextAnchor.MiddleCenter, "Title");
+        UiKit.CloseButton(parent, 1100 - 10, 10, () => _close = true, _t);
 
         int y = 100;
         var available = quests.Available.ToList();
         if (available.Count > 0)
         {
             UiKit.Label(parent, 40, y, 600, 22, "ДОСТУПНЫЕ", _t.SmallSize,
-                _t.GoldSoft, _t, TextAnchor.UpperLeft, "AvailTitle");
+                _t.Section, _t, TextAnchor.UpperLeft, "AvailTitle");
             y += 30;
             for (int i = 0; i < available.Count; i++)
             {
@@ -72,7 +74,8 @@ public class QuestsUI
                 if (state == null) continue;
                 DrawQuest(parent, y, state.Name, state.Desc,
                     $"+{state.RewardGold} з.  +{state.RewardXp} XP",
-                    "Взять", () => _accept = i, available[i] == QuestSelectedName());
+                    "[ВЗЯТЬ]", () => _accept = i, available[i] == QuestSelectedName(),
+                    _t.QuestStateTake);
                 y += 92;
             }
         }
@@ -80,14 +83,15 @@ public class QuestsUI
         if (quests.Active.Count > 0)
         {
             UiKit.Label(parent, 40, y, 600, 22, "АКТИВНЫЕ", _t.SmallSize,
-                _t.GoldSoft, _t, TextAnchor.UpperLeft, "ActiveTitle");
+                _t.Section, _t, TextAnchor.UpperLeft, "ActiveTitle");
             y += 30;
             foreach (var kv in quests.Active)
             {
                 var def = QuestData.Get(kv.Key);
                 if (def == null) continue;
                 string prog = def.Type == "reach" ? "" : $"[{kv.Value.Progress}/{kv.Value.Count}]";
-                DrawQuest(parent, y, def.Name, $"{prog} {def.Desc}", "", "", null, false);
+                DrawQuest(parent, y, def.Name, $"{prog} {def.Desc}", "",
+                    "[АКТИВЕН]", null, false, _t.QuestStateActive);
                 y += 84;
             }
         }
@@ -96,7 +100,7 @@ public class QuestsUI
         if (completed.Count > 0)
         {
             UiKit.Label(parent, 40, y, 800, 22, "ВЫПОЛНЕННЫЕ — СДАТЬ ДЛЯ НАГРАДЫ",
-                _t.SmallSize, _t.Success, _t, TextAnchor.UpperLeft, "DoneTitle");
+                _t.SmallSize, _t.QuestStateDone, _t, TextAnchor.UpperLeft, "DoneTitle");
             y += 30;
             for (int i = 0; i < completed.Count; i++)
             {
@@ -105,14 +109,11 @@ public class QuestsUI
                 int idx = available.Count + i;
                 DrawQuest(parent, y, def.Name, def.Desc,
                     $"+{def.RewardGold} з.  +{def.RewardXp} XP",
-                    "Сдать!", () => _turnIn = idx, idx == _game.QuestSelected);
+                    "[СДАТЬ]", () => _turnIn = idx, idx == _game.QuestSelected,
+                    _t.QuestStateDone);
                 y += 92;
             }
         }
-
-        var close = UiKit.WidgetButton(parent, 380, 760, 340, 46, "Закрыть (Esc)",
-            _t.SmallSize, _t);
-        close.onClick.AddListener(() => _close = true);
     }
 
     private string QuestSelectedName()
@@ -122,25 +123,37 @@ public class QuestsUI
         return "";
     }
 
-    private static int _rowIdx;
+    private int _rowIdx;
 
     private void DrawQuest(Transform parent, int y, string name, string desc,
-        string reward, string action, System.Action? onClick, bool selected)
+        string reward, string action, System.Action? onClick, bool selected,
+        Color stateColor)
     {
+        _rowIdx = 0;
         var row = UiKit.Panel(parent, 40, y, 1020, 76, _t, "QuestRow" + _rowIdx++);
-        if (selected) UiKit.Solid(row.transform, 0, 0, 1020, 76, _t.RowSelect, "Sel");
-        UiKit.Solid(row.transform, 0, 0, 6, 76, selected ? _t.GoldSoft : _t.Bronze, "Stripe");
+        // Карточки python-final: синие панели (единственные холодные в UI)
+        var card = row.GetComponent<Image>();
+        card.color = selected ? _t.QuestCardSelFill : _t.QuestCardFill;
+        for (int i = 0; i < row.transform.childCount; i++)
+        {
+            var img = row.transform.GetChild(i).GetComponent<Image>();
+            if (img != null) img.color = selected ? _t.Gold : _t.QuestCardBorder;
+        }
         UiKit.Label(row.transform, 20, 8, 500, 24, name, _t.BodySize,
-            selected ? _t.Gold : _t.Ink, _t, TextAnchor.UpperLeft, "N");
-        UiKit.Label(row.transform, 20, 36, 640, 34, desc, _t.SmallSize, _t.InkDim,
+            selected ? _t.Gold : _t.Text, _t, TextAnchor.UpperLeft, "N");
+        UiKit.Label(row.transform, 20, 36, 640, 34, desc, _t.SmallSize, _t.TextDim,
             _t, TextAnchor.UpperLeft, "D");
         if (!string.IsNullOrEmpty(reward))
             UiKit.Label(row.transform, 660, 10, 340, 22, reward, _t.SmallSize,
-                _t.GoldSoft, _t, TextAnchor.UpperRight, "R");
-        if (onClick != null && !string.IsNullOrEmpty(action))
+                _t.QuestReward, _t, TextAnchor.UpperRight, "R");
+        if (!string.IsNullOrEmpty(action))
+            UiKit.Label(row.transform, 820, 26, 180, 42, action, _t.SmallSize,
+                stateColor, _t, TextAnchor.MiddleCenter, "State");
+        if (onClick != null)
         {
-            var btn = UiKit.WidgetButton(row.transform, 800, 26, 180, 42, action,
-                _t.SmallSize, _t);
+            // Клик по всей карточке берёт/сдаёт квест
+            var btn = row.AddComponent<Button>();
+            btn.targetGraphic = card;
             btn.onClick.AddListener(() => onClick());
         }
     }
@@ -161,11 +174,13 @@ public class QuestsUI
     private void RebuildRunStats()
     {
         if (_panel != null) UnityEngine.Object.Destroy(_panel);
+        UiKit.Scrim(Root, _t);
         _panel = UiKit.Panel(Root, 360, 130, 1200, 820, _t, "RunStatsPanel");
         var parent = _panel.transform;
 
-        UiKit.Label(parent, 0, 26, 1200, 44, "СТАТИСТИКА ЗАБЕГА", _t.H2Size,
-            _t.Gold, _t, TextAnchor.MiddleCenter, "Title");
+        UiKit.Label(parent, 0, 20, 1200, 44, "СТАТИСТИКА ЗАБЕГА", _t.H1Size,
+            _t.Title, _t, TextAnchor.MiddleCenter, "Title");
+        UiKit.CloseButton(parent, 1200 - 10, 10, () => _close = true, _t);
 
         var ts = DateTime.Now - _game.RunStart;
         int mins = (int)ts.TotalSeconds / 60, secs = (int)ts.TotalSeconds % 60;
@@ -195,7 +210,7 @@ public class QuestsUI
         }
 
         UiKit.Label(parent, 700, 110, 400, 24, "── УБИТО ПО ТИПАМ ──",
-            _t.SmallSize, _t.GoldSoft, _t, TextAnchor.UpperLeft, "KillsTitle");
+            _t.SmallSize, _t.Section, _t, TextAnchor.UpperLeft, "KillsTitle");
         int ry = 146;
         foreach (var kv in _game.KillsByCh.OrderByDescending(kv => kv.Value))
         {
@@ -208,8 +223,5 @@ public class QuestsUI
             if (ry > 700) break;
         }
 
-        var close = UiKit.WidgetButton(parent, 400, 740, 380, 46,
-            "Закрыть (Tab/Esc)", _t.SmallSize, _t);
-        close.onClick.AddListener(() => _close = true);
     }
 }

@@ -69,6 +69,24 @@ public sealed class PixelCanvas
         }
     }
 
+    /// <summary>
+    /// Холодный свет теней (textures.apply_light, 1:1):
+    /// r=0.28+0.72f, g=0.32+0.68f, b=0.40+0.60f — тени уходят в
+    /// сине-зелёный, не в серый.
+    /// </summary>
+    public void ApplyLight(float f)
+    {
+        f = Mathf.Clamp01(f);
+        for (int i = 0; i < Pixels.Length; i++)
+        {
+            var c = Pixels[i];
+            Pixels[i] = new Color32(
+                (byte)(c.r * (0.28f + 0.72f * f)),
+                (byte)(c.g * (0.32f + 0.68f * f)),
+                (byte)(c.b * (0.40f + 0.60f * f)), c.a);
+        }
+    }
+
     public Texture2D ToTexture()
     {
         var tex = new Texture2D(Width, Height, TextureFormat.RGBA32, false);

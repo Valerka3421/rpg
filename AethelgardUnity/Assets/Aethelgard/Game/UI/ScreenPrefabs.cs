@@ -29,7 +29,6 @@ public static class ScreenPrefabs
         if (built == null) return;
         var prefab = Load(screenName);
         if (prefab == null) return;
-
         // ВАЖНО: прямоугольник корня НЕ переносим — он зависит от канваса,
         // в котором префаб генерировался (edit-mode ≠ Play). Позицию/размер
         // самой панели задаёт код; из префаба берутся только дети.

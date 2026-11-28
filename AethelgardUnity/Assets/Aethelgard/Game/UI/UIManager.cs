@@ -104,6 +104,16 @@ public class UIManager : MonoBehaviour
         _mp.Build();
         _death.Build();
         _message.Build();
+
+        // Корни экранов всегда считаются 1920×1080 (в edit-mode канвас
+        // может иметь произвольный размер — иначе Place() считает неверно)
+        foreach (var root in new[]
+        {
+            _menu.Root, _classSelect.Root, _hud.Root, _inventory.Root, _shop.Root,
+            _skills.Root, _craft.Root, _stats.Root, _quests.Root, _dialogue.Root,
+            _bigmap.Root, _console.Root, _mp.Root, _death.Root, _message.Root,
+        })
+            UiKit.RegisterSize(root, new Vector2(1920, 1080));
     }
 
     public RectTransform Root => _root;

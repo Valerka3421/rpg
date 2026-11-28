@@ -57,32 +57,36 @@ public class StatsUI
     private void Rebuild(Player p)
     {
         if (_panel != null) UnityEngine.Object.Destroy(_panel);
+        UiKit.Scrim(Root, _t);
         _panel = UiKit.Panel(Root, 310, 90, 1300, 900, _t, "StatsPanel");
         var parent = _panel.transform;
 
-        UiKit.Label(parent, 0, 26, 1300, 44,
+        UiKit.Label(parent, 0, 20, 1300, 44,
             $"{p.ClassName} · УР. {p.Level} · ОЧКОВ: {p.FreePoints}",
-            _t.H2Size, _t.Gold, _t, TextAnchor.MiddleCenter, "Title");
+            _t.H1Size, _t.Title, _t, TextAnchor.MiddleCenter, "Title");
+        UiKit.CloseButton(parent, 1300 - 10, 10,
+            () => _game.ScreenMode = Screens.Game, _t);
 
         var stats = Player.ComputeStats(p.Str, p.Agi, p.Vit, p.Luk,
             p.DfStat, p.IntStat, p.Level, p.Weapon, p.Armor, p.Head,
             p.Legs, p.Boots, ClassData.Data(p.ClassKey).Effects);
 
+        // Цвета атрибутов — python-final (attr bars)
         (string Label, int Value, int Idx, Color C)[] attrs =
         {
-            ("Сила (STR)", p.Str, 0, new Color(0.86f, 0.47f, 0.39f)),
-            ("Ловкость (AGI)", p.Agi, 1, new Color(0.55f, 0.78f, 0.51f)),
-            ("Стойкость (VIT)", p.Vit, 2, new Color(0.86f, 0.47f, 0.43f)),
-            ("Удача (LUK)", p.Luk, 3, new Color(0.86f, 0.78f, 0.43f)),
-            ("Защита (DEF)", p.DfStat, 4, new Color(0.59f, 0.67f, 0.82f)),
-            ("Интеллект (INT)", p.IntStat, 5, new Color(0.51f, 0.67f, 0.94f)),
+            ("Сила (STR)", p.Str, 0, _t.BarStr),
+            ("Ловкость (AGI)", p.Agi, 1, _t.BarAgi),
+            ("Стойкость (VIT)", p.Vit, 2, _t.BarVit),
+            ("Удача (LUK)", p.Luk, 3, _t.BarLuk),
+            ("Защита (DEF)", p.DfStat, 4, _t.BarDef),
+            ("Интеллект (INT)", p.IntStat, 5, _t.BarInt),
         };
         int y = 100;
         foreach (var (label, value, idx, color) in attrs)
         {
             var row = UiKit.Panel(parent, 60, y, 560, 52, _t, "Attr_" + idx);
             UiKit.Label(row.transform, 16, 14, 300, 26, label, _t.BodySize,
-                _t.Ink, _t, TextAnchor.UpperLeft, "L");
+                _t.Text, _t, TextAnchor.UpperLeft, "L");
             UiKit.Label(row.transform, 320, 14, 60, 26, value.ToString(),
                 _t.BodySize, color, _t, TextAnchor.UpperRight, "V");
             if (p.FreePoints > 0)
@@ -98,7 +102,7 @@ public class StatsUI
         // Производные статы
         int dx = 700;
         UiKit.Label(parent, dx, 96, 520, 24, "ПРОИЗВОДНЫЕ", _t.SmallSize,
-            _t.GoldSoft, _t, TextAnchor.UpperLeft, "DerTitle");
+            _t.Section, _t, TextAnchor.UpperLeft, "DerTitle");
         (string, string)[] derived =
         {
             ("Здоровье", $"{p.Hp}/{stats.MaxHp}"),
@@ -122,14 +126,14 @@ public class StatsUI
 
         // Перки
         UiKit.Label(parent, dx, dy + 16, 520, 24, "ОСОБЕННОСТИ КЛАССА",
-            _t.SmallSize, _t.GoldSoft, _t, TextAnchor.UpperLeft, "PerkTitle");
+            _t.SmallSize, _t.Section, _t, TextAnchor.UpperLeft, "PerkTitle");
         string perk = ClassData.Get(p.ClassKey)?.Perk ?? "";
         UiKit.Label(parent, dx, dy + 44, 520, 90, perk, _t.SmallSize, _t.Ink, _t,
             TextAnchor.UpperLeft, "Perk");
 
         // Навыки ремёсел
         UiKit.Label(parent, 60, y + 12, 560, 24, "РЕМЁСЛА", _t.SmallSize,
-            _t.GoldSoft, _t, TextAnchor.UpperLeft, "CraftTitle");
+            _t.Section, _t, TextAnchor.UpperLeft, "CraftTitle");
         int cy = y + 42;
         foreach (var branch in RecipeData.CraftTabs.Take(3))
         {
@@ -142,8 +146,5 @@ public class StatsUI
             cy += 28;
         }
 
-        var close = UiKit.WidgetButton(parent, 500, 800, 300, 46, "Закрыть (Esc)",
-            _t.SmallSize, _t);
-        close.onClick.AddListener(() => _game.ScreenMode = Screens.Game);
     }
 }

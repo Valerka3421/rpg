@@ -46,7 +46,7 @@ public class TileRenderer
             default: DrawFloor(canvas, variant); break;
         }
 
-        if (light < 1f) canvas.Multiply(light);
+        if (light < 1f) canvas.ApplyLight(light); // холодный свет теней python
         return canvas.ToTexture();
     }
 
@@ -94,25 +94,26 @@ public class TileRenderer
     {
         string biome = kind.StartsWith("grass_", StringComparison.Ordinal)
             ? kind["grass_".Length..] : kind;
-        XnaColor baseC = biome switch
+        // Палитра биома — python-final BIOME_PALETTES (village/city)
+        var pal = biome switch
         {
-            "pine" => new XnaColor(45, 55, 38),
-            "birch" => new XnaColor(55, 62, 42),
-            "rock" => new XnaColor(80, 75, 65),
-            "autumn" => new XnaColor(65, 55, 35),
-            "swamp" => new XnaColor(40, 50, 35),
-            "dark" => new XnaColor(35, 40, 30),
-            "meadow" => new XnaColor(60, 70, 45),
-            "dead" => new XnaColor(50, 45, 38),
-            _ => Config.GrassBase,
+            "village" => WorldPalettes.Village,
+            "city" => WorldPalettes.City,
+            _ => WorldPalettes.Biomes.GetValueOrDefault(biome,
+                new WorldPalettes.Biome(WorldPalettes.GrassBase, WorldPalettes.GrassDark,
+                    WorldPalettes.GrassDry, WorldPalettes.TreeBase,
+                    WorldPalettes.TreeDark, WorldPalettes.Trunk)),
         };
-        canvas.FillRect(0, 0, 64, 64, baseC.U());
+        var baseC = WorldPalettes.Col(pal.Grass);
+        var darkC = WorldPalettes.Col(pal.GrassDark);
+        var dryC = WorldPalettes.Col(pal.GrassDry);
+        canvas.FillRect(0, 0, 64, 64, baseC);
         var rng = new System.Random(variant * 17 + 11);
-        var dark = baseC.Mul(0.7f);
-        var light = baseC.Mul(1.2f);
-        for (int i = 0; i < 40; i++)
+        var lightC = baseC; lightC.a = 255;
+        for (int i = 0; i < 48; i++)
         {
-            var c = rng.Next(3) == 0 ? light : dark;
+            int r = rng.Next(4);
+            var c = r == 0 ? lightC : r == 1 ? darkC : r == 2 ? dryC : baseC;
             canvas.FillRect(rng.Next(0, 64), rng.Next(0, 64), 1, 2, c);
         }
         if (biome == "meadow" && rng.NextDouble() < 0.15)

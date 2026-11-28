@@ -29,27 +29,28 @@ namespace Aethelgard.EditorTools
         private const string PrefabsDir = "Assets/Aethelgard/Prefabs/UI";
         private const string ScreensDir = "Assets/Aethelgard/Resources/Screens";
 
-        // Экраны, для которых создаются редактируемые префабы:
-        // имя файла → ScreenMode, в котором экран рисуется.
-        private static readonly (string Name, string Mode, string? RootName)[] Screens =
+        // Экраны для префабов: имя → (ScreenMode, корень, панель).
+        // Панель "" — сохраняется весь корень (Hud построен в Build()).
+        private static readonly (string Name, string Mode, string RootName, string PanelName)[]
+            Screens =
         {
-            ("Menu", ScreenMode.Menu, "Menu"),
-            ("Pause", ScreenMode.Pause, "Menu"),
-            ("ClassSelect", ScreenMode.ClassSelect, "ClassSelect"),
-            ("Hud", ScreenMode.Game, "Hud"),
-            ("Inventory", ScreenMode.Inventory, "Inventory"),
-            ("Shop", ScreenMode.Shop, "Shop"),
-            ("Skills", ScreenMode.Skills, "Skills"),
-            ("Craft", ScreenMode.Craft, "Craft"),
-            ("Stats", ScreenMode.Stats, "Stats"),
-            ("Quests", ScreenMode.Quests, "Quests"),
-            ("RunStats", ScreenMode.StatsRun, "Quests"),
-            ("Dialogue", ScreenMode.Dialogue, "Dialogue"),
-            ("Bigmap", ScreenMode.Bigmap, "Bigmap"),
-            ("Console", ScreenMode.Game, "DevConsole"),
-            ("Mp", ScreenMode.MpGame, "Mp"),
-            ("Death", ScreenMode.Game, "DeathVictory"),
-            ("Message", ScreenMode.Game, "Message"),
+            ("Menu", ScreenMode.Menu, "Menu", "MenuPanel"),
+            ("Pause", ScreenMode.Pause, "Menu", "PausePanel"),
+            ("ClassSelect", ScreenMode.ClassSelect, "ClassSelect", "ClassPanel"),
+            ("Hud", ScreenMode.Game, "Hud", ""),
+            ("Inventory", ScreenMode.Inventory, "Inventory", "InvPanel"),
+            ("Shop", ScreenMode.Shop, "Shop", "ShopPanel"),
+            ("Skills", ScreenMode.Skills, "Skills", "SkillPanel"),
+            ("Craft", ScreenMode.Craft, "Craft", "CraftPanel"),
+            ("Stats", ScreenMode.Stats, "Stats", "StatsPanel"),
+            ("Quests", ScreenMode.Quests, "Quests", "QuestPanel"),
+            ("RunStats", ScreenMode.StatsRun, "Quests", "RunStatsPanel"),
+            ("Dialogue", ScreenMode.Dialogue, "Dialogue", "DialoguePanel"),
+            ("Bigmap", ScreenMode.Bigmap, "Bigmap", "BigmapPanel"),
+            ("Console", ScreenMode.Game, "DevConsole", "ConsolePanel"),
+            ("Mp", ScreenMode.MpGame, "Mp", "MpPanel"),
+            ("Death", ScreenMode.Game, "DeathVictory", "OverlayPanel"),
+            ("Message", ScreenMode.Game, "Message", "MsgPanel"),
         };
 
         [MenuItem("Aethelgard/Create UI Theme Asset")]
@@ -112,6 +113,9 @@ namespace Aethelgard.EditorTools
             var scaler = canvasGo.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920, 1080);
+            // Edit-mode канвас может быть 0×0 — фиксируем дизайн-размер,
+            // чтобы все Place() считались в координатах 1920×1080
+            UiKit.RegisterSize(canvasGo.transform, new Vector2(1920, 1080));
 
             var game = new GameController();
             game.Audio = new Aethelgard.Audio.AudioSystem();
@@ -123,7 +127,7 @@ namespace Aethelgard.EditorTools
             ui.Init(game, theme);
 
             var mouse = new Microsoft.Xna.Framework.Input.MouseState();
-            foreach (var (name, mode, rootName) in Screens)
+            foreach (var (name, mode, rootName, panelName) in Screens)
             {
                 SetupScreenState(game, name);
                 game.ScreenMode = mode;
@@ -131,19 +135,42 @@ namespace Aethelgard.EditorTools
                 ui.Tick(mouse, mouse, 0.016f);
                 ui.Tick(mouse, mouse, 0.016f);
 
-                // Корень экрана → его панель (префаб = панель, Apply кладёт
-                // её прямоугольник на _panel при пересборке)
+                // ClassSelect рисуется вне Tick (как в MonoGame) — триггерим явно
+                if (name == "ClassSelect")
+                    ui.DrawClassSelect();
+
                 GameObject? root = FindActiveChild(uiGo.transform, rootName);
                 if (root == null)
                 {
-                    Debug.LogWarning($"[Aethelgard] Экран '{name}' не построился");
+                    Debug.LogWarning($"[Aethelgard] Экран '{name}' не построился " +
+                        $"(корень '{rootName}' не найден/неактивен)");
                     continue;
                 }
-                GameObject? panel = FindPanel(root);
-                if (panel == null) panel = root;
+
+                GameObject? panel;
+                if (panelName.Length == 0)
+                {
+                    panel = root; // весь корень (Hud)
+                }
+                else
+                {
+                    var found = root.transform.Find(panelName);
+                    if (found == null)
+                    {
+                        var names = new List<string>();
+                        foreach (Transform c in root.transform) names.Add(c.name);
+                        Debug.LogWarning($"[Aethelgard] Экран '{name}': панель " +
+                            $"'{panelName}' не найдена. Дети корня: " +
+                            string.Join(", ", names));
+                        continue;
+                    }
+                    panel = found.gameObject;
+                }
+
                 string path = $"{ScreensDir}/{name}.prefab";
                 PrefabUtility.SaveAsPrefabAsset(panel, path);
-                Debug.Log($"[Aethelgard] Префаб экрана сохранён: {path}");
+                Debug.Log($"[Aethelgard] Префаб '{name}' сохранён " +
+                    $"({panel.transform.childCount} элементов верхнего уровня)");
             }
 
             Object.DestroyImmediate(canvasGo);
@@ -161,15 +188,6 @@ namespace Aethelgard.EditorTools
                 if (c.name == name && c.gameObject.activeSelf) best = c;
             }
             return best?.gameObject;
-        }
-
-        /// <summary>Панель экрана = ребёнок с именем на «Panel», иначе корень.</summary>
-        private static GameObject? FindPanel(GameObject root)
-        {
-            foreach (Transform c in root.transform)
-                if (c.name.EndsWith("Panel") && c.GetComponent<RectTransform>() != null)
-                    return c.gameObject;
-            return root;
         }
 
         /// <summary>Состояние игры, чтобы зависимые экраны построились.</summary>

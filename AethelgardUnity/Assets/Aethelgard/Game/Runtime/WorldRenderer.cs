@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Aethelgard.Systems;
 using Aethelgard.Render;
+using Aethelgard.UI;
 using UnityEngine;
 using XnaColor = Microsoft.Xna.Framework.Color;
 
@@ -23,6 +24,7 @@ public class WorldRenderer
     private readonly Dictionary<Entity, SpriteRenderer> _entityPool = new();
     private SpriteRenderer? _playerSr;
     private Transform? _playerT;
+    private SpriteRenderer? _darkness;
 
     public WorldRenderer(Transform parent, Camera camera)
     {
@@ -120,6 +122,23 @@ public class WorldRenderer
             "player_" + (cls?.Key ?? "warrior"), pcolor);
         _playerSr.transform.position = ppos;
         _playerSr.gameObject.SetActive(true);
+
+        // ── Тьма (game_renderer._draw_darkness): оверлей (5,7,12,α135) с
+        //    радиальной «дырой» r=(FOV+1) тайлов; градиент α=α·(r/half)^1.7 ──
+        if (_darkness == null)
+        {
+            var dgo = new GameObject("Darkness");
+            dgo.transform.SetParent(_root.transform, false);
+            _darkness = dgo.AddComponent<SpriteRenderer>();
+            _darkness.sortingOrder = 6;
+            var tex = UiKit.RadialGradient(256, 1.7f);
+            _darkness.sprite = tex;
+            _darkness.color = new Color(5f / 255f, 7f / 255f, 12f / 255f, 135f / 255f);
+            float diameter = 2f * (Config.FovRadius + 1) * Tile;
+            dgo.transform.localScale = new Vector3(
+                diameter / tex.bounds.size.x, diameter / tex.bounds.size.y, 1f);
+        }
+        _darkness.transform.position = ppos;
     }
 
     private void DrawEntities(List<Entity> entities, GameController game, int mapH)
@@ -143,7 +162,10 @@ public class WorldRenderer
                 string key = !string.IsNullOrEmpty(e.MonsterKey)
                     ? e.MonsterKey : e.Name.ToLowerInvariant();
                 sr.sprite = SpriteStore.Get(key, e.Color, boss);
-                sr.transform.position = TileWorld(e.X, e.Y, mapH);
+                // Idle-покачивание (ANIM_IDLE_AMP 2.5px, sin(t·4)) — python
+                float bob = Mathf.Sin(Time.time * 4f + (e.X + e.Y) * 0.7f) * 2.5f;
+                sr.transform.position = TileWorld(e.X, e.Y, mapH) +
+                    new Vector3(0, bob, 0);
                 sr.gameObject.SetActive(true);
             }
         }
@@ -159,15 +181,17 @@ public class WorldRenderer
         }
     }
 
-    private static Sprite _rectSprite;
+    private static readonly Dictionary<Color32, Sprite> _rectSprites = new();
     public static Sprite MakeRectSprite(Color32 c, int px)
     {
-        if (_rectSprite != null) return _rectSprite;
+        // Спрайт на каждый цвет (раньше кэш игнорировал цвет — баг)
+        if (_rectSprites.TryGetValue(c, out var sp)) return sp;
         var canvas = new PixelCanvas(px, px);
         canvas.Clear(c);
-        _rectSprite = Sprite.Create(canvas.ToTexture(),
-            new Rect(0, 0, px, px), new Vector2(0.5f, 0.5f), px);
-        return _rectSprite;
+        sp = Sprite.Create(canvas.ToTexture(),
+            new Rect(0, 0, px, px), new Vector2(0.5f, 0.5f), 1f);
+        _rectSprites[c] = sp;
+        return sp;
     }
 
     private static readonly Dictionary<Texture2D, Sprite> _tileSprites = new();
@@ -175,7 +199,7 @@ public class WorldRenderer
     {
         if (_tileSprites.TryGetValue(tex, out var sp)) return sp;
         sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height),
-            new Vector2(0.5f, 0.5f), Tile);
+            new Vector2(0.5f, 0.5f), 1f); // 1px = 1 юнит
         _tileSprites[tex] = sp;
         return sp;
     }

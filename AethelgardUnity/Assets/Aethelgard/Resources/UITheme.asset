@@ -29,7 +29,7 @@ MonoBehaviour:
   Experience: {r: 0.329, g: 0.612, b: 0.863, a: 1}
   Danger: {r: 0.816, g: 0.361, b: 0.282, a: 1}
   Success: {r: 0.549, g: 0.745, b: 0.471, a: 1}
-  FontName: Segoe UI
+  FontName: Consolas
   H1Size: 40
   H2Size: 22
   BodySize: 18
@@ -38,7 +38,7 @@ MonoBehaviour:
   FrameThickness: 2
   Padding: 20
   RowHeight: 46
-  ButtonHeight: 52
+  ButtonHeight: 56
   PanelShadow: 1
   MenuSkyTop: {r: 0.1, g: 0.09, b: 0.14, a: 1}
   MenuSkyBottom: {r: 0.24, g: 0.14, b: 0.1, a: 1}

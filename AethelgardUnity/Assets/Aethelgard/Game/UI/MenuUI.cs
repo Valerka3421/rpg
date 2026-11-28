@@ -13,8 +13,9 @@ namespace Aethelgard.UI;
 
 /// <summary>
 /// Главное меню и все подменю (saves/settings/controls/credits/mp/mpjoin)
-/// + меню паузы. Порт Render/MainMenuScreen.cs и PauseScreen: тёмный фон,
-/// орнаментированный заголовок «ЭТЕЛЬГАРД», бронзовые кнопки.
+/// + меню паузы. Точная компоновка python-final (menu_renderer.py +
+/// menu_controller.py): кнопки 400×56 по центру с шагом 80, заголовок
+/// с двойным подчёркиванием, стрелка-выделение, градиент подменю.
 /// </summary>
 public class MenuUI
 {
@@ -26,17 +27,24 @@ public class MenuUI
     public bool FromGame;
 
     private GameObject? _panel;
-    private Text? _title;
-    private Text? _subtitle;
     private readonly List<GameObject> _buttons = new();
     private readonly List<string> _labels = new();
     private readonly List<Button> _selButtons = new();
-    private readonly List<Button> _buttonList = new();
     private string _lastMode = "";
     private readonly string[] _pauseItems =
-        { "ПРОДОЛЖИТЬ", "СОХРАНИТЬ", "ЗАГРУЗИТЬ", "НАСТРОЙКИ", "В ГЛАВНОЕ МЕНЮ" };
+        { "ВЕРНУТЬСЯ В ИГРУ", "СОХРАНИТЬ", "ЗАГРУЗИТЬ", "НАСТРОЙКИ", "В ГЛАВНОЕ МЕНЮ" };
     private string _ipBuffer = "";
     private int _pauseSelected;
+    private bool _pauseBuilt;
+    private GameObject? _pausePanel;
+    private readonly List<Button> _pauseButtons = new();
+
+    // python-final menu_controller.button_rects(): 400×56, y=200, шаг 80
+    private const int BtnW = 400;
+    private const int BtnH = 56;
+    private const int BtnY = 200;
+    private const int BtnStep = 80;
+    private const int BtnX = (1920 - 400) / 2; // 760
 
     private static readonly (int W, int H)[] Resolutions =
         { (1280, 720), (1600, 900), (1920, 1080), (2560, 1440) };
@@ -54,10 +62,8 @@ public class MenuUI
         Root = UiKit.Attach(go, _ui.Root);
         Root.gameObject.SetActive(false);
 
-        // Фон: тёплый градиент (заменяет анимированный MenuBackground —
-        // полосы-«хребты» и угольки создаются в MenuBackdrop)
+        // Анимированный ландшафт python-final (menu_background.py)
         MenuBackdrop.Create(Root, _t);
-        UiKit.SetButtonBaseColor(_t.Bronze);
     }
 
     public void OpenMain() { _game.ScreenMode = Screens.Menu; FromGame = false; }
@@ -149,7 +155,6 @@ public class MenuUI
                 }
                 else
                 {
-                    _game.ScreenMode = FromGame ? Screens.Menu : Screens.Menu;
                     _game.ScreenMode = Screens.Menu;
                 }
                 break;
@@ -201,7 +206,8 @@ public class MenuUI
     }
 
     /// <summary>
-    /// Клавиатурная подсветка: выбранная кнопка — светлее, с маркером «▶ ».
+    /// Клавиатурная подсветка python-final: градиент (96,76,44), золотая
+    /// рамка, светлая верхняя линия, стрелка слева (MenuButtonSkin).
     /// </summary>
     private void ApplyMenuSelection()
     {
@@ -211,18 +217,6 @@ public class MenuUI
             if (btn == null) continue; // кнопка уже уничтожена (перестройка)
             bool sel = i == _sel;
             UiKit.SetKeyboardSelected(btn, sel);
-            // Текст перезаписывается кодом, только если префаб его не
-            // переопределяет узлом «!» (правка из Unity Editor)
-            if (!ScreenPrefabs.OverridesText("Menu", "Button_" + _labels[i]))
-            {
-                var txt = btn.GetComponentInChildren<Text>();
-                if (txt != null)
-                    txt.text = sel ? "▶  " + _labels[i] : _labels[i];
-            }
-            else if (sel)
-            {
-                UiKit.SetKeyboardSelected(btn, true);
-            }
         }
     }
 
@@ -230,7 +224,6 @@ public class MenuUI
     {
         foreach (var b in _buttons) UnityEngine.Object.Destroy(b);
         _buttons.Clear();
-        _buttonList.Clear();
         _labels.Clear();
         _selButtons.Clear();
     }
@@ -239,7 +232,22 @@ public class MenuUI
     {
         ClearButtons();
         if (_panel != null) UnityEngine.Object.Destroy(_panel);
-        _panel = UiKit.Panel(Root, 560, 140, 800, 800, _t, "MenuPanel");
+        _panel = UiKit.Node("MenuPanel", Root);
+        UiKit.Attach(_panel, Root);
+        var pt = _panel.transform;
+
+        bool main = mode == Screens.Menu;
+        if (!main)
+        {
+            // Подменю: вертикальный градиент (10,9,7)→(30,24,18) вместо ландшафта
+            var bg = UiKit.Node("SubMenuBg", pt);
+            UiKit.Attach(bg, pt);
+            var img = UiKit.Img(bg, _t.PanelDark);
+            img.sprite = UiKit.BtnGradient();
+            img.type = Image.Type.Simple;
+            img.color = UITheme.C(30, 24, 18); // верх; низ темнее (×0.545)
+            bg.transform.SetAsFirstSibling();
+        }
 
         string title = mode switch
         {
@@ -251,22 +259,47 @@ public class MenuUI
             Screens.MenuMpJoin => "ПОДКЛЮЧЕНИЕ",
             _ => "ЭТЕЛЬГАРД",
         };
-        _title = UiKit.Label(_panel.transform, 0, 36, 800, 56, title,
-            _t.H1Size, _t.Gold, _t, TextAnchor.MiddleCenter, "Title");
+        int ty = main ? 100 : 80;
+        // Заголовок с чёрной тенью (+3,+3), как в menu_renderer.draw_main
+        UiKit.Label(pt, 3, ty + 3, 1920, 52, title, _t.H1Size,
+            Color.black, _t, TextAnchor.MiddleCenter, "TitleShadow");
+        UiKit.Label(pt, 0, ty, 1920, 52, title, _t.H1Size,
+            _t.Title, _t, TextAnchor.MiddleCenter, "Title");
+
+        if (main)
+        {
+            // Двойное подчёркивание y=155: (96,78,46) 440px и (176,142,82) 300px
+            UiKit.Solid(pt, (1920 - 440) / 2, 155, 440, 3, UITheme.C(96, 78, 46), "Underline1");
+            UiKit.Solid(pt, (1920 - 300) / 2, 155, 300, 2, UITheme.C(176, 142, 82), "Underline2");
+        }
 
         string sub = mode switch
         {
             Screens.Menu => "Роглайк-приключение в мире Этельгард",
             Screens.MenuMpJoin => "Введите IP:порт хоста (Tab — разделитель)",
-            Screens.MenuControls => ControlHelp,
-            Screens.MenuCredits => CreditsText,
+            Screens.MenuControls => "",
+            Screens.MenuCredits => "",
             _ => "",
         };
-        _subtitle = UiKit.Label(_panel.transform, 40, 104, 720, 140, sub,
-            _t.SmallSize, _t.InkDim, _t, TextAnchor.UpperCenter, "Subtitle");
+        if (sub.Length > 0)
+            UiKit.Label(pt, 0, main ? 172 : 140, 1920, 30, sub,
+                _t.BodySize, _t.TextDim, _t, TextAnchor.MiddleCenter, "Subtitle");
+
+        if (mode == Screens.MenuControls)
+        {
+            UiKit.Label(pt, 0, 220, 1920, 140, ControlHelp,
+                _t.BodySize, _t.Text, _t, TextAnchor.UpperCenter, "Help");
+        }
+        if (mode == Screens.MenuCredits)
+        {
+            UiKit.Label(pt, 0, 220, 1920, 160, CreditsText,
+                _t.BodySize, _t.Text, _t, TextAnchor.UpperCenter, "Credits");
+        }
 
         var items = ItemsFor(mode);
-        int y = 260;
+        // Подменю — строки 700×46, шаг 60 (settings), иначе кнопки 400×56
+        bool compact = !main && mode != Screens.MenuMultiplayer && mode != Screens.MenuMpJoin;
+        int y = main ? BtnY : 160;
         for (int i = 0; i < items.Length; i++)
         {
             string label = items[i];
@@ -288,8 +321,11 @@ public class MenuUI
                 label = $"ПОДКЛЮЧИТЬСЯ: {_ipBuffer}";
 
             int idx = i;
-            var btn = UiKit.WidgetButton(_panel.transform, 140, y, 520, _t.ButtonHeight,
-                label, _t.BodySize, _t);
+            int bw = compact ? 700 : BtnW;
+            int bh = compact ? 46 : BtnH;
+            int bx = (1920 - bw) / 2;
+            var btn = UiKit.WidgetButton(pt, bx, y, bw, bh,
+                label, compact ? _t.BodySize : _t.H2Size, _t, menuArrow: true);
             btn.onClick.AddListener(() =>
             {
                 if (mode == Screens.MenuMpJoin)
@@ -302,51 +338,72 @@ public class MenuUI
             _buttons.Add(btn.gameObject);
             _labels.Add(label);
             _selButtons.Add(btn);
-            y += _t.ButtonHeight + 14;
+            y += compact ? 60 : BtnStep;
         }
 
         // Подсказка ESC
-        UiKit.Label(_panel.transform, 0, 740, 800, 24, "Esc — назад",
-            _t.TinySize, _t.InkFaint, _t, TextAnchor.MiddleCenter, "Hint");
+        UiKit.Label(pt, 0, 1020, 1920, 24, "Esc — назад",
+            _t.TinySize, _t.TextMuted, _t, TextAnchor.MiddleCenter, "Hint");
     }
 
-    // ── Пауза (тот же визуал, пункты MENU_PAUSE) ──
+    // ── Пауза (та же компоновка, что главное меню — как в python-final) ──
 
     public void DrawPause(float dt)
     {
-        if (_pausePanel == null) RebuildPause(); // ленивая сборка (для превью/генерации)
+        if (!_pauseBuilt) RebuildPause(); // ленивая сборка (для превью/генерации)
 
         var keys = InputState.Keys;
         var prevKeys = InputState.PrevKeys;
         bool up = keys.IsKeyDown(XnaKeys.Up) && !prevKeys.IsKeyDown(XnaKeys.Up);
         bool down = keys.IsKeyDown(XnaKeys.Down) && !prevKeys.IsKeyDown(XnaKeys.Down);
         bool enter = keys.IsKeyDown(XnaKeys.Enter) && !prevKeys.IsKeyDown(XnaKeys.Enter);
-        if (up) { _pauseSelected = (_pauseSelected + _pauseItems.Length - 1) % _pauseItems.Length; RebuildPause(); }
-        if (down) { _pauseSelected = (_pauseSelected + 1) % _pauseItems.Length; RebuildPause(); }
+        if (up) { _pauseSelected = (_pauseSelected + _pauseItems.Length - 1) % _pauseItems.Length; UpdatePauseSelection(); }
+        if (down) { _pauseSelected = (_pauseSelected + 1) % _pauseItems.Length; UpdatePauseSelection(); }
         if (enter) _ui.PauseChoice(_pauseSelected);
     }
 
-    private GameObject? _pausePanel;
-
     private void RebuildPause()
     {
+        _pauseBuilt = true;
         if (_pausePanel != null) UnityEngine.Object.Destroy(_pausePanel);
-        _pausePanel = UiKit.Panel(Root, 660, 240, 600, 620, _t, "PausePanel");
-        UiKit.Label(_pausePanel.transform, 0, 32, 600, 56, "ПАУЗА",
-            _t.H1Size, _t.Gold, _t, TextAnchor.MiddleCenter, "Title");
-        int y = 140;
+        _pausePanel = UiKit.Node("PausePanel", Root);
+        UiKit.Attach(_pausePanel, Root);
+        var pt = _pausePanel.transform;
+        // Затемнение как у главного меню
+        var dim = UiKit.Node("Dim", pt);
+        UiKit.Attach(dim, pt);
+        UiKit.Img(dim, UITheme.C(6, 5, 4, 70f / 255f));
+
+        UiKit.Label(pt, 3, 103, 1920, 52, "ПАУЗА", _t.H1Size, Color.black, _t,
+            TextAnchor.MiddleCenter, "TitleShadow");
+        UiKit.Label(pt, 0, 100, 1920, 52, "ПАУЗА", _t.H1Size, _t.Title, _t,
+            TextAnchor.MiddleCenter, "Title");
+        UiKit.Solid(pt, (1920 - 440) / 2, 155, 440, 3, UITheme.C(96, 78, 46), "Underline1");
+        UiKit.Solid(pt, (1920 - 300) / 2, 155, 300, 2, UITheme.C(176, 142, 82), "Underline2");
+
+        int y = 200;
         for (int i = 0; i < _pauseItems.Length; i++)
         {
             int idx = i;
-            var btn = UiKit.WidgetButton(_pausePanel.transform, 80, y, 440,
-                _t.ButtonHeight,
-                (_pauseSelected == i ? "▶  " : "") + _pauseItems[i], _t.BodySize, _t);
+            var btn = UiKit.WidgetButton(pt, BtnX, y, BtnW, BtnH,
+                _pauseItems[i], _t.H2Size, _t, menuArrow: true);
             btn.onClick.AddListener(() => _ui.PauseChoice(idx));
-            y += _t.ButtonHeight + 14;
+            _pauseButtons.Add(btn);
+            y += BtnStep;
         }
-        UiKit.Label(_pausePanel.transform, 0, 550, 600, 24,
-            "Esc — продолжить", _t.TinySize, _t.InkFaint, _t,
+        UiKit.Label(pt, 0, 1020, 1920, 24,
+            "Esc — продолжить", _t.TinySize, _t.TextMuted, _t,
             TextAnchor.MiddleCenter, "Hint");
+        UpdatePauseSelection();
+    }
+
+    private void UpdatePauseSelection()
+    {
+        for (int i = 0; i < _pauseButtons.Count; i++)
+        {
+            if (_pauseButtons[i] == null) continue;
+            UiKit.SetKeyboardSelected(_pauseButtons[i], i == _pauseSelected);
+        }
     }
 
     private const string ControlHelp =
@@ -361,4 +418,3 @@ public class MenuUI
         "Все спрайты, тайлы и звуки генерируются процедурно.\n\n" +
         "Спасибо за игру!";
 }
-
