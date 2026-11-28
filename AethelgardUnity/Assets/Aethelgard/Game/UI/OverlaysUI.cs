@@ -102,7 +102,8 @@ using System;
         private readonly GameController _game;
         public RectTransform Root = null!;
         private GameObject? _panel;
-        private bool _built;
+        private string _mapKey = "";   // WorldMode|Depth — карта перестраивается при смене локации
+        private Texture2D? _mapTex;
 
         public BigmapUI(UIManager ui)
         {
@@ -119,8 +120,17 @@ using System;
         public void Draw()
         {
             var map = _game.CurrentMap;
-            if (map == null || _built) return;
-            _built = true;
+            if (map == null || _game.Player == null) return;
+            // Перестраиваем при смене локации (спуск в подземелье, новый забег)
+            string key = $"{_game.WorldMode}|{_game.Depth}";
+            if (_panel != null && key != _mapKey)
+            {
+                UnityEngine.Object.Destroy(_panel);
+                _panel = null;
+                if (_mapTex != null) { UnityEngine.Object.Destroy(_mapTex); _mapTex = null; }
+            }
+            if (_panel != null) return;
+            _mapKey = key;
 
             _panel = UiKit.Panel(Root, 260, 40, 1400, 1000, _t, "BigmapPanel");
             var parent = _panel.transform;
@@ -129,7 +139,7 @@ using System;
 
             // Карта — RawImage с текстурой, сгенерированной из MapPalette
             int mw = Config.MapW, mh = Config.MapH;
-            var tex = new Texture2D(mw, mh, TextureFormat.RGBA32, false);
+            var tex = _mapTex = new Texture2D(mw, mh, TextureFormat.RGBA32, false);
             tex.filterMode = FilterMode.Point;
             var colors = new Color32[mw * mh];
             bool overworld = _game.WorldMode != "dungeon";
@@ -221,8 +231,9 @@ using System;
             if (_rootPanel != null) return;
             bool victory = _game.Victory;
             // overlay_renderer.py: dim (7,6,5,225); смерть — панель 700×480
-            // PANEL_DARK с рамкой HP_CRIT; победа — 520×170 с рамкой WIN
-            UiKit.Solid(Root, 0, 0, 1920, 1080, UITheme.C(7, 6, 5, 225f / 255f), "Dim");
+            // PANEL_DARK с рамкой HP_CRIT; победа — 520×170 с рамкой WIN.
+            // Затемнение одним слоем в контейнере оверлея (Clear() чистит всё)
+            _dim = UiKit.Solid(Root, 0, 0, 1920, 1080, UITheme.C(7, 6, 5, 225f / 255f), "Dim");
             _rootPanel = UiKit.Panel(Root, victory ? 700 : 610, victory ? 430 : 260,
                 victory ? 520 : 700, victory ? 170 : 480, _t, "OverlayPanel");
             var parent = _rootPanel.transform;
@@ -285,11 +296,22 @@ using System;
         }
 
         private GameObject? _rootPanel;
+        private Image? _dim;
 
         private void Clear()
         {
             if (_rootPanel != null) UnityEngine.Object.Destroy(_rootPanel);
             _rootPanel = null;
+            // Гасим и слой затемнения — иначе он накапливался при рестартах
+            if (_dim != null) UnityEngine.Object.Destroy(_dim.gameObject);
+            _dim = null;
+        }
+
+        /// <summary>Esc на экране победы/смерти — закрыть оверлей (подсказка «Esc — продолжить»).</summary>
+        public void Dismiss()
+        {
+            _game.Victory = false;
+            Clear();
         }
     }
 

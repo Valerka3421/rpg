@@ -28,6 +28,7 @@ using System;
     public static class SpriteStore
     {
         private static readonly Dictionary<string, Texture2D> Cache = new();
+        private static readonly Dictionary<string, Sprite> SpriteCache = new();
 
         private static readonly HashSet<string> Humanoid =
             new(StringComparer.Ordinal)
@@ -37,15 +38,23 @@ using System;
             "troll", "golem", "dragonling",
         };
 
-        /// <summary>Спрайт по категории (player/npc/monsters/bosses) и ключу.</summary>
+        /// <summary>Спрайт по категории (player/npc/monsters/bosses) и ключу.
+        /// Спрайты кэшируются наравне с текстурами — Sprite.Create каждый кадр
+        /// текал нативной памятью.</summary>
         public static Sprite Get(string key, XnaColor baseColor, bool boss = false)
         {
             string cacheKey = $"{key}_{baseColor.R}_{baseColor.G}_{baseColor.B}_{(boss ? 1 : 0)}";
-            if (Cache.TryGetValue(cacheKey, out var tex)) return ToSprite(tex);
+            if (SpriteCache.TryGetValue(cacheKey, out var cached) && cached != null)
+                return cached;
 
-            tex = LoadPng(key) ?? Generate(key, baseColor, boss);
-            Cache[cacheKey] = tex;
-            return ToSprite(tex);
+            if (!Cache.TryGetValue(cacheKey, out var tex))
+            {
+                tex = LoadPng(key) ?? Generate(key, baseColor, boss);
+                Cache[cacheKey] = tex;
+            }
+            var sp = ToSprite(tex);
+            SpriteCache[cacheKey] = sp;
+            return sp;
         }
 
         private static Sprite ToSprite(Texture2D tex)

@@ -89,7 +89,7 @@ using Aethelgard.Runtime;
         private void Rebuild(System.Collections.Generic.List<(string Key, ItemData.Def Item)> list)
         {
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 360, 90, 1200, 900, _t, "CraftPanel");
             var parent = _panel.transform;
 
@@ -158,7 +158,8 @@ using Aethelgard.Runtime;
 
         private void UpdateMinigameBar()
         {
-            if (_mgBar == null) return;
+            // Панель могла быть перестроена — Unity-null проверка уничтоженного бара
+            if (_mgBar == null || !_mgBar.Value.root) return;
             // 3 зоны качества (_craft.py): 0.40–0.60 зелёная, 0.25–0.75 жёлтая
             _mgBar.Value.fill.rectTransform.anchorMax = new Vector2(_game.MinigamePos, 1f);
             _mgBar.Value.fill.color =

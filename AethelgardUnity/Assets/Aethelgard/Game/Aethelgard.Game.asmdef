@@ -2,7 +2,8 @@
     "name": "Aethelgard.Game",
     "rootNamespace": "Aethelgard",
     "references": [
-        "Aethelgard.Core"
+        "Aethelgard.Core",
+        "UnityEngine.UI"
     ],
     "noEngineReferences": false,
     "autoReferenced": true

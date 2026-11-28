@@ -99,7 +99,8 @@ using System.Collections.Generic;
             foreach (var kv in _tilePool)
                 kv.Value.gameObject.SetActive(used.Contains(kv.Key));
 
-            // ── Предметы на полу ──
+            // ── Предметы на полу (маркер скрывается, когда предмет подняли) ──
+            var itemsShown = new HashSet<(int, int)>();
             foreach (var kv in map.Items)
             {
                 if (!_tilePool.TryGetValue(kv.Key, out var tsr) || tsr == null) continue;
@@ -115,6 +116,15 @@ using System.Collections.Generic;
                     child = go.transform;
                 }
                 child.gameObject.SetActive(true);
+                itemsShown.Add(kv.Key);
+            }
+            // Подобранные предметы: гасим маркеры на тайлах без предмета
+            foreach (var kv in _tilePool)
+            {
+                var child = kv.Value.transform.Find("item");
+                if (child != null && child.gameObject.activeSelf &&
+                    !itemsShown.Contains(kv.Key))
+                    child.gameObject.SetActive(false);
             }
 
             // ── Сущности ──

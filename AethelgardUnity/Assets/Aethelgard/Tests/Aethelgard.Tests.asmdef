@@ -2,10 +2,9 @@
     "name": "Aethelgard.Tests",
     "rootNamespace": "Aethelgard.Tests",
     "references": [
-        "Aethelgard.Core"
-    ],
-    "optionalUnityReferences": [
-        "TestAssemblies"
+        "Aethelgard.Core",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
     ],
     "includePlatforms": [
         "Editor"

@@ -66,7 +66,7 @@ using System.Linq;
         private void Rebuild(QuestLog quests)
         {
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 410, 120, 1100, 840, _t, "QuestPanel");
             var parent = _panel.transform;
 
@@ -187,7 +187,7 @@ using System.Linq;
         private void RebuildRunStats()
         {
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 360, 130, 1200, 820, _t, "RunStatsPanel");
             var parent = _panel.transform;
 

@@ -89,7 +89,10 @@ using Aethelgard.Systems;
             // ── Ввод ──
             InputState.PrevKeys = InputState.Keys;
             InputState.Keys = UnityInput.ReadKeyboard();
-            float scaleFactor = Screen.height / 1080f;
+            // Тот же масштаб, что даёт CanvasScaler (matchWidthOrHeight = 0.5):
+            // иначе мышь расходится с UI на не-16:9 разрешениях
+            float sfW = Screen.width / 1920f, sfH = Screen.height / 1080f;
+            float scaleFactor = Mathf.Lerp(sfW, sfH, 0.5f);
             var mouse = UnityInput.ReadMouse(scaleFactor);
             var prevMouse = _prevMouse;
             _prevMouse = mouse;

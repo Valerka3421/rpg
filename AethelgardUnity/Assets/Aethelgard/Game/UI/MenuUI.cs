@@ -105,9 +105,13 @@ using Aethelgard.Runtime;
             if (mode == Screens.MenuMpJoin)
             {
                 HandleIpTyping(keys, prevKeys);
+                // Enter подтверждает подключение (было доступно только мышью)
+                if (enter) Activate(mode, _sel);
                 return;
             }
 
+            // Выбор не должен «переезжать» между экранами с разным числом пунктов
+            if (_sel >= items.Length) _sel = 0;
             if (up) _sel = (_sel + items.Length - 1) % items.Length;
             if (down) _sel = (_sel + 1) % items.Length;
             if (enter) Activate(mode, _sel);
@@ -124,12 +128,20 @@ using Aethelgard.Runtime;
                     _ipBuffer = _ipBuffer[..^1];
                 else if (k >= XnaKeys.D0 && k <= XnaKeys.D9)
                     _ipBuffer += (char)('0' + (k - XnaKeys.D0));
+                else if (k >= XnaKeys.NumPad0 && k <= XnaKeys.NumPad9)
+                    _ipBuffer += (char)('0' + (k - XnaKeys.NumPad0));
                 else if (k == XnaKeys.OemPeriod) _ipBuffer += ".";
                 else if (k >= XnaKeys.A && k <= XnaKeys.Z) _ipBuffer += (char)('a' + (k - XnaKeys.A));
-                else if (k == XnaKeys.Space) _ipBuffer += ":";
+                else if (k == XnaKeys.Space || k == XnaKeys.Tab) _ipBuffer += ":";
             }
-            _lastMode = ""; // перерисовать
+            // Перерисовываем только при изменении буфера (каждый кадр текало GC)
+            if (_ipBuffer != _lastIp)
+            {
+                _lastIp = _ipBuffer;
+                _lastMode = "";
+            }
         }
+        private string _lastIp = "";
 
         private string[] ItemsFor(string mode) => mode switch
         {
@@ -421,9 +433,9 @@ using Aethelgard.Runtime;
 
         private const string ControlHelp =
             "WASD/стрелки — движение · Пробел — атака · E — взаимодействие\n" +
-            "I — инвентарь · K — навыки · C — характеристики · Q — квесты\n" +
-            "M — карта · B — большая карта · 1–8 — хотбар · F — зелье\n" +
-            "T — говорить с NPC · Enter — диалог · Esc — пауза/назад";
+            "I — инвентарь · N — навыки · K — крафт · C — характеристики\n" +
+            "L — квесты (у доски/старейшины) · M — карта · B — большая карта\n" +
+            "1–0 — хотбар · F — зелье · T — говорить с NPC · Esc — пауза/назад";
 
         private const string CreditsText =
             "ЭТЕЛЬГАРД — роглайк-RPG (порт с Python/pygame на Unity).\n" +

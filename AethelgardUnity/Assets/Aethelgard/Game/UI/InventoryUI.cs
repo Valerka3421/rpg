@@ -56,7 +56,10 @@ using Aethelgard.Runtime;
             var p = _game.Player;
             if (p == null) return;
 
-            string sig = $"{_game.CurrentPage}|{p.Inventory.Count}";
+            // Золото/экипировка в сигнатуре: иначе лейблы могли устареть,
+            // пока панель открыта (трата золота в магазине и т.п.)
+            string sig = $"{_game.CurrentPage}|{p.Inventory.Count}|{p.Gold}" +
+                $"|{p.Weapon}|{p.Armor}|{p.Head}|{p.Legs}|{p.Boots}";
             if (sig != _sig)
             {
                 _sig = sig;
@@ -82,7 +85,7 @@ using Aethelgard.Runtime;
         {
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
             // Модальное окно python-final (_base.py): scrim + панель + крестик
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 240, 100, 1440, 880, _t, "InvPanel");
             var parent = _panel.transform;
 

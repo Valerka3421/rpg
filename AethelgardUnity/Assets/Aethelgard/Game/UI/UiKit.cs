@@ -69,7 +69,7 @@ using UnityEngine;
         public static Sprite RadialGradient(int size, float pow)
         {
             string key = $"radial{size}_{pow}";
-            if (_sprites.TryGetValue(key, out var s)) return s;
+            if (_sprites.TryGetValue(key, out var s) && s != null) return s; // Unity-null: уничтоженный в прошлом Play
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
             tex.filterMode = FilterMode.Bilinear;
             float half = size / 2f;
@@ -98,7 +98,7 @@ using UnityEngine;
             string key = $"hex{radius}_{border}_{(int)(fill.r*255)}{(int)(fill.g*255)}" +
                 $"{(int)(fill.b*255)}_{(int)(borderColor.r*255)}{(int)(borderColor.g*255)}" +
                 $"{(int)(borderColor.b*255)}_{outer != null}";
-            if (_sprites.TryGetValue(key, out var s)) return s;
+            if (_sprites.TryGetValue(key, out var s) && s != null) return s; // Unity-null: уничтоженный в прошлом Play
             int pad = 6;
             int size = Mathf.CeilToInt(radius * 2) + pad * 2;
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false);
@@ -196,12 +196,15 @@ using UnityEngine;
                 x + w / 2f - pw / 2f, ph / 2f - (y + h / 2f));
             rt.sizeDelta = new Vector2(w, h);
             _sizes[rt] = new Vector2(w, h);
+            PruneSizes();
             return rt;
         }
 
         // Размеры, заданные через Place (rect может быть ещё не посчитан
         // на момент построения UI в Awake, поэтому храним сами).
+        // Периодически чистим записи уничтоженных панелей, иначе утечка.
         private static readonly Dictionary<Transform, Vector2> _sizes = new();
+        private static int _placeCalls;
 
         /// <summary>
         /// Явно задать размер контейнера для расчёта Place() (нужно в
@@ -219,6 +222,17 @@ using UnityEngine;
             if (p is RectTransform pr && pr.rect.width > 0)
                 return (pr.rect.width, pr.rect.height);
             return (1920, 1080); // корень канваса (дизайн-разрешение)
+        }
+
+        /// <summary>Чистка записей уничтоженных Transform (раз в 256 вызовов).</summary>
+        private static void PruneSizes()
+        {
+            if (++_placeCalls % 256 != 0) return;
+            List<Transform>? dead = null;
+            foreach (var kv in _sizes)
+                if (kv.Key == null) (dead ??= new List<Transform>()).Add(kv.Key);
+            if (dead != null)
+                foreach (var t in dead) _sizes.Remove(t);
         }
 
         public static Image Img(GameObject go, Color c)
@@ -477,6 +491,19 @@ using UnityEngine;
             var img = Img(go, t.ModalDim);
             return img;
         }
+
+        /// <summary>
+        /// Фон-затемнение, созданный ОДИН РАЗ (модалки перестраиваются часто —
+        /// каждый новый Scrim складывался слоями и прогрессивно затемнял экран).
+        /// </summary>
+        public static Image ScrimOnce(Transform parent, UITheme t, string name = "Scrim")
+        {
+            var old = parent.Find(name);
+            if (old != null) return old.GetComponent<Image>();
+            var img = Scrim(parent, t, name);
+            img.transform.SetAsFirstSibling();
+            return img;
+        }
     }
 
     /// <summary>
@@ -531,38 +558,5 @@ using UnityEngine;
             if (_txt != null)
                 _txt.color = sel ? _t.BtnSelText : _t.BtnNormalText;
         }
-    }
-
-    /// <summary>Меняет цвет текста при наведении (в паре с WidgetButton).</summary>
-    public class HoverTextColor : MonoBehaviour
-    {
-        private Text _txt = null!;
-        private Color _normal, _hover;
-        private Button _btn = null!;
-
-        public void Init(Color normal, Color hover, Button btn)
-        {
-            _txt = GetComponent<Text>();
-            _normal = normal;
-            _hover = hover;
-            _btn = btn;
-        }
-
-        private void Update()
-        {
-            if (_txt == null || _btn == null) return;
-            _txt.color = _btn.interactable
-                ? (_btn.IsInteractedWithHover() ? _hover : _normal)
-                : _normal * 0.6f;
-        }
-    }
-
-    public static class ButtonHoverExt
-    {
-        public static bool IsInteractedWithHover(this Button b) =>
-            b.gameObject.GetComponent<UnityEngine.UI.Image>() != null &&
-            RectTransformUtility.RectangleContainsScreenPoint(
-                b.GetComponent<RectTransform>(), Input.mousePosition,
-                Camera.main);
     }
 }

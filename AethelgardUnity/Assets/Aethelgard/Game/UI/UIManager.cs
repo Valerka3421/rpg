@@ -199,6 +199,13 @@ using Aethelgard.Runtime;
             // ── ESC-навигация (порт World/Game.cs) ──
             bool escPressed = keys.IsKeyDown(XnaKeys.Escape) &&
                               !prevKeys.IsKeyDown(XnaKeys.Escape);
+            // Экран победы/смерти: Esc закрывает оверлей («Esc — продолжить»)
+            if (escPressed && mode == Screens.Game && Game.Victory &&
+                Game.Player is { Alive: true })
+            {
+                _death.Dismiss();
+                return true;
+            }
             if (escPressed)
             {
                 switch (mode)
@@ -268,15 +275,13 @@ using Aethelgard.Runtime;
                     break;
             }
 
-            // Дев-консоль поверх всего
+            // Дев-консоль поверх всего (скрывается при закрытии F12)
+            _console.Root.gameObject.SetActive(Game.Console.Open);
             if (Game.Console.Open)
                 _console.Draw();
 
             // Всплывающее сообщение
             _message.Draw();
-
-            // ── Слой редактируемости: раскладка/тексты из префабов экранов ──
-            ApplyScreenPrefabs();
 
             return false;
         }
@@ -422,15 +427,8 @@ using Aethelgard.Runtime;
 
         public void HandleClassSelection(string? selected)
         {
-            if (false) // BackRequested обрабатывается через HandleClassSelection(null)
-            {
-                Game.CurrentSlot = 1;
-                Game.PendingMpHost = false;
-                Game.PendingMpFresh = false;
-                Game.ScreenMode = Screens.Menu;
-                _menu.OpenMain();
-            }
-            else if (selected != null)
+            // selected == null — «назад» (ClassSelectUI.«←» / Esc в выборщике)
+            if (selected != null)
             {
                 if (Game.PendingMpHost)
                 {

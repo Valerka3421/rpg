@@ -186,6 +186,10 @@ namespace Aethelgard.EditorTools
             }
 
             UnityEngine.Object.DestroyImmediate(canvasGo);
+            // AudioSystem создаёт GameObject "AethelgardAudio" — в edit-mode
+            // он остаётся в сцене и копился при каждой генерации
+            var audioGo = GameObject.Find("AethelgardAudio");
+            if (audioGo != null) UnityEngine.Object.DestroyImmediate(audioGo);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log("Готово: экраны в Resources/Screens — правь их в Editor, " +

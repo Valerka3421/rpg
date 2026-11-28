@@ -48,8 +48,25 @@ using UnityEngine;
             ApplyChildren(built.transform, prefab.transform);
         }
 
-        private static GameObject? Load(string screenName) =>
-            Resources.Load<GameObject>($"Screens/{screenName}");
+        private static GameObject? Load(string screenName)
+        {
+            // Кэш: Apply вызывается каждый кадр для активных экранов,
+            // Resources.Load на каждый вызов — лишняя нагрузка.
+            if (_prefabCache.TryGetValue(screenName, out var cached) && cached != null)
+                return cached;
+            var prefab = Resources.Load<GameObject>($"Screens/{screenName}");
+            _prefabCache[screenName] = prefab;
+            return prefab;
+        }
+        private static readonly Dictionary<string, GameObject?> _prefabCache = new();
+
+        // Узлы, управляемые кодом каждый кадр (HP/XP-заливки, маркер игрока
+        // на миникарте, лог, содержимое ячеек) — из префаба НЕ переносим,
+        // иначе префаб замораживает динамические значения.
+        private static readonly HashSet<string> DynamicNodes = new()
+        {
+            "Fill", "PlayerDot", "LogText", "Overlay", "Item",
+        };
 
         private static readonly Dictionary<string, bool> _overrideCache = new();
 
@@ -82,7 +99,8 @@ using UnityEngine;
                 Transform b = built.Find(clean);
                 if (b == null) continue;
 
-                CopyRect((RectTransform)pf, (RectTransform)b);
+                if (!DynamicNodes.Contains(clean))
+                    CopyRect((RectTransform)pf, (RectTransform)b);
                 if (overrideContent) CopyContent(pf, b);
                 ApplyChildren(b, pf);
             }

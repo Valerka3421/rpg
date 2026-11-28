@@ -121,14 +121,14 @@ using XnaKeys = Microsoft.Xna.Framework.Input.Keys;
                 _hotbarFill[i] = s.GetComponent<Image>();
             }
 
-            // ── Кнопки интерфейса в полосе HUD (тулбар 56px) ──
-            string[] names = { "Инв (I)", "Нав (K)", "Стат (C)", "Квест (Q)", "Карта (M)", "Пауза (Esc)" };
+            // ── Кнопки интерфейса в полосе HUD (реальные биндинги Core) ──
+            string[] names = { "Инв (I)", "Навыки (N)", "Крафт (K)", "Статы (C)", "Карта (M)", "Пауза (Esc)" };
             var keys = new XnaKeys?[]
             {
                 Microsoft.Xna.Framework.Input.Keys.I,
+                Microsoft.Xna.Framework.Input.Keys.N,
                 Microsoft.Xna.Framework.Input.Keys.K,
                 Microsoft.Xna.Framework.Input.Keys.C,
-                Microsoft.Xna.Framework.Input.Keys.Q,
                 Microsoft.Xna.Framework.Input.Keys.M,
                 Microsoft.Xna.Framework.Input.Keys.Escape,
             };
@@ -202,9 +202,17 @@ using XnaKeys = Microsoft.Xna.Framework.Input.Keys;
             DrawMinimap(p);
         }
 
-        /// <summary>Лог: копим последние сообщения из ShowMessage, как в python.</summary>
+        /// <summary>Лог: копим последние сообщения из ShowMessage, как в python.
+        /// История сбрасывается при новом забеге (иначе лог тянулся между
+        /// рестартами и загрузками).</summary>
         private void DrawLog()
         {
+            if (_game.RunStart != _logRunStart)
+            {
+                _logRunStart = _game.RunStart;
+                _history.Clear();
+                _lastSeen = "";
+            }
             var msg = _game.LastMessage;
             if (msg != null && msg != _lastSeen && _game.MessageTimer > 0)
             {
@@ -214,6 +222,7 @@ using XnaKeys = Microsoft.Xna.Framework.Input.Keys;
             }
             _log.text = string.Join("\n", _history);
         }
+        private DateTime _logRunStart;
 
         private void DrawMinimap(Player p)
         {

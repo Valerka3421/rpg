@@ -36,6 +36,7 @@ using Aethelgard.Runtime;
         public int Selected;
 
         private GameObject? _panel;
+    private GameObject? _cards;
         private string _sig = "";
         private bool _startClicked;
 
@@ -84,19 +85,21 @@ using Aethelgard.Runtime;
             }
         }
 
-        public void Draw(XnaMouse mouse, XnaMouse prevMouse)
-        {
-            HandleKeys(InputState.Keys, InputState.PrevKeys);
-            Redraw();
-        }
-
         private void Rebuild()
         {
+            // Уничтожаем ВСЁ содержимое экрана (карточки и «←» тоже — иначе
+            // они накапливались при каждой смене выбора)
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
+            if (_cards != null) UnityEngine.Object.Destroy(_cards);
             string key = StarterClasses[Selected];
             var cls = ClassData.Get(key);
             if (cls == null) return;
             var color = cls.Color.U();
+
+            // Контейнер карточек (пересоздаётся вместе с превью)
+            _cards = UiKit.Node("Cards", null);
+            UiKit.Attach(_cards, Root);
+            var cardsT = _cards.transform;
 
             // python-final: слева карточки 380×96 (x=70, y=118, шаг 110),
             // справа превью-панель с рамкой цвета класса
@@ -106,7 +109,7 @@ using Aethelgard.Runtime;
                 if (cardCls == null) continue;
                 var cColor = cardCls.Color.U();
                 var card = UiKit.Node("ClassCard" + i, null);
-                UiKit.Place(card, Root, 70, 118 + i * 110, 380, 96);
+                UiKit.Place(card, cardsT, 70, 118 + i * 110, 380, 96);
                 UiKit.Img(card, i == Selected ? UITheme.Shade(cColor, 0.25f) : _t.Panel);
                 UiKit.Frame((RectTransform)card.transform,
                     i == Selected ? _t.Gold : _t.PanelBorder, 2);
@@ -242,7 +245,7 @@ using Aethelgard.Runtime;
             startBtn.targetGraphic = start.GetComponent<Image>();
             startBtn.onClick.AddListener(() => _startClicked = true);
 
-            var back = UiKit.WidgetButton(Root, 34, 28, 52, 48, "←", _t.H2Size, _t);
+            var back = UiKit.WidgetButton(cardsT, 34, 28, 52, 48, "←", _t.H2Size, _t);
             back.onClick.AddListener(() => _ui.HandleClassSelection(null));
         }
 

@@ -70,7 +70,7 @@ using System.Linq;
         private void Rebuild(Player p)
         {
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 310, 90, 1300, 900, _t, "StatsPanel");
             var parent = _panel.transform;
 

@@ -76,7 +76,7 @@ using Aethelgard.Render;
             if (_panel != null) UnityEngine.Object.Destroy(_panel);
             var p = _game.Player!;
             // Модальное окно python-final (_base.py) + заголовок T.MERCH
-            UiKit.Scrim(Root, _t);
+            UiKit.ScrimOnce(Root, _t);
             _panel = UiKit.Panel(Root, 240, 120, 1440, 840, _t, "ShopPanel");
             var parent = _panel.transform;
 
@@ -129,12 +129,12 @@ using Aethelgard.Render;
 
             int by = startY + 3 * (cellH + gap) + 24;
             var prev = UiKit.WidgetButton(parent, 60, by, 38, 28, "‹", _t.BodySize, _t);
-            prev.onClick.AddListener(() => { _game.ShopPage--; _sig = ""; });
+            prev.onClick.AddListener(() => { _game.ShopPage = Mathf.Max(0, _game.ShopPage - 1); _sig = ""; });
             UiKit.Label(parent, 110, by, 120, 28,
                 $"{_game.ShopPage + 1}/{_game.ShopPagesCount()}", _t.BodySize, _t.Text, _t,
                 TextAnchor.MiddleCenter, "Page");
             var next = UiKit.WidgetButton(parent, 240, by, 38, 28, "›", _t.BodySize, _t);
-            next.onClick.AddListener(() => { _game.ShopPage++; _sig = ""; });
+            next.onClick.AddListener(() => { _game.ShopPage = Mathf.Min(_game.ShopPagesCount() - 1, _game.ShopPage + 1); _sig = ""; });
         }
 
         private static string NpcName(string key) => key switch

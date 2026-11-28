@@ -59,7 +59,6 @@ using Aethelgard.Render;
         {
             var p = _game.Player;
             if (p == null) return;
-            if (_game.SkillTab >= 1) _skillsTab = _game.SkillTab;
             string sig = $"{_game.SkillTab}|{p.SkillPoints}|{p.Level}|{p.LearnedNodes.Count}|" +
                          $"{CraftBranchLevel(p)}";
             if (sig != _sig)
@@ -82,8 +81,6 @@ using Aethelgard.Render;
             }
             if (_close) { _close = false; _game.ScreenMode = Screens.Game; _sig = ""; }
         }
-
-        private int _skillsTab;
 
         private int CraftBranchLevel(Player p)
         {
@@ -311,9 +308,13 @@ using Aethelgard.Render;
             go.GetComponent<Image>().raycastTarget = false;
         }
 
+        private static readonly System.Collections.Generic.Dictionary<string, Sprite?> _iconCache = new();
+
         private static Sprite? LoadSkillIcon(string classKey, int idx)
         {
             string name = $"{classKey}_{idx}";
+            if (_iconCache.TryGetValue(name, out var cached) && cached != null)
+                return cached;
             var sp = Resources.Load<Sprite>($"SkillIcons/Class/{name}");
             if (sp == null)
             {
@@ -322,6 +323,7 @@ using Aethelgard.Render;
                     sp = Sprite.Create(tex, new Rect(0, 0, tex.width, tex.height),
                         new Vector2(0.5f, 0.5f), 64f);
             }
+            _iconCache[name] = sp;
             return sp;
         }
 
